@@ -2783,7 +2783,7 @@ async fn stop_task(app: AppHandle, state: State<'_, AppState>, id: String) -> Re
     Ok(())
 }
 
-/// "끝내고 넘기기" (D-167): stops a background task normally (the conversation stays, as "중지") and moves it on —
+/// "끝내고 넘기기" (D-167 behaviour, D-190 name): stops a background task normally (the conversation stays, as "중지") and moves it on —
 /// an unreviewed report to 리뷰 대기, anything else straight to done. Never skips the review.
 #[tauri::command]
 async fn finish_task(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<dduck_core::task_lifecycle::Finished, CliError> {

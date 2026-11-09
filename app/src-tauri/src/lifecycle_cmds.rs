@@ -32,7 +32,10 @@ pub fn wrap_task(state: State<'_, AppState>, id: String) -> Res<()> {
     let known = known(&state)?;
     let conn = state.conn()?;
     let since = settings::review_since(&conn, chrono_now_ms()).map_err(err)?;
-    tl::wrap(&conn, &id, &sessions, known, since, chrono_now_ms()).map_err(|_| Fail::NotWrappable.now())
+    tl::wrap(&conn, &id, &sessions, known, since, chrono_now_ms()).map_err(|e| match e {
+        dduck_core::Error::Config(tl::RESUME_PENDING) => Fail::WrapResumePending.now(),
+        _ => Fail::NotWrappable.now(),
+    })
 }
 
 /// "되돌리기" after "정리 끝".
@@ -69,13 +72,7 @@ pub async fn wrapup_check(app: AppHandle, id: String) -> Res<tl::Check> {
 }
 
 fn refusal_text(r: Refusal) -> String {
-    match r {
-        Refusal::Running => Fail::WrapRunning,
-        Refusal::Changes => Fail::WrapChanges,
-        Refusal::NotChecked => Fail::WrapNotChecked,
-        Refusal::NoWorktree => Fail::NoWorktree,
-    }
-    .now()
+    r.fail().now()
 }
 
 /// "worktree 정리": refused while running, with changes or untracked files, or outside `.claude/worktrees/`; then a
@@ -101,6 +98,10 @@ pub async fn remove_worktree(app: AppHandle, id: String) -> Res<bool> {
             .blocking_show();
         if !ok {
             return Ok(false);
+        }
+        // A usage-limit resume may have been scheduled while the dialog was open.
+        if tl::record(&*state.conn()?, &id).map_err(err)?.is_some_and(|r| r.resume_pending) {
+            return Err(refusal_text(Refusal::ResumePending));
         }
         // Re-checked after the dialog with a fresh listing: the task may have restarted while it was open.
         let fresh = state.client()?.list_agents().map_err(|_| refusal_text(Refusal::Running))?;
