@@ -14,7 +14,8 @@ export function useLimits() {
 
 function useLimitActions() {
   const qc = useQueryClient();
-  const done = () => qc.invalidateQueries({ queryKey: ["limits"] });
+  // A cancelled or started resume may unblock 정리 끝 (D-191): the open checklist reads again too.
+  const done = () => Promise.all([qc.invalidateQueries({ queryKey: ["limits"] }), qc.invalidateQueries({ queryKey: ["wrapup-check"] })]);
   const resume = useMutation({ mutationFn: (id: number) => api.limitResumeNow(id), onSettled: done });
   const skip = useMutation({ mutationFn: (id: number) => api.limitCancel(id), onSettled: done });
   return { resume, skip };

@@ -98,7 +98,11 @@ function Shell() {
   useEffect(() => {
     const subs = [
       listen("usage-updated", () => qc.invalidateQueries({ queryKey: ["usage"] })),
-      listen("limits-updated", () => qc.invalidateQueries({ queryKey: ["limits"] })),
+      listen("limits-updated", () => {
+        void qc.invalidateQueries({ queryKey: ["limits"] });
+        // The resume-pending refusal on an open 정리 checklist follows the limit rows (D-191).
+        void qc.invalidateQueries({ queryKey: ["wrapup-check"] });
+      }),
       listen<AgentsPayload>("agents-updated", (e) => qc.setQueryData(["agents"], e.payload)),
       listen<IngestStatus>("ingest-status", (e) => setIngest(e.payload)),
       listen<string>("select-session", (e) => {
