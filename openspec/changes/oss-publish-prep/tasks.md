@@ -18,11 +18,11 @@
 - [x] 3.1 `docs/assets/capture.mjs` + `shots.json`: 문서가 참조하는 모든 캡처(README, screen-spec/img, service-intro 프레임) 목록화, 현재 버전으로 다시 찍기, 참조 검사(없는 이미지 0·안 쓰는 캡처 삭제)
 - [x] 3.2 영어 화면 준비 후 en 캡처 추가: README.md·영문 화면 기획서(index.en.html, docs/D.Duck-screen-spec.pdf는 로컬 전용)는 en 캡처만, README.ko.md·한국어 기획서는 ko 캡처. 영문 산출물에 한글 캡처 0개 확인
 - [x] 3.3 화면 기획서 전체 재촬영: 한국어(index.html, img/ ko 캡처)·영문(index.en.html, img/en/ 캡처) 모두 새 디자인으로, 사실 보정(현재 구현과 일치), 두 PDF(로컬 전용) 다시 생성
-- [ ] 3.4 DMG 갱신: palette-refresh·i18n·report-copy-save 반영 후 release-local.sh로 빌드·서명 검증·설치, publish/dmg 최신화(로컬 전용, 공개 저장소에는 Releases로만)
-- [ ] 3.5 소개 영상 갱신(docs/service-intro/video 2분 이내·소리 없음·자막): 새 디자인·새 오리 화면으로 다시 녹화, 한국어판(다나까 자막)과 영어판(영어 UI·영어 자막) 두 개, 선명도(1920x1200 이상, 텍스트 또렷), 로컬 전용(.gitignore) — 공개 시 영어판을 Releases 자산으로 올리고 README에 링크
+- [x] 3.4 DMG 갱신: palette-refresh·i18n·report-copy-save 반영 후 release-local.sh로 빌드·서명 검증·설치, publish/dmg 최신화(로컬 전용, 공개 저장소에는 Releases로만)
+- [x] 3.5 소개 영상 갱신(docs/service-intro/video 2분 이내·소리 없음·자막): 새 디자인·새 오리 화면으로 다시 녹화, 한국어판(다나까 자막)과 영어판(영어 UI·영어 자막) 두 개, 선명도(1920x1200 이상, 텍스트 또렷), 로컬 전용(.gitignore) — 공개 시 영어판을 Releases 자산으로 올리고 README에 링크
 
 ## 4. 공개
 
-- [ ] 4.1 선행: CI 명령 전부 로컬 통과(eslint 오류 0, vitest 전부, clippy는 examples의 unwrap 정리 후 --all-targets -D warnings로 강화), 3.1 재캡처 완료·미참조 이미지 0·남는 이미지 눈 확인. `git init` 후 `git rev-parse --show-toplevel`이 dev_team인지 확인, `git add -A` 후 추적 파일 스캔(`/Users/` 뒤 me·x 외 이름, 로컬 전용 `publish/private-terms.txt`의 실명·다른 프로젝트·개인 일정·업무 키워드(`publish/scan-private.sh`), 이메일, 비밀값 패턴, jsonl·pdf·zip·db 0), 첫 커밋
+- [x] 4.1 선행: CI 명령 전부 로컬 통과(eslint 오류 0, vitest 전부, clippy는 examples의 unwrap 정리 후 --all-targets -D warnings로 강화), 3.1 재캡처 완료·미참조 이미지 0·남는 이미지 눈 확인. `git init` 후 `git rev-parse --show-toplevel`이 dev_team인지 확인, `git add -A` 후 추적 파일 스캔(`/Users/` 뒤 me·x 외 이름, 로컬 전용 `publish/private-terms.txt`의 실명·다른 프로젝트·개인 일정·업무 키워드(`publish/scan-private.sh`), 이메일, 비밀값 패턴, jsonl·pdf·zip·db 0), 첫 커밋
 - [ ] 4.2 (사용자 승인 받음, D-182) `gh repo create DevJoyKo/d-duck --public`, push, `gh repo edit --enable-discussions`, `gh api -X PUT repos/DevJoyKo/d-duck/private-vulnerability-reporting`, 설명·토픽 설정, Releases에 DMG
-- [ ] 4.3 Medium 초안(한국어 본문 + 영어판, publish/medium/ 로컬): 동기·이름 유래(사용자 원문), 테크 리드식 운영 4단계, 핵심 화면(새 캡처), 안전 설계, 만든 방식(스펙 주도·리뷰 게이트), 설치·GitHub 링크. 게시는 사용자가 직접
+- [x] 4.3 Medium 초안(한국어 본문 + 영어판, publish/medium/ 로컬): 동기·이름 유래(사용자 원문), 테크 리드식 운영 4단계, 핵심 화면(새 캡처), 안전 설계, 만든 방식(스펙 주도·리뷰 게이트), 설치·GitHub 링크. 게시는 사용자가 직접

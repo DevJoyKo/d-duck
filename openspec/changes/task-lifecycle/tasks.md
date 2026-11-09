@@ -1,6 +1,6 @@
 ## 0. 게이트
 - [x] 0.1 설계 리뷰 2개(design-critic + security-privacy-reviewer) 실행, BLOCKER·HIGH 해결, 결과·조치를 decisions.md 리뷰 기록과 D-152에 기록
-- [ ] 0.2 report-evidence가 아카이브(또는 요약 필드 머지)됐는지, delivery-guard `delivery_guard` 열·DB 번호 확인 후 이 change의 DB 번호를 design 4에 적기
+- [x] 0.2 report-evidence가 아카이브(또는 요약 필드 머지)됐는지, delivery-guard `delivery_guard` 열·DB 번호 확인 후 이 change의 DB 번호를 design 4에 적기
 
 ## 1. core
 - [x] 1.1 DB 다음 번호 `task_meta.wrapped_at`; 마이그레이션 테스트(이전 행 NULL)
