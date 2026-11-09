@@ -5,10 +5,10 @@
 
 # D.Duck
 
-**Open a team, not a session.**
+### Work like a tech lead with a team of Claude Code agents.
 
-**Delegate more to Claude Code agents, and keep quality under control.**
-Spend your attention only where it matters: enforced guardrails, review with evidence, and one place to see what needs you.
+Delegate more, keep quality under control, and spend your attention only where it matters:
+enforced guardrails, review with evidence, and one place to see what needs you.
 
 [한국어](README.ko.md) · [Install](#install) · [Build from source](#build-from-source)
 
@@ -20,7 +20,7 @@ Spend your attention only where it matters: enforced guardrails, review with evi
 
 ## What it does
 
-The more you delegate, the more your attention becomes the scarce resource. Most tools help you watch one session closely. D.Duck is built for the level above that: you set direction, draw the guardrails, and make the calls only you can make, while the agents carry out the work. You raise the level of delegation without lowering the quality bar. Running several Claude Code agents at once raises a set of problems, and D.Duck answers each one.
+The more you delegate, the more your attention becomes the scarce resource. Most tools help you watch one session closely. D.Duck lets you work one level above that, the way a tech lead does: you set direction, draw the guardrails, and make the calls only you can make, while the agents carry out the work. You raise the level of delegation without lowering the quality bar. Running several Claude Code agents at once raises a set of problems, and D.Duck answers each one.
 
 | Pain point | D.Duck feature |
 |---|---|
