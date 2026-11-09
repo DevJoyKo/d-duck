@@ -7,8 +7,8 @@
 
 ### Work like a tech lead with a team of Claude Code agents.
 
-Delegate more, keep quality under control, and spend your attention only where it matters:
-enforced guardrails, review with evidence, and one place to see what needs you.
+See what Claude Code keeps out of sight, delegate more without losing quality, and spend your attention only where it matters:
+visibility, enforced guardrails, and review with evidence.
 
 [한국어](README.ko.md) · [Install](#install) · [Build from source](#build-from-source)
 
@@ -24,6 +24,7 @@ The more you delegate, the more your attention becomes the scarce resource. Most
 
 | Pain point | D.Duck feature |
 |---|---|
+| Claude Code keeps a lot out of sight: memory, settings spread over several scopes, skills and plugins I installed and forgot, folders left behind by finished tasks. I can't manage what I can't see. | **Visibility first:** memory you can read, edit, and switch off; effective permissions; skills, plugins, and MCP servers with when they were last used; usage by session; and a wrap-up step that cleans up after finished tasks |
 | I want agents to work on their own, but not to merge or push code I haven't reviewed. "Don't merge" in a prompt is only a request. | **Guardrails enforced outside the prompt:** draft PR by default, "Block remote push" for trust-critical repos, risky modes blocked for strict task types |
 | I can't tell which permissions actually apply when settings come from several files. | **Effective permissions** merged across every scope, next to each rule |
 | A vague ask comes back off target, and I only find out at review time. | **Structured brief** (goal, out of scope, constraints, done criteria) with Claude's clarifying questions before it starts |
@@ -58,11 +59,11 @@ The five groups below explain how these fit together.
 - **Fresh eyes:** send finished work to a new QA or review session that never saw the original conversation.
 - **Review capacity:** set how many changes you can properly review in a day. Past that, D.Duck asks before starting more.
 
-### 3. See what needs you
+### 3. See what is hidden, and what needs you
 
-**Problem:** With many sessions open, you check terminal tabs one by one to find what's waiting, failed, or done, and settings are scattered across files.
+**Problem:** Claude Code stores a lot where you don't look: memory that goes into every session, permissions merged from several scopes, skills and plugins installed and forgotten, folders left behind by finished tasks. And with many sessions open, you check terminal tabs one by one to find what's waiting, failed, or done.
 
-**D.Duck:** One board for terminal sessions and D.Duck tasks, with tasks that need your answer at the top, a live terminal preview, and a notification when an agent waits. Skills, MCP servers, plugins, memory, and the permissions that *actually* apply are in one place, editable without JSON.
+**D.Duck:** One board for terminal sessions and D.Duck tasks, with tasks that need your answer at the top, a live terminal preview, and a notification when an agent waits. What was hidden comes out too: memory you can read, edit, and switch off; the permissions that *actually* apply; skills, plugins, and MCP servers with when they were last used, so you can clear out what you never use; and a wrap-up step that removes what finished tasks left behind. All editable without JSON, and raw transcripts are never stored.
 
 ### 4. Grow what works into skills, workflows, and routines
 
