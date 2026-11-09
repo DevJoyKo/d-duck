@@ -1,9 +1,9 @@
-# Spec Delta
+# workflow-authoring-check Specification
 
 ## Purpose
 앱에서 만들거나 목록에 보이는 워크플로가 Claude Code에 실제로 등록되는지 사용자가 저장 전과 목록에서 알 수 있게 한다.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Claude Code와 같은 meta 규칙
 워크플로 파일은 첫 문장이 `export const meta = { … }`이고, 그 값이 순수 리터럴(문자열·숫자·불리언·null·배열·객체, 보간·스프레드·함수 호출·식별자·타입 주석 없음)이며, `name`과 `description`이 빈 문자열이 아닌 문자열로 있을 때만 유효하다(SHALL). 음수 숫자는 받고, 빈 칸 배열과 예약 키(`__proto__` 등)는 거부한다(SHALL). 이 검사는 meta 부분만 대상으로 하며, 본문 스크립트의 문법 오류는 확인하지 않는다(범위 밖). 앱은 유효하지 않은 워크플로를 저장하지 않아야 하고(MUST NOT), 올바른 문자열 이스케이프는 받아야 한다(SHALL). 검사는 파일을 실행하지 않는다(MUST NOT).

@@ -1,9 +1,9 @@
-# Spec Delta
+# visual-palette Specification
 
 ## Purpose
 D.Duck의 색 체계를 정한다. 사이드바와 화면 바탕은 중성색으로 조용하게 두고, 남색은 글자와 주 버튼에, 오리 노랑은 화면당 한 곳의 강조에만 쓴다.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: 중성색 사이드바
 사이드바는 꽉 채운 남색이 아니라 화면 바탕과 같은 계열의 중성색이어야 한다(SHALL). 라이트에서는 밝은 반투명, 다크에서는 흑연색 반투명이다. 선택된 항목은 옅은 바탕과 진한 글자, 얇은 중성색 막대로 표시해야 하고(SHALL), 배지는 지금 규칙을 따른다(답 기다림만 노랑).
