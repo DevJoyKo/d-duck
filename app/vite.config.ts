@@ -23,6 +23,8 @@ export default defineConfig(({ mode }) => ({
     environment: "jsdom",
     include: ["src/**/*.test.{ts,tsx}"],
     setupFiles: ["src/test/setup.ts"],
+    // Hosted Intel runners are several times slower than a local Mac; give UI tests room there only.
+    testTimeout: process.env.CI ? 30_000 : 5_000,
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
