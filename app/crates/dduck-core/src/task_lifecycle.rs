@@ -323,6 +323,19 @@ pub fn board(conn: &Connection, sessions: &[AgentSession], since: i64, wrapup_ca
 
 // ---------- 정리 끝 ----------
 
+/// A usage-limit resume is still planned for this task (`limit_resumes` auto·manual·needs_choice·starting): it will
+/// run again, so it can be neither wrapped up nor have its worktree removed (5.2).
+pub fn resume_pending(conn: &Connection, bg_id: &str) -> Result<bool, Error> {
+    Ok(conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM limit_resumes WHERE bg_id = ?1 AND state IN ('auto', 'manual', 'needs_choice', 'starting'))",
+        [bg_id],
+        |r| r.get::<_, bool>(0),
+    )?)
+}
+
+/// `wrap` refused because a usage-limit resume is planned (the command shows `Fail::WrapResumePending`).
+pub const RESUME_PENDING: &str = "resume pending";
+
 fn resolve<'a>(sessions: &'a [AgentSession], id: &str) -> (Option<&'a AgentSession>, Option<String>) {
     let listed = sessions.iter().find(|s| s.key == id || s.id.as_deref() == Some(id));
     let bg = listed.and_then(|s| s.id.clone()).or_else(|| crate::task_meta::valid_bg_id(id).then(|| id.to_string()));
@@ -338,6 +351,11 @@ pub fn wrap(conn: &Connection, id: &str, sessions: &[AgentSession], known: bool,
     let (listed, bg) = resolve(sessions, id);
     if listed.is_some_and(|s| !ended(s)) {
         return Err(Error::Config("running"));
+    }
+    if let Some(bg) = bg.as_deref() {
+        if resume_pending(conn, bg)? {
+            return Err(Error::Config(RESUME_PENDING));
+        }
     }
     if let Some(bg) = bg {
         if let Some(f) = facts(conn, &bg)? {
@@ -361,7 +379,7 @@ pub fn wrap(conn: &Connection, id: &str, sessions: &[AgentSession], known: bool,
     put_wrapped_keys(conn, &keys)
 }
 
-/// Where "끝내고 넘기기" sent a task (D-167).
+/// Where "끝내고 넘기기" sent a task (D-167 behaviour, D-190 name).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Finished {
@@ -371,7 +389,7 @@ pub enum Finished {
     Done,
 }
 
-/// "끝내고 넘기기" for a background task the caller has just stopped (D-167): the same lane rule as an ended task —
+/// "끝내고 넘기기" (D-190 name) for a background task the caller has just stopped (D-167): the same lane rule as an ended task —
 /// an unreviewed report goes to 리뷰 대기 (the review gate is never skipped), anything else is wrapped up at once.
 /// `key` is the session key (for a task without a D.Duck record).
 pub fn finish_stopped(conn: &Connection, bg_id: &str, key: &str, since: i64, now_ms: i64) -> Result<Finished, Error> {
@@ -439,6 +457,23 @@ pub enum Refusal {
     Changes,
     NotChecked,
     NoWorktree,
+    /// A usage-limit resume is planned for the task.
+    ResumePending,
+}
+
+impl Refusal {
+    /// The fixed line the shell shows for a refused "worktree 정리". `NotChecked` is a refusal before any delete,
+    /// never "worktree를 지우지 못했어요".
+    pub fn fail(self) -> crate::i18n::Fail {
+        use crate::i18n::Fail;
+        match self {
+            Refusal::Running => Fail::WrapRunning,
+            Refusal::Changes => Fail::WrapChanges,
+            Refusal::NotChecked => Fail::WrapNotChecked,
+            Refusal::NoWorktree => Fail::NoWorktree,
+            Refusal::ResumePending => Fail::WrapResumePending,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -453,6 +488,8 @@ pub struct Check {
     pub guard: Option<&'static str>,
     /// `None` = "worktree 정리" can run.
     pub refusal: Option<Refusal>,
+    /// `Some(ResumePending)` = "정리 끝" is off too (a usage-limit resume is planned).
+    pub wrap_refusal: Option<Refusal>,
 }
 
 static PR_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\Ahttps://github\.com/[\w.-]+/[\w.-]+/pull/(\d{1,9})\z").unwrap_or_else(|_| unreachable!()));
@@ -471,6 +508,8 @@ pub struct Record {
     guard: Option<String>,
     report_id: Option<String>,
     session_cwd: Option<String>,
+    /// A usage-limit resume is planned (`resume_pending`).
+    pub resume_pending: bool,
 }
 
 pub fn record(conn: &Connection, bg_id: &str) -> Result<Option<Record>, Error> {
@@ -479,10 +518,20 @@ pub fn record(conn: &Connection, bg_id: &str) -> Result<Option<Record>, Error> {
     }
     Ok(conn
         .query_row(
-            "SELECT t.cwd, t.worktree, t.delivery_guard, t.report_id, s.project_path FROM task_meta t
-             LEFT JOIN sessions s ON s.session_id = t.session_id WHERE t.bg_id = ?1",
+            "SELECT t.cwd, t.worktree, t.delivery_guard, t.report_id, s.project_path,
+                    EXISTS(SELECT 1 FROM limit_resumes l WHERE l.bg_id = t.bg_id AND l.state IN ('auto', 'manual', 'needs_choice', 'starting'))
+             FROM task_meta t LEFT JOIN sessions s ON s.session_id = t.session_id WHERE t.bg_id = ?1",
             [bg_id],
-            |r| Ok(Record { cwd: r.get(0)?, worktree: r.get::<_, i64>(1)? != 0, guard: r.get(2)?, report_id: r.get(3)?, session_cwd: r.get(4)? }),
+            |r| {
+                Ok(Record {
+                    cwd: r.get(0)?,
+                    worktree: r.get::<_, i64>(1)? != 0,
+                    guard: r.get(2)?,
+                    report_id: r.get(3)?,
+                    session_cwd: r.get(4)?,
+                    resume_pending: r.get(5)?,
+                })
+            },
         )
         .optional()?)
 }
@@ -572,6 +621,8 @@ pub fn check(rec: &Record, live_cwd: Option<&Path>, running: bool, reports_root:
                 let changes = count_changes(&p, 2);
                 let refusal = if running {
                     Some(Refusal::Running)
+                } else if rec.resume_pending {
+                    Some(Refusal::ResumePending)
                 } else {
                     match changes {
                         Some(0) => None,
@@ -588,7 +639,8 @@ pub fn check(rec: &Record, live_cwd: Option<&Path>, running: bool, reports_root:
         let changes = start.as_deref().filter(|s| s.is_absolute() && s.is_dir()).and_then(|s| count_changes(s, 2));
         (None, changes, Some(Refusal::NoWorktree))
     };
-    Check { worktree, changes, pr, guard, refusal }
+    let wrap_refusal = rec.resume_pending.then_some(Refusal::ResumePending);
+    Check { worktree, changes, pr, guard, refusal, wrap_refusal }
 }
 
 // ---------- worktree 정리 ----------
@@ -632,6 +684,9 @@ fn count_ignored(dir: &Path) -> Option<usize> {
 pub fn remove_plan(rec: &Record, live_cwd: Option<&Path>, running: bool) -> Result<RemovePlan, Refusal> {
     if running {
         return Err(Refusal::Running);
+    }
+    if rec.resume_pending {
+        return Err(Refusal::ResumePending);
     }
     if !rec.worktree {
         return Err(Refusal::NoWorktree);
@@ -1052,6 +1107,63 @@ mod tests {
         let c = check(&record(&conn, "fffffff1").unwrap().unwrap(), Some(&wt), false, None);
         assert_eq!(c.worktree, Some(Worktree::Gone));
         assert_eq!(c.refusal, Some(Refusal::NoWorktree));
+    }
+
+    fn plan_resume(conn: &Connection, bg: &str, state: &str) {
+        conn.execute(
+            "INSERT INTO limit_resumes(session_id, incident, resets_at, hit_ts, origin_bg_id, bg_id, due_at, state, created_at, updated_at)
+             VALUES ('s-' || ?1, '1', 2, 1, ?1, ?1, 3, ?2, 1, 1)",
+            params![bg, state],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_planned_limit_resume_blocks_wrap_up_and_worktree_removal() {
+        let t = tempfile::tempdir().unwrap();
+        let base = t.path().canonicalize().unwrap();
+        let (repo, wt) = repo_with_worktree(&base);
+        let conn = crate::db::open_in_memory().unwrap();
+        rec(&conn, "abcd0001", repo.to_str().unwrap(), Some(&rid(1)), SINCE + 1, true);
+        reviewed(&conn, "abcd0001");
+        plan_resume(&conn, "abcd0001", "auto");
+        assert!(resume_pending(&conn, "abcd0001").unwrap());
+        // 정리 끝 refused with its own reason.
+        let e = wrap(&conn, "abcd0001", &[], true, SINCE, SINCE + 9).unwrap_err();
+        assert!(matches!(e, Error::Config(RESUME_PENDING)));
+        assert!(!facts(&conn, "abcd0001").unwrap().unwrap().wrapped);
+        // The checklist says why; worktree 정리 is refused before any delete.
+        let r = record(&conn, "abcd0001").unwrap().unwrap();
+        let c = check(&r, Some(&wt), false, None);
+        assert_eq!((c.refusal, c.wrap_refusal), (Some(Refusal::ResumePending), Some(Refusal::ResumePending)));
+        assert_eq!(remove_plan(&r, Some(&wt), false), Err(Refusal::ResumePending));
+        assert!(wt.exists());
+        // needs_choice and manual count too; closed, resumed and other tasks' rows do not.
+        for st in ["manual", "needs_choice", "starting"] {
+            conn.execute("UPDATE limit_resumes SET state = ?1", [st]).unwrap();
+            assert!(resume_pending(&conn, "abcd0001").unwrap(), "{st}");
+        }
+        for st in ["closed", "resumed"] {
+            conn.execute("UPDATE limit_resumes SET state = ?1", [st]).unwrap();
+            assert!(!resume_pending(&conn, "abcd0001").unwrap(), "{st}");
+        }
+        let r = record(&conn, "abcd0001").unwrap().unwrap();
+        assert_eq!(check(&r, Some(&wt), false, None).wrap_refusal, None);
+        assert!(remove_plan(&r, Some(&wt), false).is_ok());
+        wrap(&conn, "abcd0001", &[], true, SINCE, SINCE + 9).unwrap();
+    }
+
+    #[test]
+    fn refusals_map_to_fixed_lines_and_not_checked_is_not_a_failed_delete() {
+        use crate::i18n::{Fail, Lang};
+        assert_eq!(Refusal::NotChecked.fail(), Fail::WrapNotChecked);
+        assert_ne!(Refusal::NotChecked.fail(), Fail::WorktreeRemoveFailed);
+        assert_eq!(Refusal::Running.fail(), Fail::WrapRunning);
+        assert_eq!(Refusal::Changes.fail(), Fail::WrapChanges);
+        assert_eq!(Refusal::NoWorktree.fail(), Fail::NoWorktree);
+        assert_eq!(Refusal::ResumePending.fail(), Fail::WrapResumePending);
+        assert_eq!(Refusal::NotChecked.fail().text(Lang::Ko), "변경을 확인하지 못해 worktree를 지울 수 없어요");
+        assert_eq!(Refusal::ResumePending.fail().text(Lang::Ko), "한도 뒤 이어서 하기가 예약돼 있어 정리할 수 없어요");
     }
 
     #[test]
