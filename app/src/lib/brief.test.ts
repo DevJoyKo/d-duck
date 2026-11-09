@@ -43,11 +43,14 @@ describe("brief", () => {
       },
     };
     expect(reviewLoad(agents)).toBe(2);
-    expect(canMarkReviewed("deploy")).toBe(true);
-    expect(canMarkReviewed("review")).toBe(false);
+    expect(canMarkReviewed("done", "deploy")).toBe(true);
+    expect(canMarkReviewed("done", "review")).toBe(false);
+    // 5.2: not while the task still runs, waits for an answer or idles.
+    for (const st of ["working", "waitingInput", "idle"] as const) expect(canMarkReviewed(st, "dev")).toBe(false);
+    for (const st of ["failed", "stopped", "unknown"] as const) expect(canMarkReviewed(st, "dev")).toBe(true);
     // The config decides which types count (a user type with review on; dev turned off).
     const types = [{ key: "dev", review: false }, { key: "deploy", review: false }, { key: "ops", review: true }] as TeamType[];
-    expect(canMarkReviewed("ops", types)).toBe(true);
+    expect(canMarkReviewed("done", "ops", types)).toBe(true);
     expect(reviewLoad(agents, types)).toBe(0);
     expect(blockedCount(agents)).toBe(1);
     // A failed task with a report is 리뷰 대기, not 확인 필요; one without a report still counts.
@@ -58,7 +61,7 @@ describe("brief", () => {
     };
     expect(blockedCount(failed)).toBe(2);
     // Without the config, the bundled design type counts too.
-    expect(canMarkReviewed("design")).toBe(true);
+    expect(canMarkReviewed("done", "design")).toBe(true);
   });
 
   it("review capacity: a number warns at the limit, 제한 없음 never warns", () => {

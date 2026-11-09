@@ -167,6 +167,8 @@ export interface BoardCard {
   createdAt: number;
   reviewed: boolean;
   listed: boolean;
+  /** How it last ended while listed; `null` = never seen ended ("목록에서 사라진 작업"). */
+  ended: "done" | "failed" | "stopped" | "unknown" | null;
 }
 
 export interface BoardColumn {
@@ -938,7 +940,8 @@ export const api = {
   reviewInbox: (project: string | null, filter: InboxFilter, offset: number, limit = 10) => invoke<Inbox>("review_inbox", { project, filter, offset, limit }),
   inboxMarkReviewed: (id: string) => invoke<void>("inbox_mark_reviewed", { id }),
   unmarkReviewed: (id: string) => invoke<boolean>("unmark_reviewed", { id }),
-  boardWrapup: () => invoke<BoardWrapup>("board_wrapup"),
+  /** `wrapupCards`: how many 정리 cards ("더 보기"; 40 by default). */
+  boardWrapup: (wrapupCards?: number) => invoke<BoardWrapup>("board_wrapup", wrapupCards ? { wrapupCards } : {}),
   wrapTask: (id: string) => invoke<void>("wrap_task", { id }),
   unwrapTask: (id: string) => invoke<boolean>("unwrap_task", { id }),
   wrapupCheck: (id: string) => invoke<WrapupCheck>("wrapup_check", { id }),
@@ -958,7 +961,7 @@ export const api = {
   setStoreTaskPrompts: (enabled: boolean) => invoke<void>("set_store_task_prompts", { enabled }),
   taskLogs: (id: string) => invoke<string>("task_logs", { id }),
   stopTask: (id: string) => invoke<void>("stop_task", { id }),
-  /** "완료로 넘기기" (D-167): stop normally, then 리뷰 대기 (unreviewed report) or done. */
+  /** "끝내고 넘기기" (D-167): stop normally, then 리뷰 대기 (unreviewed report) or done. */
   finishTask: (id: string) => invoke<"reviewWait" | "done">("finish_task", { id }),
   limitStatus: () => invoke<LimitView>("limit_status"),
   limitCancel: (id: number) => invoke<boolean>("limit_cancel", { id }),

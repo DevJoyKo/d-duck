@@ -70,6 +70,22 @@ describe("작업 board lifecycle", () => {
     expect(within(column("정리")).getByText("payment-refactor")).toBeTruthy();
   });
 
+  it("record cards keep how the task ended; unknown says 목록에서 사라진 작업, a reviewed failure stays 실패", async () => {
+    await boot();
+    await waitFor(() => expect(total("리뷰 대기")).toBe("5"));
+    const line = (id: string) => (document.querySelector(`[data-board-record='${id}']`) as HTMLElement).querySelector("[id$='-line']")?.textContent;
+    expect(line("4b4b4b4b")).toBe("끝냈어요");
+    expect(line("5a5a5a5a")).toBe("목록에서 사라진 작업");
+    await waitFor(() => expect(document.querySelector("[data-board-record='aa11bb22']")).toBeTruthy());
+    expect(line("aa11bb22")).toBe("실패 · 리뷰했어요");
+  });
+
+  it("with no live session, no usage-limit banner claims tasks will resume", async () => {
+    await boot("?board=nolive");
+    await waitFor(() => expect(total("리뷰 대기")).toBe("4"));
+    expect(document.body.textContent).not.toContain("사용량 한도");
+  });
+
   it("리뷰했어요 from the report moves the card to 정리 and lowers the badge and the column together", async () => {
     await boot();
     const nav = screen.getByRole("navigation");
@@ -104,6 +120,50 @@ describe("작업 board lifecycle", () => {
     expect((within(wu).getByRole("button", { name: "worktree 정리" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+
+  it("리뷰했다고 표시 only on ended tasks, and a reviewed card says 리뷰했어요 once", async () => {
+    await boot("?board=demo");
+    await waitFor(() => expect(within(column("정리")).getByText("lint-sweep")).toBeTruthy());
+    for (const label of ["진행 중", "확인 필요", "대기 중"]) expect(within(column(label)).queryByRole("button", { name: "리뷰했다고 표시" })).toBeNull();
+    const lint = within(column("정리")).getByText("lint-sweep").closest("li") as HTMLElement;
+    expect(within(lint).getAllByText("리뷰했어요")).toHaveLength(1);
+  });
+
+  it("정리 shows 40 record cards, then 더 보기 shows the rest (45 records)", async () => {
+    await boot("?wrapup=many");
+    await waitFor(() => expect(within(column("정리")).getByText("cleanup-1")).toBeTruthy());
+    const records = () => column("정리").querySelectorAll("[data-board-record]").length;
+    expect(records()).toBe(40);
+    fireEvent.click(within(column("정리")).getByRole("button", { name: /더 보기/ }));
+    await waitFor(() => expect(records()).toBeGreaterThanOrEqual(46));
+    expect(within(column("정리")).queryByRole("button", { name: /더 보기/ })).toBeNull();
+  });
+
+
+  it("a second 정리 끝 restarts the 5-second undo, which then closes on time", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await boot("?board=demo");
+      await waitFor(() => expect(within(column("정리")).getByText("payment-refactor")).toBeTruthy());
+      fireEvent.click(within(column("정리")).getByText("payment-refactor"));
+      fireEvent.click(await within(column("정리")).findByRole("button", { name: "정리 끝" }));
+      await waitFor(() => expect(document.querySelector("[data-undo-bar]")).toBeTruthy());
+      await vi.advanceTimersByTimeAsync(3_000);
+      fireEvent.click(within(column("정리")).getByText("lint-sweep"));
+      fireEvent.click(await within(column("정리")).findByRole("button", { name: "정리 끝" }));
+      await waitFor(() => expect(within(column("정리")).queryByText("lint-sweep")).toBeNull());
+      // 3 s into the second bar (6 s after the first): still open.
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(document.querySelector("[data-undo-bar]")).toBeTruthy();
+      await vi.advanceTimersByTimeAsync(2_100);
+      expect(document.querySelector("[data-undo-bar]")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+      const { invoke } = await import("@tauri-apps/api/core");
+      for (const id of ["aa11bb22", "9988aabb"]) await invoke("unwrap_task", { id });
+    }
+  });
+
   it("정리 끝 takes the card off with a 5-second undo, and the review tab shows 완료", async () => {
     await boot("?board=demo");
     await waitFor(() => expect(within(column("정리")).getByText("lint-sweep")).toBeTruthy());
@@ -118,6 +178,19 @@ describe("작업 board lifecycle", () => {
     await waitFor(() => expect(within(column("정리")).queryByText("lint-sweep")).toBeNull());
     fireEvent.click(within(bar).getByRole("button", { name: "되돌리기" }));
     await waitFor(() => expect(within(column("정리")).getByText("lint-sweep")).toBeTruthy());
+    // Wrapped up for good: the review tab's 전체 shows it with the 완료 chip.
+    fireEvent.click(within(column("정리")).getByText("lint-sweep"));
+    fireEvent.click(await within(column("정리")).findByRole("button", { name: "정리 끝" }));
+    await waitFor(() => expect(within(column("정리")).queryByText("lint-sweep")).toBeNull());
+    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: /^리뷰/ }));
+    fireEvent.click(await screen.findByRole("radio", { name: "전체" }));
+    const card = await waitFor(() => {
+      const el = document.querySelector('[data-review-card="9988aabb"]') as HTMLElement | null;
+      expect(el).toBeTruthy();
+      return el as HTMLElement;
+    });
+    expect(await within(card).findByText("완료")).toBeTruthy();
+    expect(within(card).getByRole("button", { name: "되돌리기" })).toBeTruthy();
   });
 
 });

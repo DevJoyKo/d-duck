@@ -47,7 +47,7 @@ export default {
     confirmOpen: "다른 확인 창이 열려 있어요",
     recordFailedRunning: "작업 기록을 남기지 못했고 작업도 멈추지 못했어요. 작업 목록에서 직접 멈춰 주세요",
     recordFailedStopped: "작업 기록을 남기지 못해 작업을 멈췄어요",
-    stoppedNotDone: "작업을 멈췄지만 완료로 넘기지 못했어요",
+    stoppedNotDone: "작업을 멈췄지만 다음 칸으로 넘기지 못했어요",
     sessionFolder: "세션 폴더를 열 수 없어요",
     appDataFolder: "앱 데이터 폴더를 만들지 못했어요",
     jobFolder: "작업 폴더를 만들지 못했어요",

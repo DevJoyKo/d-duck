@@ -108,7 +108,7 @@ function Card({
   return (
     <li className="flex items-start gap-3 px-1 py-2" data-review-card={item.bgId}>
       {/* Not a button: WebKit cannot drag-select text inside one. Keyboard and assistive tech use "보고서 열기". */}
-      <article onClick={body.onClick} onDoubleClick={body.onDoubleClick} aria-label={title} className={`min-w-0 flex-1 cursor-pointer rounded-md px-1 text-left hover:bg-paper ${item.reviewed ? "opacity-60" : ""}`}>
+      <article onClick={body.onClick} onDoubleClick={body.onDoubleClick} aria-label={title} className="min-w-0 flex-1 cursor-pointer rounded-md px-1 text-left hover:bg-paper">
         <span className="selectable block truncate text-[13px] font-medium text-ink" data-card-title>
           {title}
         </span>

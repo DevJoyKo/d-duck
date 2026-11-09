@@ -47,7 +47,7 @@ export default {
     confirmOpen: "Another confirmation is already open",
     recordFailedRunning: "Couldn't save the task record or stop the task. Stop it from the task list",
     recordFailedStopped: "Couldn't save the task record, so the task was stopped",
-    stoppedNotDone: "Stopped the task but couldn't move it to done",
+    stoppedNotDone: "Stopped the task but couldn't move it on",
     sessionFolder: "Couldn't open the session folder",
     appDataFolder: "Couldn't create the app data folder",
     jobFolder: "Couldn't create the task folder",

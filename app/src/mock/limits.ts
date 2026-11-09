@@ -55,7 +55,9 @@ function build(): LimitView {
     ...over,
   });
   let entries: LimitEntry[] = [];
-  if (param === "none") entries = [];
+  // `?board=nolive` has no live session, so nothing waits for a reset either (5.2).
+  const noLive = typeof location !== "undefined" && new URLSearchParams(location.search).get("board") === "nolive";
+  if (param === "none" || noLive) entries = [];
   else if (param === "late") entries = [e(1, "k4", "9988aabb", { state: "needs_choice", reason: "late" }), e(2, "k6", "66bb44dd", { state: "needs_choice", reason: "late" })];
   else if (param === "unknown") entries = [e(1, "k4", "9988aabb", { state: "manual", reason: "no_reset", resetsAt: null, label: null, dueAt: null, dueLabel: null })];
   else entries = [e(1, "k4", "9988aabb"), e(2, "k5", "77aa55cc"), e(3, "k6", "66bb44dd", { state: "manual", reason: "danger", dueAt: null, dueLabel: null })];

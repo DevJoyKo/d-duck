@@ -56,7 +56,7 @@ export function RecordCard({ c, line, onOpen, expanded, children }: { c: BoardCa
         {typeLabel && <p className="mt-0.5 truncate pl-[30px] text-[12px] text-ink-3">{typeLabel}</p>}
         <div className="mt-1.5 flex items-center gap-2 text-[12px] text-ink-3">
           <span className="min-w-16 flex-1 truncate font-mono" title={c.folder ? `${c.folder} · ${t("tasks.wrapup.recordGone")}` : t("tasks.wrapup.recordGone")}>
-            {c.folder || t("tasks.wrapup.recordGone")}
+            {c.folder || (line === t("tasks.wrapup.recordGone") ? "" : t("tasks.wrapup.recordGone"))}
           </span>
           <span id={`${id}-line`} className="shrink-0 whitespace-nowrap">
             {line}
@@ -82,15 +82,18 @@ export function WrapupPanel({ bgId, onWrap, onDetail, busy }: { bgId: string | n
   const present = c?.worktree?.kind === "present";
   const reason = c?.refusal ? REFUSAL_LINE[c.refusal] : null;
   return (
-    <div className="mt-1 space-y-2 rounded-lg border border-line bg-paper px-3 py-2.5" data-wrapup-panel onClick={(e) => e.stopPropagation()}>
+    <div className="mx-3 mt-1 mb-3 space-y-2 rounded-lg border border-line bg-paper px-3 py-2.5" data-wrapup-panel onClick={(e) => e.stopPropagation()}>
       {bgId && (
         <ul aria-label={t("tasks.wrapup.checks")} className="space-y-1 text-[12px] text-ink-2">
           {check.isPending && <li className="text-ink-3">{t("tasks.wrapup.checking")}</li>}
           {check.isError && <li className="text-ink-3">{t("tasks.wrapup.checkFailed")}</li>}
           {c && checkLines(c).map((l, i) => (
-            <li key={l} className="flex items-center gap-1.5">
-              {i === 0 && present && <GitBranch size={12} aria-hidden className="shrink-0 text-ink-3" />}
-              <span className="min-w-0 truncate">{l}</span>
+            <li key={l} className="flex items-start gap-1.5">
+              {i === 0 && present && <GitBranch size={12} aria-hidden className="mt-0.5 shrink-0 text-ink-3" />}
+              {/* Wraps instead of truncating: the branch must stay readable at 900px (5.2). */}
+              <span className="min-w-0 wrap-anywhere" title={l}>
+                {l}
+              </span>
             </li>
           ))}
           {c?.pr && (
