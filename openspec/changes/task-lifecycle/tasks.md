@@ -20,7 +20,8 @@
 - [x] 3.5 vitest로 스펙 시나리오 전부, `npx tsc --noEmit -p .`·`npx vitest run` 통과
 
 ## 4. 통합 검증
-- [x] 4.1 mock 서버에서 라이트 1440·다크 900 스크린샷(보드 5칸 흐름·리뷰 대기 실패 카드·정리 점검표·worktree 확인 문구·정리 끝 되돌리기·살아 있는 세션 0 보드·트레이 툴팁 값), 전체 테스트 통과
+- [ ] 4.1 mock 서버에서 라이트 1440·다크 900 스크린샷(보드 5칸 흐름·리뷰 대기 실패 카드·정리 점검표·worktree 확인 문구·정리 끝 되돌리기·살아 있는 세션 0 보드·트레이 툴팁 값), 전체 테스트 통과
 
 ## 5. 리뷰
 - [ ] 5.1 테스트 리뷰(qa-verifier + design-critic + 브랜드, 엄격, 실제 스크린샷, D-145 근거 필수) HIGH·FAIL 0, 결과·조치를 decisions.md 리뷰 기록에 남김
+- [ ] 5.2 테스트 리뷰(2026-11-10) 조치: critic HIGH·MAJOR 4·MINOR 6, QA FAIL 3, 브랜드 HIGH 1·MEDIUM 3·LOW 3 (decisions.md 리뷰 기록 2026-11-10 task-lifecycle 3행). 스펙 delta를 D-167·D-186에 맞추고 코드 수정, 재리뷰
