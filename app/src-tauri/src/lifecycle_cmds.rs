@@ -99,10 +99,8 @@ pub async fn remove_worktree(app: AppHandle, id: String) -> Res<bool> {
         if !ok {
             return Ok(false);
         }
-        // A usage-limit resume may have been scheduled while the dialog was open.
-        if tl::record(&*state.conn()?, &id).map_err(err)?.is_some_and(|r| r.resume_pending) {
-            return Err(refusal_text(Refusal::ResumePending));
-        }
+        // A usage-limit resume may have been scheduled while the dialog was open (D-191).
+        tl::still_removable(&*state.conn()?, &id).map_err(refusal_text)?;
         // Re-checked after the dialog with a fresh listing: the task may have restarted while it was open.
         let fresh = state.client()?.list_agents().map_err(|_| refusal_text(Refusal::Running))?;
         if fresh.iter().any(|s| s.id.as_deref() == Some(id.as_str()) && dduck_core::review_inbox::running_of(s.status).is_some()) {
