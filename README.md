@@ -25,7 +25,7 @@ The more you delegate, the more your attention becomes the scarce resource. Most
 | Pain point | D.Duck feature |
 |---|---|
 | Claude Code keeps a lot out of sight: memory, settings spread over several scopes, skills and plugins I installed and forgot, folders left behind by finished tasks. I can't manage what I can't see. | **Visibility first:** memory you can read, edit, and switch off; effective permissions; skills, plugins, and MCP servers with when they were last used; usage by session; and a wrap-up step that cleans up after finished tasks |
-| I want agents to work on their own, but not to merge or push code I haven't reviewed. "Don't merge" in a prompt is only a request. | **Guardrails enforced outside the prompt:** draft PR by default, "Block remote push" for trust-critical repos, risky modes blocked for strict task types |
+| I keep control through memory and rules, and agents mostly follow them. But I can't see where they actually apply, and nothing stops the rare run that doesn't. To delegate more, trust-critical work needs a line that holds anyway. | **Guardrails enforced outside the prompt:** draft PR by default, "Block remote push" for trust-critical repos, risky modes blocked for strict task types |
 | I can't tell which permissions actually apply when settings come from several files. | **Effective permissions** merged across every scope, next to each rule |
 | A vague ask comes back off target, and I only find out at review time. | **Structured brief** (goal, out of scope, constraints, done criteria) with Claude's clarifying questions before it starts |
 | "Done, tests pass" tells me little, so I end up re-checking everything. | **Reports with evidence:** each done criterion as met, partly met, or not met, with screenshots, test reports, or command output |
@@ -40,7 +40,7 @@ The five groups below explain how these fit together.
 
 ### 1. Guardrails that are enforced, not asked for
 
-**Problem:** You want agents to work on their own, but not to merge, or push a repo you haven't reviewed. A line in the prompt like "don't merge" is a request; nothing stops an agent that ignores it.
+**Problem:** Memory and rules files already steer agents well, and for most work that's enough. But they are instructions, not enforcement: nothing stops the rare run that ignores them. To raise the level of delegation, trust-critical work needs a line that holds even then.
 
 **D.Duck:** You decide where delegated work stops and waits for you, and that line is enforced outside the prompt by CLI deny rules, a pre-tool hook, and git settings.
 
