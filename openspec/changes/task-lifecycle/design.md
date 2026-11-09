@@ -127,7 +127,7 @@
 - 끝남 알림의 "리뷰 대기"는 `lane_of`가 리뷰 대기일 때만(기준 시각 전 작업은 그냥 "오리가 끝냈어요").
 - "리뷰했다고 표시"는 끝난 작업에만. 칸 머리 글자는 well 위 ink-2(라이트 대비 4.5 이상).
 - worktree 정리 거부 문구는 worktree만 막는다고 말한다: "실행 중이라 / 커밋 안 된 변경이 있어 / 변경을 확인하지 못해 worktree를 지울 수 없어요". 매핑은 core `Refusal::fail`(테스트). "worktree를 지우지 못했어요"는 실제 삭제 실패에만.
-- 한도 뒤 이어서 하기가 예약된 작업(`limit_resumes.bg_id`, auto·manual·needs_choice·starting)은 `wrap`·`remove_plan`·확인 뒤 재확인에서 모두 거부한다(`Fail::WrapResumePending`). 점검표 `wrapRefusal`로 "정리 끝"도 끈다. 예약을 대신 취소하지 않는다(사용자가 한도 배너에서 "이번엔 안 이어요"로 직접).
+- (D-191) 한도 뒤 이어서 하기가 예약된 작업(`limit_resumes.bg_id`, auto·manual·needs_choice·starting)은 `wrap`·`remove_plan`·확인 뒤 재확인에서 모두 거부한다(`Fail::WrapResumePending`). 점검표 `wrapRefusal`로 "정리 끝"도 끈다. 예약을 대신 취소하지 않는다(사용자가 한도 배너에서 "이번엔 안 이어요"로 직접). 확인 창 뒤 재확인은 core `still_removable`. 취소·바로 이어서·`limits-updated`는 `["wrapup-check"]`도 다시 읽는다.
 - 사용량 한도 배너는 `limit_resumes`만 센다(limit_resume::view). 보드 칸 수와 섞지 않고, 살아 있는 세션이 없어도 예약이 있으면 보인다.
 
 ## Risks / Trade-offs
