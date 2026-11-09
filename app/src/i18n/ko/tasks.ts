@@ -10,7 +10,7 @@ export default {
     emptyBody: "'새 작업'으로 백그라운드 작업을 시작하면 여기에 나타나요.",
     none: "없음",
     showAll: { other: "리뷰 탭에서 모두 보기 ({count}개 더)" },
-    showMore: { other: "더 보기 ({count}개 더)" },
+    showMore: { other: "더 보기 ({count}개 남음)" },
   },
   kind: {
     background: "백그라운드",
@@ -362,9 +362,10 @@ export default {
     list: "시작하는 작업",
   },
   wrapup: {
-    refusalRunning: "실행 중인 작업은 정리할 수 없어요",
-    refusalChanges: "커밋 안 된 변경이 있어 정리할 수 없어요",
-    refusalNotChecked: "변경을 확인하지 못해 정리할 수 없어요",
+    refusalRunning: "실행 중이라 worktree를 지울 수 없어요",
+    refusalChanges: "커밋 안 된 변경이 있어 worktree를 지울 수 없어요",
+    refusalNotChecked: "변경을 확인하지 못해 worktree를 지울 수 없어요",
+    refusalResumePending: "한도 뒤 이어서 하기가 예약돼 있어 정리할 수 없어요",
     worktreePresent: "worktree가 남아 있어요",
     worktreeGone: "worktree는 정리됐어요",
     worktreeUnknown: "worktree 위치를 확인하지 못했어요",

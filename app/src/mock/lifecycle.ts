@@ -4,14 +4,17 @@
 // - 정리: lint-sweep (`?board=…` only: reviewed, listed; worktree left, no changes, PR #42 in the report, 로컬만), payment-refactor
 //   (reviewed, no longer listed; worktree with 2 uncommitted changes), settings-polish (a terminal session started
 //   outside D.Duck: "리뷰 없이 끝났어요").
-// `?wrapup=many` adds 45 reviewed records to 정리 (40 cards, then "더 보기").
-// Records the CLI no longer lists keep how they ended (`ended`): settings-layout done, payment-refactor failed (so 정리
-// says "실패 · 리뷰했어요"), qa-lint-sweep never seen ended ("목록에서 사라진 작업").
+// `?wrapup=many`: 정리 holds exactly 45 records (40 cards, then "더 보기 (5개 남음)").
+// Records the CLI no longer lists keep how they ended (`ended`): settings-layout done, qa-lint-sweep failed,
+// payment-refactor failed (so 정리 says "실패 · 리뷰했어요"); `?ended=none` = never seen ended ("목록에서 사라진 작업").
+// `?check=unknown|notchecked` changes payment-refactor's checklist (worktree not found / changes not counted).
+// A task with a planned usage-limit resume (mock/limits.ts, lint-sweep by default) cannot be wrapped up.
 // `?board=demo` turns this on (lint-sweep counts as reviewed); `?board=nolive` also drops every live session: the board still shows 리뷰 대기 and 정리.
 import { isReviewed, pending, recs, since, wrapped } from "./review";
 import { mockTaskReport } from "./report";
 import { mockReviewReport } from "./review";
 import { bt } from "./lang";
+import { resumePendingIds } from "./limits";
 
 type Session = { key: string; id: string | null; status: string; name: string };
 type Lane = "reviewWait" | "wrapup" | "done";
@@ -47,7 +50,7 @@ export function mockLanes<T extends Record<string, object>>(sessions: Session[],
   return out;
 }
 
-const ENDED: Record<string, "done" | "failed" | "stopped"> = { "4b4b4b4b": "done", aa11bb22: "failed" };
+const ENDED: Record<string, "done" | "failed" | "stopped"> = { "4b4b4b4b": "done", "5a5a5a5a": "failed", aa11bb22: "failed" };
 const ENDED_OF: Record<string, "done" | "failed" | "stopped" | "unknown"> = { done: "done", failed: "failed", stopped: "stopped", unknown: "unknown" };
 const manyWrapup = () => param("wrapup") === "many";
 const MANY = Array.from({ length: 45 }, (_, i) => `d${String(i).padStart(7, "0")}`);
@@ -59,7 +62,7 @@ export function lifecycleHandlers(sessions: () => Session[]): Record<string, (a:
   const listed = () => new Set(sessions().map((s) => s.id).filter(Boolean) as string[]);
   const endedOf = (id: string) => {
     const s = sessions().find((x) => x.id === id);
-    return s ? (ENDED_OF[s.status] ?? null) : (ENDED[id] ?? null);
+    return s ? (ENDED_OF[s.status] ?? null) : param("ended") === "none" ? null : (ENDED[id] ?? null);
   };
   const card = (r: ReturnType<typeof recs>[number]) => ({ bgId: r.bgId, name: nameOf(r.bgId), folder: r.cwd.split("/").pop() ?? null, taskType: r.taskType, createdAt: r.createdAt, reviewed: isReviewed(r.bgId), listed: listed().has(r.bgId), ended: endedOf(r.bgId) });
   const many = () =>
@@ -68,13 +71,14 @@ export function lifecycleHandlers(sessions: () => Session[]): Record<string, (a:
     board_wrapup: (a) => {
       const cap = Math.min(500, Math.max(40, Number(a.wrapupCards ?? 40)));
       const rw = recs().filter(pending);
-      const wu = [...recs().filter((r) => isReviewed(r.bgId) && !wrapped.has(r.bgId) && r.createdAt >= since && r.running === null && !listed().has(r.bgId)).map(card), ...many()];
+      const wu = manyWrapup() ? many() : recs().filter((r) => isReviewed(r.bgId) && !wrapped.has(r.bgId) && r.createdAt >= since && r.running === null && !listed().has(r.bgId)).map(card);
       return { reviewWait: { total: rw.length, items: rw.slice(0, 40).map(card) }, wrapup: { total: wu.length, items: wu.slice(0, cap) } };
     },
     wrap_task: (a) => {
       const s = sessions().find((x) => x.key === a.id || x.id === a.id);
       if (s && !ended(s)) throw "아직 정리할 수 없는 작업이에요";
       const bg = s?.id ?? String(a.id);
+      if (resumePendingIds().has(bg)) throw bt("한도 뒤 이어서 하기가 예약돼 있어 정리할 수 없어요", "A resume after the usage limit is scheduled, so it can't be wrapped up");
       if (manyWrapup() && MANY.includes(bg)) return (wrapped.add(bg), null);
       const r = recs().find((x) => x.bgId === bg);
       if (r) {
@@ -92,12 +96,26 @@ export function lifecycleHandlers(sessions: () => Session[]): Record<string, (a:
     },
     wrapup_check: (a) => {
       const id = String(a.id);
+      const resume = resumePendingIds().has(id);
+      const wrapRefusal = resume ? "resumePending" : null;
       if (id === "9988aabb")
         return removed.has(id)
-          ? { worktree: { kind: "gone" }, changes: null, pr: { number: 42, url: "https://github.com/example/dev-team/pull/42" }, guard: "local_only", refusal: "noWorktree" }
-          : { worktree: { kind: "present", folder: "lint-sweep", branch: "dduck/lint-sweep" }, changes: 0, pr: { number: 42, url: "https://github.com/example/dev-team/pull/42" }, guard: "local_only", refusal: null };
-      if (id === "aa11bb22") return { worktree: { kind: "present", folder: "payment-refactor", branch: "dduck/payment-refactor" }, changes: 2, pr: null, guard: "draft_pr", refusal: "changes" };
-      return { worktree: null, changes: 0, pr: null, guard: null, refusal: "noWorktree" };
+          ? { worktree: { kind: "gone" }, changes: null, pr: { number: 42, url: "https://github.com/example/dev-team/pull/42" }, guard: "local_only", refusal: "noWorktree", wrapRefusal }
+          : { worktree: { kind: "present", folder: "lint-sweep", branch: "dduck/lint-sweep" }, changes: 0, pr: { number: 42, url: "https://github.com/example/dev-team/pull/42" }, guard: "local_only", refusal: resume ? "resumePending" : null, wrapRefusal };
+      if (id === "aa11bb22") {
+        if (param("check") === "unknown") return { worktree: { kind: "unknown" }, changes: null, pr: null, guard: "draft_pr", refusal: "noWorktree", wrapRefusal };
+        if (param("check") === "notchecked") return { worktree: { kind: "present", folder: "payment-refactor", branch: "dduck/payment-refactor" }, changes: null, pr: null, guard: "draft_pr", refusal: "notChecked", wrapRefusal };
+        return { worktree: { kind: "present", folder: "payment-refactor", branch: "dduck/payment-refactor" }, changes: 2, pr: null, guard: "draft_pr", refusal: "changes", wrapRefusal };
+      }
+      return { worktree: null, changes: 0, pr: null, guard: null, refusal: "noWorktree", wrapRefusal };
+    },
+    // "끝내고 넘기기" (D-190): an unreviewed report waits for review, anything else is wrapped up.
+    finish_task: (a) => {
+      const id = String(a.id);
+      const r = recs().find((x) => x.bgId === id);
+      if (r && !isReviewed(id) && r.createdAt >= since) return "reviewWait";
+      wrapped.add(id);
+      return "done";
     },
     remove_worktree: (a) => {
       const id = String(a.id);

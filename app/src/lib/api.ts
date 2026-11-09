@@ -184,7 +184,7 @@ export interface BoardWrapup {
 }
 
 export type WrapupWorktree = { kind: "present"; folder: string; branch: string | null } | { kind: "gone" } | { kind: "unknown" };
-export type WrapupRefusal = "running" | "changes" | "notChecked" | "noWorktree";
+export type WrapupRefusal = "running" | "changes" | "notChecked" | "noWorktree" | "resumePending";
 
 /** 정리 점검표: local git facts only, no file names. */
 export interface WrapupCheck {
@@ -193,6 +193,8 @@ export interface WrapupCheck {
   pr: { number: number; url: string } | null;
   guard: "local_only" | "draft_pr" | null;
   refusal: WrapupRefusal | null;
+  /** "resumePending": a usage-limit resume is planned, so 정리 끝 is off too. */
+  wrapRefusal: WrapupRefusal | null;
 }
 
 export interface AgentsPayload {
@@ -961,7 +963,7 @@ export const api = {
   setStoreTaskPrompts: (enabled: boolean) => invoke<void>("set_store_task_prompts", { enabled }),
   taskLogs: (id: string) => invoke<string>("task_logs", { id }),
   stopTask: (id: string) => invoke<void>("stop_task", { id }),
-  /** "끝내고 넘기기" (D-167): stop normally, then 리뷰 대기 (unreviewed report) or done. */
+  /** "끝내고 넘기기" (D-167 behaviour, D-190 name): stop normally, then 리뷰 대기 (unreviewed report) or done. */
   finishTask: (id: string) => invoke<"reviewWait" | "done">("finish_task", { id }),
   limitStatus: () => invoke<LimitView>("limit_status"),
   limitCancel: (id: number) => invoke<boolean>("limit_cancel", { id }),
