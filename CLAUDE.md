@@ -1,6 +1,6 @@
 # D.Duck
 
-Claude Code 사용자를 위한 로컬 데스크톱 컨트롤 센터(Tauri 2). 결정 요약(공개): `docs/DECISIONS-SUMMARY.md`. 원본 결정 로그 `openspec/decisions.md`는 로컬 전용이다(.gitignore).
+Claude Code 사용자를 위한 로컬 데스크톱 컨트롤 센터(Tauri 2). 결정 로그 `openspec/decisions.md`는 로컬 전용이다(.gitignore).
 
 ## 작업 규칙
 

@@ -14,7 +14,7 @@ app/crates/dduck-core/tests/fixtures/.gen.lock
 # Release and handoff bundles, publish checklists
 publish/
 **/PUBLISH-CHECKLIST*.md
-# Full decision log and internal planning (a public summary lives in docs/DECISIONS-SUMMARY.md)
+# Decision log, decision summary and internal planning
 openspec/decisions.md
 openspec/requirements.md
 openspec/research/
@@ -26,6 +26,8 @@ docs/screen-spec/
 **/key-points*.md
 docs/service-intro/
 docs/improvement-proposals.md
+docs/DECISIONS-SUMMARY.md
+docs/RELEASING.md
 
 # --- Local settings ---
 .env

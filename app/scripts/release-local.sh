@@ -1,6 +1,6 @@
 #!/bin/bash
 # Local release: build, sign, (notarize), put the DMG at the two fixed places, install to /Applications, relaunch
-# (D-124, D-160, D-179). See docs/RELEASING.md.
+# (D-124, D-160, D-179). Notarized builds need DDUCK_SIGN_IDENTITY and DDUCK_NOTARY_PROFILE.
 #   app/target/release/bundle/dmg/D.Duck_<version>_<arch>.dmg   (tauri's own output path)
 #   publish/dmg/D.Duck-latest_<arch>.dmg                         (fixed name for sharing; replaced every time)
 # Older builds are moved to the Trash, never kept side by side.
@@ -206,7 +206,7 @@ if [ "$MODE" = notarized ]; then
   xcrun stapler validate "$TMP_DMG" || die "no stapled ticket on the DMG"
 else
   echo "note: ad-hoc signed, NOT notarized. On another Mac the first open needs right-click > Open" \
-    "(or System Settings > Privacy & Security > Open Anyway). See docs/RELEASING.md to notarize." >&2
+    "(or System Settings > Privacy & Security > Open Anyway). Set DDUCK_SIGN_IDENTITY and DDUCK_NOTARY_PROFILE to notarize." >&2
 fi
 
 # --- 8. Promote: bundle/dmg, publish/dmg, /Applications ---------------------------------------------------------

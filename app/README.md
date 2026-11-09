@@ -1,7 +1,7 @@
 # D.Duck app
 
 Claude Code 사용 통계와 로컬 작업 관제를 위한 Tauri 2 데스크톱 앱.
-스펙: [`../openspec/specs/`](../openspec/specs/), 결정 요약: [`../docs/DECISIONS-SUMMARY.md`](../docs/DECISIONS-SUMMARY.md).
+스펙: [`../openspec/specs/`](../openspec/specs/).
 
 ## 구조
 

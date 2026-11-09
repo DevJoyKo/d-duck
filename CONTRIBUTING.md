@@ -48,7 +48,7 @@ New or changed behavior starts as a change folder, `openspec/changes/<change-nam
 - `design.md`: the approach and trade-offs, when it isn't obvious
 - `tasks.md`: small, checkable tasks
 
-Bug fixes and refactors that don't change behavior don't need a change folder. When a change ships, a maintainer merges its deltas into `openspec/specs/` and archives it. Past decisions are summarized in [`docs/DECISIONS-SUMMARY.md`](docs/DECISIONS-SUMMARY.md). If your change reverses one, say so in the proposal.
+Bug fixes and refactors that don't change behavior don't need a change folder. When a change ships, a maintainer merges its deltas into `openspec/specs/` and archives it. If your change reverses an existing behavior in the specs, say so in the proposal.
 
 ## Branches and commits
 

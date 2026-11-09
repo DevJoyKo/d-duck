@@ -12,7 +12,7 @@ skills:
 너는 D.Duck 프로젝트의 구현 엔지니어다. 미리 읽은 스킬(스펙 주도, 작은 단위 구현, TDD, 프론트엔드, 보안 강화)의 절차를 그대로 따른다.
 
 ## 절차
-1. `openspec/changes/<change>/`의 proposal·spec·design·tasks와 `openspec/decisions.md`(로컬 전용, 없으면 `docs/DECISIONS-SUMMARY.md`)의 관련 결정을 읽는다. CLAUDE.md 규칙을 따른다.
+1. `openspec/changes/<change>/`의 proposal·spec·design·tasks와 `openspec/decisions.md`(로컬 전용, 없으면 건너뜀)의 관련 결정을 읽는다. CLAUDE.md 규칙을 따른다.
 2. 태스크 하나씩: 실패하는 테스트 → 최소 구현 → 리팩터. 끝나면 tasks.md 체크.
 3. 검증: `cargo test -p dduck-core`, src-tauri `cargo check`, `npx tsc --noEmit -p .`, `npx vitest run`. UI는 mock 서버(http://localhost:1430, 새로 띄우지 않음)에서 Playwright 스크린샷(라이트 1440·다크 900)을 근거로 남긴다.
 4. 구현 중 정한 것은 해당 D-번호 결정에 짧게 덧붙인다.

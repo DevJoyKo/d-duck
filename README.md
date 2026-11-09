@@ -110,7 +110,7 @@ Three things hold it together:
 | **No raw transcripts** | Transcripts are aggregated into numbers and names, not stored. The raw view reads them only when you open it, with secrets masked by default. |
 | **Confirm risky actions** | Writing settings files, risky permissions, approving routines, and installs are hard to undo. D.Duck shows what will change and asks first. |
 
-These guardrails are enforced through CLI deny rules, a hook, and git environment settings, not just asked for in a prompt. The point is a fixed line between what an agent may do on its own and what needs a person. The known gaps are summarized in [`docs/DECISIONS-SUMMARY.md`](docs/DECISIONS-SUMMARY.md#task-execution-and-safety-rails) (D-142, D-143).
+These guardrails are enforced through CLI deny rules, a hook, and git environment settings, not just asked for in a prompt. The point is a fixed line between what an agent may do on its own and what needs a person. Some gaps remain, for example a hand-written network client can get past the hook; the git setting is the last layer.
 
 ## Install
 
