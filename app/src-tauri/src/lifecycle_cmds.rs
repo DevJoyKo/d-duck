@@ -15,13 +15,14 @@ fn known(state: &AppState) -> Res<bool> {
     Ok(dduck_core::review_inbox::poll_known() && state.agents_error.read().map_err(err)?.is_none())
 }
 
-/// 리뷰 대기 (same total as the review badge) and the 정리 records the CLI no longer lists.
+/// 리뷰 대기 (same total as the review badge) and the 정리 records the CLI no longer lists. `wrapup_cards`: how many
+/// 정리 cards to return ("더 보기"; 40 by default, at most 500).
 #[tauri::command(async)]
-pub fn board_wrapup(state: State<'_, AppState>) -> Res<tl::Board> {
+pub fn board_wrapup(state: State<'_, AppState>, wrapup_cards: Option<usize>) -> Res<tl::Board> {
     let sessions = state.agents.read().map_err(err)?.clone();
     let conn = state.conn()?;
     let since = settings::review_since(&conn, chrono_now_ms()).map_err(err)?;
-    tl::board(&conn, &sessions, since).map_err(|_| Fail::BoardUnreadable.now())
+    tl::board(&conn, &sessions, since, wrapup_cards.unwrap_or(tl::MAX_CARDS)).map_err(|_| Fail::BoardUnreadable.now())
 }
 
 /// "정리 끝". `id` is a session key (live card) or a background id (record card).
@@ -71,7 +72,7 @@ fn refusal_text(r: Refusal) -> String {
     match r {
         Refusal::Running => Fail::WrapRunning,
         Refusal::Changes => Fail::WrapChanges,
-        Refusal::NotChecked => Fail::WorktreeRemoveFailed,
+        Refusal::NotChecked => Fail::WrapNotChecked,
         Refusal::NoWorktree => Fail::NoWorktree,
     }
     .now()
