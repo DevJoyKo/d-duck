@@ -15,9 +15,9 @@
 
 ## 3. 에셋
 
-- [ ] 3.1 `docs/assets/capture.mjs` + `shots.json`: 문서가 참조하는 모든 캡처(README, screen-spec/img, service-intro 프레임) 목록화, 현재 버전으로 다시 찍기, 참조 검사(없는 이미지 0·안 쓰는 캡처 삭제)
-- [ ] 3.2 영어 화면 준비 후 en 캡처 추가: README.md·영문 화면 기획서(index.en.html, docs/D.Duck-screen-spec.pdf는 로컬 전용)는 en 캡처만, README.ko.md·한국어 기획서는 ko 캡처. 영문 산출물에 한글 캡처 0개 확인
-- [ ] 3.3 화면 기획서 전체 재촬영: 한국어(index.html, img/ ko 캡처)·영문(index.en.html, img/en/ 캡처) 모두 새 디자인으로, 사실 보정(현재 구현과 일치), 두 PDF(로컬 전용) 다시 생성
+- [x] 3.1 `docs/assets/capture.mjs` + `shots.json`: 문서가 참조하는 모든 캡처(README, screen-spec/img, service-intro 프레임) 목록화, 현재 버전으로 다시 찍기, 참조 검사(없는 이미지 0·안 쓰는 캡처 삭제)
+- [x] 3.2 영어 화면 준비 후 en 캡처 추가: README.md·영문 화면 기획서(index.en.html, docs/D.Duck-screen-spec.pdf는 로컬 전용)는 en 캡처만, README.ko.md·한국어 기획서는 ko 캡처. 영문 산출물에 한글 캡처 0개 확인
+- [x] 3.3 화면 기획서 전체 재촬영: 한국어(index.html, img/ ko 캡처)·영문(index.en.html, img/en/ 캡처) 모두 새 디자인으로, 사실 보정(현재 구현과 일치), 두 PDF(로컬 전용) 다시 생성
 - [ ] 3.4 DMG 갱신: palette-refresh·i18n·report-copy-save 반영 후 release-local.sh로 빌드·서명 검증·설치, publish/dmg 최신화(로컬 전용, 공개 저장소에는 Releases로만)
 - [ ] 3.5 소개 영상 갱신(docs/service-intro/video 2분 이내·소리 없음·자막): 새 디자인·새 오리 화면으로 다시 녹화, 한국어판(다나까 자막)과 영어판(영어 UI·영어 자막) 두 개, 선명도(1920x1200 이상, 텍스트 또렷), 로컬 전용(.gitignore) — 공개 시 영어판을 Releases 자산으로 올리고 README에 링크
 
