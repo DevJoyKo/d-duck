@@ -1,0 +1,66 @@
+@startuml 02b-components-shell-core
+!include _style.iuml
+left to right direction
+skinparam nodesep 22
+skinparam ranksep 110
+title 컴포넌트 ② Tauri 셸 → dduck-core 도메인 → 저장소
+
+package "Tauri 셸 · app/src-tauri/src" as shell $SHELL {
+  rectangle "<b>백그라운드 스레드</b> (lib.rs)\ningest worker · poller 3s/10s\nscheduler 20s · tray" as s_bg $SHELL
+  rectangle "<b>lib.rs 명령</b>\nstart_task · review_inbox\nroutines · permissions 외" as s_lib $KEY
+  rectangle "<b>main.rs 훅 모드</b>\n~-~-dduck-guard-local-only 외 3개" as s_hook $SHELL
+  rectangle "<b>limit_cmds</b>" as s_limit $SHELL
+  rectangle "<b>delivery_cmds</b>\n<b>projects_cmds</b>" as s_deliv $SHELL
+  rectangle "<b>add_items</b>\n<b>ext_items_cmds</b>" as s_ext $SHELL
+  rectangle "<b>memory_cmds</b>" as s_mem $SHELL
+}
+
+package "dduck-core · app/crates/dduck-core/src" as core $CORE {
+  rectangle "<b>수집·분석</b>\ndiscover · ingest · parse · db\nanalytics · insights · timeline · raw" as c_ingest $CORE
+  rectangle "<b>CLI·에이전트</b>\nclaude_cli · cli_path · tracker\nteam_config · loadout · team\nagents_catalog · task_meta · live_agents" as c_cli $KEY
+  rectangle "<b>보고서·리뷰</b>\ntask_report · review_inbox" as c_review $CORE
+  rectangle "<b>전달 범위</b>\ndelivery_guard" as c_deliv $KEY
+  rectangle "<b>한도 재개</b>\nlimit_resume" as c_limit $CORE
+  rectangle "<b>MCP·프로젝트·설정</b>\nmcp_config · mcp_list\nprojects · settings" as c_misc $CORE
+  rectangle "<b>확장</b>\nskills_catalog · ext_trash\nauthoring · plugins · install_link" as c_ext $CORE
+  rectangle "<b>루틴·메모리·권한</b>\nroutines · cloud_routines · artifacts\nmemory · rules · permissions" as c_rest $CORE
+}
+
+package "저장소" as store $STORE {
+  folder "<b>&#126;/.claude 파일</b>\ntranscript 읽기 · 정의·규칙 일부 씀" as cfg $STORE
+  database "<b>SQLite</b> 앱 데이터/dduck.db\nWAL · 0600 · user_version 11" as db $STORE
+  folder "<b>앱 데이터/reports/<id>/</b>\nreport.json" as rep $STORE
+}
+
+s_bg --> c_ingest
+s_bg --> c_cli
+s_bg --> c_limit
+s_lib --> c_cli
+s_lib --> c_deliv
+s_lib --> c_review
+s_lib --> c_rest
+s_hook --> c_deliv
+s_limit --> c_limit
+s_deliv --> c_deliv
+s_deliv --> c_misc
+s_ext --> c_ext
+s_mem --> c_rest
+
+c_ingest --> cfg
+c_ingest --> db
+c_cli --> db
+c_review --> rep
+c_review --> db
+c_deliv --> db
+c_limit --> db
+c_misc --> db
+c_ext --> cfg
+c_rest --> cfg
+c_rest --> db
+
+legend bottom
+  노란색 = 작업 맡기기 핵심 경로 (start_task → claude_cli + delivery_guard)
+  lib.rs 명령은 거의 모든 도메인을 부름 · 대표 연결만 표시
+  main.rs 훅 모드 = 같은 실행 파일을 PreToolUse 훅으로 실행 (cloud_routines · insights · brief_refine · delivery_guard)
+endlegend
+@enduml

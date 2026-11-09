@@ -1,0 +1,125 @@
+@startuml 06-data-model
+!include _style.iuml
+hide circle
+hide stereotypes
+skinparam nodesep 35
+skinparam ranksep 60
+skinparam ClassBorderColor #8a7a55
+skinparam ClassHeaderBackgroundColor #EADBB8
+skinparam ClassBackgroundColor #F3E9D2
+skinparam ClassFontStyle bold
+skinparam ClassAttributeFontSize 12
+title 데이터 모델 · dduck.db (db.rs SCHEMA_VERSION = 11)
+
+frame "작업 · 한도 (D.Duck이 시작한 작업)" as fTask #FFFDF5 {
+  entity "task_meta  <size:11>v3~v11</size>" as task_meta #FFF2C2 {
+    * bg_id : TEXT <<PK>>
+    agent · task_type · created_at  <size:10>[v3]</size>
+    reviewed_at  <size:10>[v4]</size>
+    name · cwd · prompt · brief_json  <size:10>[v5]</size>
+    effort · worktree  <size:10>[v5]</size>
+    report_id · permission_mode  <size:10>[v7]</size>
+    origin  <size:10>[v8]</size>
+    loadout_dropped  <size:10>[v9]</size>
+    --
+    <b>v10</b> session_id · limit_opt_out
+    <b>v10</b> limit_auto_ok · origin_bg_id · remote
+    <b>v11</b> delivery_guard · default_branch
+    <b>v11</b> default_head
+    <b>v11</b> delivery_alert <color:#B00000>[쓰는 곳 없음]</color>
+  }
+  entity "limit_resumes  <size:11>v10</size>" as limit_resumes {
+    * id : INTEGER <<PK>>
+    session_id · incident <<UNIQUE>>
+    resets_at · hit_ts · due_at
+    origin_bg_id · bg_id
+    permission_mode · task_type
+    state · reason · notified
+    created_at · updated_at
+  }
+  entity "limit_hits  <size:11>v10</size>" as limit_hits {
+    * record_uuid : TEXT <<PK>>
+    session_id · is_subagent
+    ts · resets_at · kind · seen
+  }
+}
+
+frame "사용량 수집 (transcript에서 숫자·ID만)" as fUse #FFFDF5 {
+  entity "sessions  <size:11>v1</size>" as sessions {
+    * session_id : TEXT <<PK>>
+    project_path · project_name · git_branch
+    title · version · entrypoint
+    first_ts · last_ts
+    agent_setting  <size:10>[v3]</size>
+  }
+  entity "api_calls" as api_calls {
+    * message_id + request_id <<PK>>
+    session_id · agent_id · ts · model
+    input · output · thinking
+    cache_write_5m/1h · cache_read · web_search
+  }
+  entity "tool_calls" as tool_calls {
+    * tool_use_id <<PK>>
+    session_id · ts · tool_name
+    mcp_server · skill_name · subagent_type
+  }
+  entity "기타 세션 하위 표" as misc {
+    cost_segments · command_invocations
+    subagents · session_observations
+    tool_errors · compactions  <size:10>[v6]</size>
+    session_labels  <size:10>[v2]</size>
+  }
+  entity "ingest_files" as ingest_files {
+    * path <<PK>>
+    inode · size · offset · mtime
+    skipped_lines · line_no
+  }
+}
+
+frame "루틴 · 아티팩트 · 설정" as fEtc #FFFDF5 {
+  entity "routines  <size:11>v2</size>" as routines {
+    * id <<PK>>
+    name · cwd · prompt · permission_mode
+    schedule_kind · time_hm · weekdays
+    interval_hours · enabled · next_run_at
+    approved_digest
+  }
+  entity "routine_runs  <size:11>v2</size>" as routine_runs {
+    * id <<PK>>
+    routine_id <<FK>> ON DELETE CASCADE
+    scheduled_for · started_at · ended_at
+    status · bg_id · error
+    report_id  <size:10>[v7]</size>
+  }
+  entity "artifacts  <size:11>v2</size>" as artifacts {
+    * artifact_id <<PK>>
+    url · title · kind · seq
+    session_id · first_seen_ts · last_ts
+  }
+  entity "settings" as settings {
+    * key <<PK>>
+    value
+    <size:10>local_only_projects · 팀 설정 · 알림 옵션 등</size>
+  }
+}
+
+task_meta ||..o{ limit_resumes : bg_id
+limit_hits }o..|| limit_resumes : session_id
+task_meta }o..o| sessions : session_id
+limit_resumes -[hidden]down- sessions
+sessions ||..o{ api_calls
+sessions ||..o{ tool_calls
+sessions ||..o{ misc
+sessions ||..o{ artifacts
+routines ||--o{ routine_runs : FK
+
+ingest_files -[hidden]right- misc
+api_calls -[hidden]down- routines
+api_calls -[hidden]down- artifacts
+
+legend bottom
+  실선 = 실제 FOREIGN KEY (routine_runs만) · 점선 = session_id/bg_id 논리 연결
+  저장 안 함: transcript 원문·메시지 본문 · prompt/brief_json은 "작업 지시 저장" 켤 때만
+  파일 0600 · 폴더 0700 · WAL · secure_delete ON · devdeck.db는 한 번만 이름 변경
+endlegend
+@enduml

@@ -1,0 +1,83 @@
+@startuml 03-task-lifecycle
+!include _style.iuml
+skinparam sequenceMessageAlign left
+skinparam ParticipantPadding 12
+skinparam BoxPadding 8
+skinparam SequenceGroupBodyBackgroundColor #FFFFFF
+skinparam SequenceLifeLineBorderColor #999999
+autonumber "<b>0."
+title 작업 생애주기 (start_task → 리뷰 완료)
+
+actor "사용자" as user
+box "React UI" $UI
+  participant "Composer\n(작업 탭)" as comp
+  participant "리뷰 탭\nReviewPage" as rv
+end box
+box "Tauri 셸" $SHELL
+  participant "start_task\n(lib.rs)" as st
+  participant "poller\n스레드" as poll
+end box
+box "dduck-core" $CORE
+  participant "delivery_guard" as dg
+  participant "claude_cli\nTaskSpec" as cc
+  participant "task_report\nreview_inbox" as tr
+end box
+box "외부·저장소" $EXT
+  participant "claude CLI" as cli
+  database "SQLite" as db
+  participant "macOS\n알림" as os
+end box
+
+user -> comp : 브리프 입력 · 시작
+comp -> st : invoke start_task(spec)
+st -> st : validate · 팀 설정 · loadout_env
+
+group 가드 · 전달 범위 (앱이 계산, webview 값 안 씀)
+  st -> dg : start_guard → start_ctx(cwd)
+  dg -> db : local_only 목록 조회
+  dg --> st : Guard(draft_pr | local_only)\n기본 브랜치면 force_worktree
+  st -> dg : local_only_refusal(위험 모드?, managed 설정)
+  dg --> st : 거부 사유 또는 통과
+end
+
+st -> cc : prepare_with(팀 유형, 역할, 정책 문구)
+cc --> st : mode · effort · ~-~-agents · policy_text
+st -> st : 에이전트 꺼짐·페르소나 위험 검사
+opt 위험 권한 모드 또는 위험 페르소나
+  st -> user : 네이티브 확인창\n(실행 / 실행·리셋 후 자동 이어서 / 취소)
+end
+st -> tr : attach_report → reports/<id>/ 생성
+
+st -[$KEY]> cli : <b>claude ~-~-bg</b> ~-~-permission-mode · ~-~-worktree\n~-~-disallowedTools(거부 규칙) · ~-~-settings(local_only 훅)\n~-~-add-dir(보고서) · ~-~-append-system-prompt(정책+보고서) ~-~- 프롬프트
+cli --> st : bg id
+st -> db : task_meta 기록 (record_start · record_guard · limit 필드)
+st --> comp : bg id
+
+loop 3초(보일 때) / 10초(숨김)
+  poll -> cli : claude agents ~-~-json ~-~-all
+  cli --> poll : 세션 목록
+  poll -> poll : tracker 전이 계산
+  alt waiting으로 바뀜
+    poll -> os : "<이름>: 입력을 기다리고 있어요"
+  else 완료·실패로 바뀜
+    poll -> os : "작업이 끝났어요 / 실패했어요"
+  end
+  poll -> tr : presence_for (report.json 유무만)
+end
+
+cli -> tr : 에이전트가 reports/<id>/report.json 작성
+
+user -> rv : 리뷰 탭 열기
+rv -> tr : review_inbox
+tr -> db : task_meta (report_id 있는 작업)
+tr --> rv : 리뷰 대기 카드
+rv -> tr : task_report(id) → report.json 검증·표시
+user -> rv : "리뷰했어요"
+rv -> db : inbox_mark_reviewed → reviewed_at 저장
+
+note over dg, cli #FFFFFF
+  <b>계획(미구현)</b>: 사후 점검 default_moved · push_detected 함수는 있으나
+  호출처 없음 → task_meta.delivery_alert 항상 NULL (delivery-guard 2.9·2.10)
+  재작업 요청(review-rework) · 리뷰 대기/정리 칸(task-lifecycle)도 미구현
+end note
+@enduml

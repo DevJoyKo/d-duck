@@ -1,0 +1,63 @@
+@startuml 02a-components-ui-shell
+!include _style.iuml
+left to right direction
+skinparam nodesep 18
+skinparam ranksep 120
+title 컴포넌트 ① UI 페이지 → Tauri 명령 모듈 (invoke)
+
+package "React UI · app/src/components (nav.ts PAGES 11개)" as ui $UI {
+  rectangle "에이전트\nAgentsPage · AgentSettings\nLoadoutSection" as p_agents $UI
+  rectangle "작업\nTasksPage · Composer\nBriefRefiner · LimitBits" as p_tasks $KEY
+  rectangle "리뷰\nReviewPage · TaskReport" as p_review $UI
+  rectangle "루틴\nRoutinesPage" as p_routines $UI
+  rectangle "아티팩트\nArtifactsPage" as p_art $UI
+  rectangle "확장\nExtensionsPage · PluginsPage\nAddSheet · AuthoringEditor" as p_ext $UI
+  rectangle "MCP\nMcpPage" as p_mcp $UI
+  rectangle "권한\nPermissionsPage" as p_perm $UI
+  rectangle "메모리\nMemoryPage · RulesPanel" as p_mem $UI
+  rectangle "통계\nUsagePage · UsageInsights" as p_usage $UI
+  rectangle "설정\nSettingsPage · LocalOnlySection" as p_set $UI
+}
+
+package "Tauri 셸 · app/src-tauri/src" as shell $SHELL {
+  rectangle "<b>limit_cmds</b>\nlimit_status · limit_resume_now\nlimit_cancel · set_limit_opt_out" as m_limit $SHELL
+  rectangle "<b>delivery_cmds</b>\nlocal_only_projects · set_local_only\ndelivery_guard_preview" as m_deliv $SHELL
+  rectangle "<b>add_items</b>\ninstall_plugin · install_skill\nauthoring_*" as m_add $SHELL
+  rectangle "<b>ext_items_cmds</b>\ntrash_extension_item" as m_trash $SHELL
+  rectangle "<b>projects_cmds</b>\nprojects_known · set_page_project\nmcp_servers" as m_proj $SHELL
+  rectangle "<b>memory_cmds</b>\nmemory_* · rules_*\ninstruction_files" as m_mem $SHELL
+  package "lib.rs" as lib $SHELL {
+    rectangle "<b>에이전트</b>\nlist_agents · agent_catalog\nagent_definition · agent_controls\nsave_agent_loadout · team_config" as l_agents $SHELL
+    rectangle "<b>작업</b>\nstart_task · stop_task · task_logs\nopen_terminal · refine_brief\nrepo_check · task_records" as l_tasks $KEY
+    rectangle "<b>리뷰·보고서</b>\nreview_inbox · task_report\nmark_reviewed · unmark_reviewed" as l_review $SHELL
+    rectangle "<b>루틴·아티팩트</b>\nlist_routines · run_routine_now\ncloud_routines · list_artifacts" as l_routines $SHELL
+    rectangle "<b>플러그인·스킬·MCP 상태</b>\nplugin_list · skill_catalog\nmcp_status" as l_ext $SHELL
+    rectangle "<b>권한</b>\npermission_scopes · save_permissions\nexplain_permission" as l_perm $SHELL
+    rectangle "<b>통계</b>\nusage_* · usage_insights_*\nsession_timeline · session_raw" as l_usage $SHELL
+    rectangle "<b>상태·설정</b>\nget_status · set_pref\npick_cli_path · rebuild_usage" as l_set $SHELL
+  }
+}
+
+p_agents --> l_agents
+p_tasks --> l_tasks
+p_tasks --> m_limit
+p_review --> l_review
+p_routines --> l_routines
+p_art --> l_routines
+p_ext --> l_ext
+p_ext --> m_add
+p_ext --> m_trash
+p_mcp --> m_proj
+p_mcp --> l_ext
+p_perm --> l_perm
+p_mem --> m_mem
+p_usage --> l_usage
+p_set --> l_set
+p_set --> m_deliv
+
+legend bottom
+  화살표 = src/lib/api.ts의 invoke() 호출 · 노란색 = 작업 맡기기 핵심 경로
+  사이드바 프로젝트 선택(ProjectPicker)은 모든 페이지에서 projects_cmds를 씀
+  명령 목록 출처: lib.rs generate_handler! (137개)
+endlegend
+@enduml

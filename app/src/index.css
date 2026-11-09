@@ -1,0 +1,284 @@
+@import "tailwindcss";
+@import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
+
+/*
+ * D.Duck design tokens (palette A "Still Water", D-176). Ink is text and the primary button; the duck's yellow is reserved for one meaning:
+ * "a session is waiting for you". Everything else stays quiet.
+ */
+@theme {
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  /* Korean falls back to Pretendard so Hangul in mono text keeps its natural width (rules review L1). */
+  --font-mono: ui-monospace, "SF Mono", Menlo, "Pretendard Variable", Pretendard, "Apple SD Gothic Neo", monospace;
+
+  --color-ink: #24283b;
+  --color-ink-2: #5d6275;
+  --color-ink-3: #6a6f7f;
+  --color-line: #e4e6eb;
+  --color-paper: #f5f6f8;
+  --color-sheet: #ffffff;
+  --color-duck: #ffc83d;
+  --color-duck-soft: #fff6dc;
+  /* Sidebar (palette-refresh, D-176): translucent neutral over a 30px blur, not a navy band. */
+  --color-side: rgba(238, 240, 245, 0.78);
+  --color-side-ink: #5d6275;
+  --color-side-active: rgba(36, 40, 59, 0.1);
+  /* Text on the duck yellow and on the pastel role colours: dark in both themes (those fills do not flip). */
+  --color-ink-fixed: #24283b;
+  /* Dim layer behind dialogs and the lightbox (graphite, not navy). */
+  --color-scrim: #14151a;
+  /* Caution notices that are not "waiting for you": an amber tint, never the duck yellow. */
+  --color-warn-soft: #fcf3e9;
+  /* Terminal screen (xterm, LogView): graphite in both themes. */
+  --color-term: #1d1e23;
+  --color-term-ink: #e6e7ec;
+  /* Board column ground: no border, a faint ink tint. */
+  --color-well: rgba(36, 40, 59, 0.035);
+  /* Status: failed / working / limit. 4.5:1 on sheet and paper (paletteTokens.test.ts). */
+  --color-danger: #cf3338;
+  --color-ok: #1f7f4b;
+  /* Second chart series: a muted steel next to the ink, never a saturated blue. */
+  --color-chart-2: #6b7f99;
+  /* Disc behind the duck: keeps its outline readable in both themes. */
+  --color-duck-stage: #eef0f4;
+  /* "Limit / partly done" (△): amber, distinct from danger and from the duck's yellow. */
+  --color-warn: #aa5a01;
+  /* Disc behind a duck inside a dark panel. */
+  --color-duck-stage-quiet: #eef0f4;
+  /* Ground shadow under a full-size duck. */
+  --color-duck-ground: rgba(36, 40, 59, 0.08);
+  /* Elevation instead of borders: e1 = resting card, e2 = card waiting for you. */
+  --shadow-e1: 0 0 0 0.5px rgba(36, 40, 59, 0.1), 0 1px 2px rgba(36, 40, 59, 0.06), 0 2px 6px rgba(36, 40, 59, 0.04);
+  --shadow-e2: 0 0 0 0.5px rgba(36, 40, 59, 0.12), 0 4px 10px rgba(36, 40, 59, 0.08), 0 12px 28px rgba(36, 40, 59, 0.08);
+  /* e3: floating layers (dialogs, drawers, toasts, menus). */
+  --shadow-e3: 0 0 0 0.5px rgba(36, 40, 59, 0.12), 0 12px 32px -8px rgba(36, 40, 59, 0.22);
+  /* Select chevron, ink-3 drawn as a data URI (a URL cannot read currentColor). */
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236a6f7f' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+    font-feature-settings: "tnum" 1;
+  }
+
+  /* Dark tokens: follow the OS unless the user picked a theme (data-theme on <html>). */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --color-ink: #eceef4;
+      --color-ink-2: #a9adbb;
+      --color-ink-3: #8b90a1;
+      --color-line: #383a42;
+      --color-paper: #1d1e23;
+      --color-sheet: #27282f;
+      --color-duck-soft: #3d3830;
+      --color-side: rgba(44, 46, 54, 0.72);
+      --color-side-ink: #a9adbb;
+      --color-side-active: rgba(255, 255, 255, 0.12);
+      --color-scrim: #000000;
+      --color-warn-soft: #3a2e20;
+      --color-term: #16171b;
+      --color-well: rgba(255, 255, 255, 0.04);
+      --color-danger: #ff6b6f;
+      --color-ok: #4cc38a;
+      --color-chart-2: #95a0b5;
+      /* Dark: a lighter disc so the duck stands apart from the card (design: "다크에서 밝게"). */
+      --color-duck-stage: #41434d;
+      --color-warn: #f0a24a; /* amber: apart from the CTA yellow (duck) and the red danger */
+      --color-duck-stage-quiet: #3a3c45;
+      --color-duck-ground: rgba(0, 0, 0, 0.4);
+      --shadow-e1: inset 0 0.5px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.12), 0 2px 6px rgba(0, 0, 0, 0.3);
+      --shadow-e2: inset 0 0.5px 0 rgba(255, 255, 255, 0.1), 0 0 0 1px rgba(255, 255, 255, 0.16), 0 8px 24px rgba(0, 0, 0, 0.45);
+      --shadow-e3: inset 0 0.5px 0 rgba(255, 255, 255, 0.1), 0 0 0 1px rgba(255, 255, 255, 0.12), 0 16px 40px rgba(0, 0, 0, 0.55);
+      --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b90a1' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --color-ink: #eceef4;
+    --color-ink-2: #a9adbb;
+    --color-ink-3: #8b90a1;
+    --color-line: #383a42;
+    --color-paper: #1d1e23;
+    --color-sheet: #27282f;
+    --color-duck-soft: #3d3830;
+    --color-side: rgba(44, 46, 54, 0.72);
+    --color-side-ink: #a9adbb;
+    --color-side-active: rgba(255, 255, 255, 0.12);
+    --color-scrim: #000000;
+    --color-warn-soft: #3a2e20;
+    --color-term: #16171b;
+    --color-well: rgba(255, 255, 255, 0.04);
+    --color-danger: #ff6b6f;
+    --color-ok: #4cc38a;
+    --color-chart-2: #95a0b5;
+    --color-duck-stage: #41434d;
+    --color-warn: #f0a24a; /* amber: apart from the CTA yellow (duck) and the red danger */
+    --color-duck-stage-quiet: #3a3c45;
+    --color-duck-ground: rgba(0, 0, 0, 0.4);
+    --shadow-e1: inset 0 0.5px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.12), 0 2px 6px rgba(0, 0, 0, 0.3);
+    --shadow-e2: inset 0 0.5px 0 rgba(255, 255, 255, 0.1), 0 0 0 1px rgba(255, 255, 255, 0.16), 0 8px 24px rgba(0, 0, 0, 0.45);
+    --shadow-e3: inset 0 0.5px 0 rgba(255, 255, 255, 0.1), 0 0 0 1px rgba(255, 255, 255, 0.12), 0 16px 40px rgba(0, 0, 0, 0.55);
+    --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b90a1' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    cursor: default;
+  }
+
+  input,
+  textarea,
+  select,
+  code,
+  pre {
+    user-select: text;
+  }
+
+  /* Text people read (report-copy-save, D-174): the app stays unselectable, these regions opt in. Controls inside them
+     (buttons, tabs, links, [data-no-select]) keep the app's own behaviour. */
+  .selectable {
+    -webkit-user-select: text;
+    user-select: text;
+    cursor: text;
+  }
+  .selectable :is(button, a, [role="tab"], [data-no-select]) {
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: default;
+  }
+
+  /* Native macOS selects render with a glossy gradient; draw a flat field with a plain chevron instead. */
+  select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-color: var(--color-sheet);
+    background-image: var(--select-chevron);
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 12px;
+    padding-right: 30px !important;
+  }
+
+  /* Focus uses ink, not the duck yellow: yellow means "waiting for you" and fails 3:1 on paper. */
+  :focus-visible {
+    outline: 2px solid var(--color-ink-2);
+    outline-offset: 2px;
+  }
+
+  /* Duck poses (DuckAvatar). transform-box keeps each wing moving around its own centre. */
+  .duck-tap-l,
+  .duck-tap-r {
+    transform-box: fill-box;
+    animation: duck-tap 0.45s ease-in-out infinite;
+  }
+  .duck-tap-r {
+    animation-delay: -0.225s;
+  }
+  .duck-wave {
+    transform-origin: 88px 56px;
+    animation: duck-wave 0.9s ease-in-out infinite;
+  }
+  .duck-bob {
+    animation: duck-bob 1.6s ease-in-out infinite;
+  }
+  .duck-z {
+    font-family: var(--font-sans);
+    font-weight: 700;
+    animation: duck-z 3s ease-out infinite;
+  }
+  .duck-z2 {
+    animation-delay: 1.5s;
+  }
+  @keyframes duck-tap {
+    50% {
+      transform: translateY(-4px);
+    }
+  }
+  @keyframes duck-wave {
+    0%,
+    100% {
+      transform: rotate(-8deg);
+    }
+    50% {
+      transform: rotate(14deg);
+    }
+  }
+  @keyframes duck-bob {
+    50% {
+      transform: translateY(-3px);
+    }
+  }
+  @keyframes duck-z {
+    0% {
+      opacity: 0;
+      transform: translate(0, 4px);
+    }
+    40% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: translate(6px, -10px);
+    }
+  }
+
+  /* Tour cards fade in; reduced motion swaps them instantly (rule below). */
+  .tour-fade {
+    animation: tour-fade 0.18s ease-out;
+  }
+  @keyframes tour-fade {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+
+  /* Tour demos (tour-v2): motion in one demo only; the others stand still. */
+  .tour-still * {
+    animation: none !important;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      transition: none !important;
+      animation: none !important;
+    }
+  }
+}
+
+/*
+ * Long unbroken text (URLs, JSON, paths, remote logs, model output) must wrap instead of widening the
+ * page (D-168). `overflow-wrap: break-word` does not lower a min-content width, so one long token in a
+ * table cell or a content-sized flex/grid item stretches the whole page past the window. `anywhere`
+ * does, and it is inherited, so it is set once for the app. Elements marked whitespace-nowrap and
+ * plain <pre> (horizontal scroll) are unaffected.
+ */
+body {
+  overflow-wrap: anywhere;
+}
+
+/*
+ * Korean breaks between words, not inside one (brand review, app-language). `keep-all` only changes breaks
+ * between CJK characters: Latin text, code and paths wrap as before, and `overflow-wrap: anywhere` above still
+ * breaks a word longer than its line. Follows <html lang> and any element with its own lang.
+ */
+:lang(ko) {
+  word-break: keep-all;
+}

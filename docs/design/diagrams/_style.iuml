@@ -1,0 +1,36 @@
+' D.Duck 설계 다이어그램 공통 스타일
+' 색: UI 연파랑 · 셸 라벤더 · 코어 연초록 · 외부 회색 · 저장소 베이지 · 핵심 경로만 #ffc83d
+skinparam dpi 150
+skinparam linetype ortho
+skinparam defaultFontName "Apple SD Gothic Neo"
+skinparam defaultFontSize 13
+skinparam shadowing false
+skinparam roundCorner 8
+skinparam backgroundColor #FFFFFF
+skinparam ArrowColor #555555
+skinparam ArrowFontSize 11
+skinparam ArrowFontColor #333333
+skinparam ArrowThickness 1.2
+skinparam nodesep 40
+skinparam ranksep 50
+skinparam packageStyle frame
+skinparam PackageBorderColor #888888
+skinparam PackageFontSize 14
+skinparam RectangleBorderColor #777777
+skinparam ComponentBorderColor #777777
+skinparam DatabaseBorderColor #8a7a55
+skinparam FolderBorderColor #8a7a55
+skinparam ActorBorderColor #555555
+skinparam NoteBackgroundColor #FFFDF2
+skinparam NoteBorderColor #C9B66B
+skinparam LegendBackgroundColor #FAFAFA
+skinparam LegendBorderColor #BBBBBB
+skinparam LegendFontSize 12
+
+!$UI = "#DCEBFA"
+!$SHELL = "#E6E0F5"
+!$CORE = "#DDF2DD"
+!$EXT = "#E8E8E8"
+!$STORE = "#F3E9D2"
+!$KEY = "#ffc83d"
+!$PLAN = "#FFFFFF"

@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest a new feature or a change to how something works.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Larger changes go through an OpenSpec change after we agree on the idea. See [CONTRIBUTING.md](https://github.com/DevJoyKo/d-duck/blob/main/CONTRIBUTING.md#spec-driven-changes).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should D.Duck do? Screens, steps, or examples help.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other ways to solve it, or workarounds you use now.
+    validations:
+      required: false
+  - type: checkboxes
+    id: principles
+    attributes:
+      label: Principles
+      options:
+        - label: This keeps D.Duck local only, with no access to Claude credentials and no stored raw transcripts.
+          required: true
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I'd like to work on this myself.
+          required: false

@@ -1,0 +1,12 @@
+{
+  "_source": "Claude Code 2.1.319 built-in slash commands (not skills). Skills shipped with Claude Code such as /init, /code-review, /simplify, /schedule are counted as skills, not here. Update per CLI version.",
+  "_checked": "2026-11-07",
+  "commands": [
+    "add-dir", "agents", "artifacts", "bashes", "bug", "clear", "compact", "config", "context", "cost",
+    "doctor", "effort", "exit", "export", "fast", "feedback", "focus", "help", "hooks", "ide",
+    "install-github-app", "keybindings", "login", "logout", "mcp", "memory", "model", "output-style",
+    "permissions", "plugin", "plugins", "pr-comments", "privacy-settings", "quit", "release-notes",
+    "reload-plugins", "remote-control", "rename", "resume", "rewind", "stats", "status", "statusline",
+    "tasks", "teleport", "terminal-setup", "theme", "todos", "upgrade", "usage", "vim", "workflows"
+  ]
+}

@@ -1,0 +1,66 @@
+name: Bug report
+description: Something in D.Duck doesn't work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. For security problems, don't use this form: see [SECURITY.md](https://github.com/DevJoyKo/d-duck/blob/main/SECURITY.md).
+        Please remove personal data (names, paths, tokens, transcript content) from logs and screenshots.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you see, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the Task board
+        2. Click ...
+        3. See ...
+    validations:
+      required: true
+  - type: input
+    id: dduck-version
+    attributes:
+      label: D.Duck version
+      description: Shown in Settings, or in the DMG name.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      description: Apple menu → About This Mac.
+      placeholder: "macOS 15.5 (Apple Silicon)"
+    validations:
+      required: true
+  - type: input
+    id: claude-version
+    attributes:
+      label: Claude Code version
+      description: Output of `claude --version`, or "not installed".
+      placeholder: "2.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: language
+    attributes:
+      label: App language
+      options:
+        - English
+        - 한국어
+    validations:
+      required: false
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or logs
+      description: Drag images here. Paste logs as text.
+    validations:
+      required: false

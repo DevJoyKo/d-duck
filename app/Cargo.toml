@@ -1,0 +1,19 @@
+[workspace]
+resolver = "3"
+members = ["src-tauri", "crates/dduck-core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.85"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+strip = true
+# Symbols go to a separate dSYM that is kept next to each build, never shipped (D-161): a hang in the stripped app can
+# then be read with `atos`/`sample` by matching the binary's UUID.
+debug = "line-tables-only"
+split-debuginfo = "packed"

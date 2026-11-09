@@ -1,0 +1,40 @@
+[package]
+name = "dduck-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ammonia = "4.2.4"
+base64 = "0.23"
+chrono = "0.4.45"
+notify = "8.2.1"
+quick-xml = "0.42"
+regex = "1.13.1"
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.0"
+sys-locale = "0.3.2"
+# Atomic save of a report attachment (report-copy-save, D-174); already a dev-dependency.
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["rt", "time", "sync", "macros", "process", "io-util"] }
+unicode-normalization = "0.1.26"
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+url = "2.5.8"
+walkdir = "2.5.0"
+
+[dev-dependencies]
+chrono-tz = "0.10.4"
+# Panic-free meta parser on arbitrary input (workflow-meta-check, D-183). Pinned; no fork/timeout features.
+proptest = { version = "=1.7.0", default-features = false, features = ["std"] }
+
+[lints.clippy]
+# Ingestion must never panic: a panic message could carry transcript text (D-021).
+unwrap_used = "deny"
+expect_used = "deny"
+
+[target."cfg(unix)".dependencies]
+libc = "0.2.191"

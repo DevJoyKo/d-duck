@@ -1,0 +1,57 @@
+@startuml 05-usage-limit
+!include _style.iuml
+top to bottom direction
+skinparam nodesep 45
+skinparam ranksep 42
+title 사용량 한도 흐름 (usage-limit-resume) — 자동 재개는 꺼진 채 출시
+
+rectangle "transcript 레코드\nisApiErrorMessage · error=rate_limit\nquotaLimits.status=rejected" as rec $STORE
+
+frame "① 감지" as f1 $CORE {
+  rectangle "<b>parse::limit_hit</b> (ingest worker)\nresetsAt · rateLimitType만 읽음\n메시지 본문은 안 읽음" as parse $CORE
+  database "<b>limit_hits</b>\nrecord_uuid · session_id\nresets_at · kind · seen" as hits $STORE
+}
+
+frame "② 일정" as f2 $SHELL {
+  rectangle "<b>limit_resume::sync</b> (poller → on_poll)\ntask_meta와 세션 연결 · eligibility 판정\ndue_at = 리셋 + 60~180초" as sync $CORE
+  database "<b>limit_resumes</b>\nstate: auto · manual · needs_choice\nstarting · resumed · closed" as lr $STORE
+}
+
+frame "③ 알림 · 배너" as f3 $UI {
+  rectangle "macOS 알림\n리셋 시각당 1번" as noti $EXT
+  rectangle "<b>LimitBanner · LimitCardChip</b>\n작업 탭 · limit_status 30초" as banner $UI
+}
+
+frame "④ 재개" as f4 $SHELL {
+  rectangle "<b>수동 재개</b> limit_resume_now\nclaim_manual → 네이티브 확인창\n배포 작업은 거부" as manual $KEY
+  rectangle "<b>자동 재개</b> scheduler 20초 · lr::tick\nAUTO_RESUME_SHIPPED = false\n→ auto 행을 manual로 내림 (reason=not_shipped)" as auto $PLAN
+  rectangle "<b>resume()</b>\nrecheck · resume_guard(전달 범위)\nreingest_and_check · verify_cwd" as resume $SHELL
+}
+
+rectangle "claude ~-~-bg ~-~-resume=<session>\n고정 프롬프트 RESUME_PROMPT" as cli $EXT
+
+rec -[$KEY,bold]-> parse
+parse -[$KEY,bold]-> hits
+hits -[$KEY,bold]-> sync
+sync -[$KEY,bold]-> lr
+lr -[$KEY,bold]-> banner
+sync --> noti
+banner -[$KEY,bold]-> manual : 클릭
+lr ..> auto
+manual -[$KEY,bold]-> resume
+auto ..> resume : 스파이크 후
+resume -[$KEY,bold]-> cli
+
+legend right
+  자동 재개 조건 (eligibility · 코드에 구현됨)
+  · D.Duck이 시작한 작업 · 리셋 시각 있음
+  · 배포 아님 · 원격 조작 아님
+  · 위험 모드면 시작 때 "자동 이어서" 버튼 동의
+  · 사용자 opt-out 아님 · 최대 3회
+  · shipped && 설정 켬 ← 지금 shipped=false
+  동시 3개 · 간격 20초 · 늦으면(2h) needs_choice · 3일 뒤 만료
+  ----
+  <b>계획(미구현)</b>: 실측 스파이크(1.1) · 실제 한도 1회 확인(5.2)
+  · ResumeSpec.model(2.8, model-select 의존)
+endlegend
+@enduml

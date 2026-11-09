@@ -1,0 +1,53 @@
+import type ko from "../ko/artifacts";
+import type { Shape } from "../types";
+
+export default {
+  title: "Artifacts",
+  search: "Search titles",
+  intro: "claude.ai artifacts found in your local Claude Code history. Previews read the local source used to publish them, each time, and aren't saved.",
+  limit: "Showing the latest {count}",
+  loadFailed: "Couldn't load artifacts",
+  loading: "Loading",
+  noResults: "No matches",
+  noResultsBody: "Try a different title.",
+  empty: "No artifacts made on this Mac yet",
+  emptyBody: "Artifacts you publish from Claude Code show up here.",
+  card: {
+    fallbackTitle: "Artifact",
+    typed: "Typed artifact",
+    page: "Page",
+    version: "Version {seq}",
+    noProject: "Unknown project",
+    copyLink: "Copy link for {name}",
+    copyFailed: "Couldn't copy",
+    copied: "Copied",
+    link: "Link",
+    open: "Open",
+    openLabel: "Open {name}",
+  },
+  preview: {
+    frame: "{title} preview",
+    scriptOnly: "Script page · limited preview",
+    truncated: "Showing the start only (512 KB)",
+    none: "No preview · {reason}",
+    loading: "Loading preview",
+    basis: "Preview from the local source",
+  },
+  reason: {
+    noSource: "Couldn't find the local source used to publish it",
+    missing: "The source file is gone",
+    refused: "Not read: the file is outside the allowed locations",
+    tooLarge: "The source is larger than 2 MB",
+    typed: "View decks and designs on claude.ai",
+    unknown: "Couldn't load the preview",
+  },
+  pager: {
+    label: "Pages",
+    prev: "Previous",
+    prevLabel: "Previous page",
+    next: "Next",
+    nextLabel: "Next page",
+    page: "Page {page}",
+    announce: "Page {page} of {count}",
+  },
+} satisfies Shape<typeof ko>;

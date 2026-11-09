@@ -1,0 +1,59 @@
+{
+  "skill": {
+    "ko": "---\nname: {{name}}\ndescription: {{description}}\n---\n\n# {{name}}\n\n## 언제 쓰나\n\n- 이 스킬이 필요한 상황을 적습니다(사용자가 쓸 법한 말 포함).\n\n## 절차\n\n1. 첫 단계\n2. 다음 단계\n\n## 하지 말 것\n\n- 이 스킬이 하면 안 되는 일을 적습니다.\n",
+    "en": "---\nname: {{name}}\ndescription: {{description}}\n---\n\n# {{name}}\n\n## When to use\n\n- Describe when this skill is needed (include phrases a user might say).\n\n## Steps\n\n1. First step\n2. Next step\n\n## Don't\n\n- Describe what this skill must not do.\n"
+  },
+  "command": {
+    "ko": "---\ndescription: {{description}}\nargument-hint: [인자]\n---\n\n$ARGUMENTS 에 대해 다음을 합니다.\n\n1. 첫 단계\n2. 다음 단계\n",
+    "en": "---\ndescription: {{description}}\nargument-hint: [argument]\n---\n\nDo the following for $ARGUMENTS.\n\n1. First step\n2. Next step\n"
+  },
+  "workflow": {
+    "ko": "export const meta = {\n  name: '{{name}}',\n  description: '{{description}}',\n  phases: [{ title: '단계 1' }],\n}\n\nphase('단계 1')\nconst result = await agent('여기에 할 일을 적으세요. 필요한 맥락을 모두 담습니다.', { label: '단계 1', phase: '단계 1' })\nreturn result\n",
+    "en": "export const meta = {\n  name: '{{name}}',\n  description: '{{description}}',\n  phases: [{ title: 'Step 1' }],\n}\n\nphase('Step 1')\nconst result = await agent('Describe the task here. Include all the context it needs.', { label: 'Step 1', phase: 'Step 1' })\nreturn result\n"
+  },
+  "rules": [
+    {
+      "id": "code-style",
+      "label": {
+        "ko": "코드 스타일",
+        "en": "Code style"
+      },
+      "name": "code-style",
+      "paths": [],
+      "body": {
+        "ko": "# 코드 스타일\n\n- 들여쓰기는 공백 2칸으로 맞춘다\n- 함수 이름은 하는 일을 그대로 쓴다\n",
+        "en": "# Code style\n\n- Indent with 2 spaces\n- Name functions after what they do\n"
+      }
+    },
+    {
+      "id": "testing",
+      "label": {
+        "ko": "테스트",
+        "en": "Testing"
+      },
+      "name": "testing",
+      "paths": [
+        "**/*.test.*"
+      ],
+      "body": {
+        "ko": "# 테스트\n\n- 새 기능에는 테스트를 함께 쓴다\n- 테스트 이름은 기대 동작을 문장으로 쓴다\n",
+        "en": "# Testing\n\n- Write tests along with new features\n- Write test names as sentences describing the expected behavior\n"
+      }
+    },
+    {
+      "id": "api",
+      "label": {
+        "ko": "API 규칙",
+        "en": "API rules"
+      },
+      "name": "api",
+      "paths": [
+        "src/api/**/*.ts"
+      ],
+      "body": {
+        "ko": "# API 규칙\n\n- 모든 엔드포인트는 입력을 검증한다\n- 오류 응답은 공통 형식을 쓴다\n",
+        "en": "# API rules\n\n- Every endpoint validates its input\n- Error responses use a common format\n"
+      }
+    }
+  ]
+}

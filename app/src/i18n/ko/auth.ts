@@ -1,0 +1,43 @@
+// Claude login (claude-login): banner, gate line, progress sheet, settings row. `gate` and `cloud` must equal the Rust
+// constants LOGIN_REQUIRED_TEXT and CLAUDE_AI_REQUIRED_TEXT in crates/dduck-core/src/auth_status.rs (LoginBits.test.tsx).
+export default {
+  banner: "Claude에 로그인해야 작업을 맡길 수 있어요",
+  gate: "Claude에 로그인해야 이 기능을 쓸 수 있어요",
+  cloud: "클라우드 루틴은 Claude 계정으로 로그인해야 써요",
+  loginHint: "로그인은 Claude CLI가 브라우저에서 해요. 앱은 로그인 상태만 확인하고 자격증명은 읽지 않아요",
+  cloudHint: "토큰·API 키·클라우드 공급자 연결이 있으면 그쪽이 먼저 쓰여요. 그 설정을 빼고 Claude 계정으로 로그인하면 써요",
+  settingsOut: "로그인돼 있지 않아요",
+  waiting: "브라우저 창에서 승인하면 자동으로 닫혀요",
+  cancelAsk: "로그인을 취소할까요?",
+  doneBody: "이제 작업을 맡길 수 있어요",
+  connector: "Claude 계정 로그인이 필요해요",
+  progress: "브라우저에서 로그인해 주세요",
+  link: "브라우저에서 직접 열기",
+  console: "Console 계정으로 로그인",
+  failed: "로그인이 끝나지 않았어요",
+  confirm: "터미널에서 Claude 로그인을 열까요?",
+  unknown: "로그인 상태를 확인하지 못했어요",
+  expiry: "Claude 로그인이 곧 만료돼요",
+  logout: "로그아웃은 터미널에서 `claude auth logout`으로 해요",
+  done: "로그인했어요",
+  actions: {
+    login: "로그인",
+    relogin: "다시 로그인",
+    recheck: "다시 확인",
+    copyCommand: "명령 복사",
+    keepWaiting: "계속 기다리기",
+    cancelLogin: "로그인 취소",
+    inTerminal: "터미널에서 로그인",
+    retry: "다시 시도",
+  },
+  terminal: {
+    title: "터미널에서 로그인해 주세요",
+    body: "터미널을 열지 못했어요. 이 명령을 터미널에 붙여 넣어 주세요.",
+  },
+  fail: {
+    timeout: "5분이 지나 기다림을 멈췄어요",
+    exited: "Claude CLI가 로그인 없이 끝났어요",
+    needsTerminal: "코드를 붙여 넣어야 해서 터미널에서 이어 가야 해요",
+    spawn: "Claude CLI를 실행하지 못했어요",
+  },
+} as const;

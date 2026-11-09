@@ -1,0 +1,67 @@
+@startuml 01-system-context
+!include _style.iuml
+top to bottom direction
+title D.Duck 시스템 컨텍스트 (코드 기준)
+
+actor "사용자" as user
+rectangle "<color:#CC0000><b>접근 안 함</b></color>\nClaude 자격증명\n.credentials.json · Keychain" as cred #FFE5E5
+
+rectangle "D.Duck 앱 (Tauri 2)\nReact UI · Rust 셸 · dduck-core" as app $KEY
+
+package "Claude Code CLI" as cli $EXT {
+  rectangle "claude ~-~-bg\n~-~-bg ~-~-resume\n작업 시작·재개" as bg $EXT
+  rectangle "claude agents\n~-~-json ~-~-all\n3초/10초 폴링" as agents $EXT
+  rectangle "claude logs · stop\nplugin · mcp list" as misc $EXT
+  rectangle "claude auth status\n계획(미구현)" as auth $PLAN
+}
+
+package "&#126;/.claude 로컬 파일" as files $STORE {
+  folder "projects/*.jsonl\ntranscript 읽기만" as tx $STORE
+  folder "settings.json\npermissions 키만 씀" as st $STORE
+  folder "agents · skills · commands\nrules · memory" as defs $STORE
+  folder "&#126;/.claude.json\nmcpServers 읽기" as cj $STORE
+}
+
+package "macOS" as mac $EXT {
+  rectangle "알림 · 트레이\n네이티브 확인창" as noti $EXT
+  rectangle "휴지통\nNSFileManager" as trash $EXT
+  rectangle "Terminal\nosascript" as term $EXT
+}
+
+rectangle "로컬 git 저장소\nrev-parse · worktree" as git $EXT
+rectangle "claude.ai 커넥터\n클라우드 루틴" as cloud $EXT
+
+user --> app : 맡기기 · 리뷰
+app -right[#CC0000,dashed]-> cred
+
+app --> cli
+app ..> auth
+app --> files
+app --> mac
+app --> git : 범위 판정
+
+bg --> git : 작업 수행
+misc --> cloud : 상태 · 목록
+
+cli -[hidden]right- files
+files -[hidden]right- mac
+mac -[hidden]right- git
+bg -[hidden]down- agents
+agents -[hidden]down- misc
+misc -[hidden]down- auth
+tx -[hidden]down- st
+st -[hidden]down- defs
+defs -[hidden]down- cj
+noti -[hidden]down- trash
+trash -[hidden]down- term
+
+legend bottom
+  |= 색 |= 뜻 |
+  |<back:#ffc83d>      </back>| D.Duck 앱 |
+  |<back:#E8E8E8>      </back>| 외부 시스템 |
+  |<back:#F3E9D2>      </back>| 로컬 파일 |
+  |<back:#FFFFFF>      </back>| 계획(미구현) · 점선 |
+  |<back:#FFE5E5>      </back>| 앱이 읽지 않음 (discover.rs 차단 목록) |
+  CLI 인자는 argv로만 전달, 값은 ~-~-opt=value, 프롬프트는 ~-~- 뒤 (D-015)
+endlegend
+@enduml

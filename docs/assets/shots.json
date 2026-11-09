@@ -1,0 +1,3100 @@
+{
+ "$comment": "문서가 참조하는 화면 캡처 목록(oss-publish-prep 설계 결정 5). capture.mjs가 mock(http://localhost:1430)에서 찍고 check-refs.mjs가 문서 참조와 대조한다. actions 문법은 capture.mjs 머리 주석 참고.",
+ "baseUrl": "http://localhost:1430/",
+ "defaults": {
+  "theme": "light",
+  "size": "1440x900@2x",
+  "wait": 600
+ },
+ "nonCapture": {
+  "$comment": "캡처가 아닌 이미지(검사 대상 제외)",
+  "patterns": [
+   "app/src-tauri/icons/**",
+   "docs/design/diagrams/**"
+  ]
+ },
+ "shots": [
+  {
+   "id": "readme/en/01-agents-team",
+   "file": "docs/assets/screenshots/en/01-agents-team.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1440x900@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "Agents tab: role ducks and their state",
+   "docs": [
+    "README.md"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "readme/ko/01-agents-team",
+   "file": "docs/assets/screenshots/ko/01-agents-team.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1440x900@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "에이전트 탭: 역할 오리 팀과 상태",
+   "docs": [
+    "README.ko.md"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "readme/en/02-composer-refine-questions",
+   "file": "docs/assets/screenshots/en/02-composer-refine-questions.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1440x900@2x",
+   "page": "tasks",
+   "query": {
+    "page": "tasks",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "New task"
+    },
+    {
+     "do": "fill",
+     "selector": "main textarea >> nth=0",
+     "value": "Find out why auth.spec.ts fails now and then, and fix it"
+    },
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Ask me questions"
+    },
+    {
+     "do": "waitFor",
+     "text": "Answer and continue"
+    },
+    {
+     "do": "scrollTo",
+     "text": "Refine the brief",
+     "block": "start"
+    }
+   ],
+   "wait": 600,
+   "shows": "New task: round-1 question cards and the rewrite",
+   "docs": [
+    "README.md"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "readme/ko/02-composer-refine-questions",
+   "file": "docs/assets/screenshots/ko/02-composer-refine-questions.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1440x900@2x",
+   "page": "tasks",
+   "query": {
+    "page": "tasks",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "새 작업"
+    },
+    {
+     "do": "fill",
+     "selector": "main textarea >> nth=0",
+     "value": "auth.spec.ts가 가끔 실패하는 원인을 찾아 고친다"
+    },
+    {
+     "do": "click",
+     "role": "button",
+     "name": "질문 받기"
+    },
+    {
+     "do": "waitFor",
+     "text": "답하고 계속"
+    },
+    {
+     "do": "scrollTo",
+     "text": "요구사항 다듬기",
+     "block": "start"
+    }
+   ],
+   "wait": 600,
+   "shows": "새 작업: 요구사항 다듬기 질문 카드 1라운드와 고쳐 쓴 제안",
+   "docs": [
+    "README.ko.md"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "readme/en/04-board-waiting-alert",
+   "file": "docs/assets/screenshots/en/04-board-waiting-alert.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1440x900@2x",
+   "page": "tasks",
+   "query": {
+    "page": "tasks",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "text": "flaky-test-fix"
+    }
+   ],
+   "wait": 600,
+   "shows": "Board with flaky-test-fix detail waiting for an answer",
+   "docs": [
+    "README.md"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "readme/ko/04-board-waiting-alert",
+   "file": "docs/assets/screenshots/ko/04-board-waiting-alert.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1440x900@2x",
+   "page": "tasks",
+   "query": {
+    "page": "tasks",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "text": "flaky-test-fix"
+    }
+   ],
+   "wait": 600,
+   "shows": "작업 보드 + 답 기다리는 flaky-test-fix 상세",
+   "docs": [
+    "README.ko.md"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "readme/en/05-task-report",
+   "file": "docs/assets/screenshots/en/05-task-report.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1440x900@2x",
+   "page": "review",
+   "query": {
+    "page": "review",
+    "lang": "en",
+    "evidence": "1"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "^list-dark-mode",
+     "regex": true
+    },
+    {
+     "do": "waitFor",
+     "role": "dialog"
+    }
+   ],
+   "wait": 600,
+   "shows": "Task report with evidence (list-dark-mode, ?evidence=1): criteria with screenshot, test and command evidence",
+   "docs": [
+    "README.md"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "readme/ko/05-task-report",
+   "file": "docs/assets/screenshots/ko/05-task-report.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1440x900@2x",
+   "page": "review",
+   "query": {
+    "page": "review",
+    "lang": "ko",
+    "evidence": "1"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "^list-dark-mode",
+     "regex": true
+    },
+    {
+     "do": "waitFor",
+     "role": "dialog"
+    }
+   ],
+   "wait": 600,
+   "shows": "근거가 있는 작업 보고서(list-dark-mode, ?evidence=1): 기준마다 스크린샷·테스트·명령 근거",
+   "docs": [
+    "README.ko.md"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "readme/en/06-review-tab",
+   "file": "docs/assets/screenshots/en/06-review-tab.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1440x900@2x",
+   "page": "review",
+   "query": {
+    "page": "review",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "Review tab: finished work by role",
+   "docs": [
+    "README.md"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "readme/ko/06-review-tab",
+   "file": "docs/assets/screenshots/ko/06-review-tab.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1440x900@2x",
+   "page": "review",
+   "query": {
+    "page": "review",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "리뷰 탭: 끝난 작업을 역할별로",
+   "docs": [
+    "README.ko.md"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "readme/en/07-settings-block-remote-push",
+   "file": "docs/assets/screenshots/en/07-settings-block-remote-push.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1440x900@2x",
+   "page": "settings",
+   "query": {
+    "page": "settings",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "scrollTo",
+     "text": "Block remote push",
+     "exact": true,
+     "block": "center"
+    }
+   ],
+   "wait": 600,
+   "shows": "Settings: Block remote push",
+   "docs": [
+    "README.md"
+   ],
+   "status": "active",
+   "clip": {
+    "x": 400,
+    "y": 420,
+    "width": 860,
+    "height": 285
+   }
+  },
+  {
+   "id": "readme/en/08-language-menu",
+   "file": "docs/assets/screenshots/en/08-language-menu.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1440x900@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Change language"
+    }
+   ],
+   "clip": {
+    "x": 0,
+    "y": 0,
+    "width": 520,
+    "height": 260
+   },
+   "wait": 600,
+   "shows": "Sidebar language menu: 한국어 / English / System language",
+   "docs": [
+    "README.md"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "readme/en/09-settings-language",
+   "file": "docs/assets/screenshots/en/09-settings-language.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1440x900@2x",
+   "page": "settings",
+   "query": {
+    "page": "settings",
+    "lang": "en"
+   },
+   "actions": [],
+   "clip": {
+    "x": 360,
+    "y": 60,
+    "width": 860,
+    "height": 130
+   },
+   "wait": 600,
+   "shows": "Settings: Language row",
+   "docs": [
+    "README.md"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "readme/ko/07-settings-block-remote-push",
+   "file": "docs/assets/screenshots/ko/07-settings-block-remote-push.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1440x900@2x",
+   "page": "settings",
+   "query": {
+    "page": "settings",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "scrollTo",
+     "text": "원격 push 막기",
+     "exact": true,
+     "block": "center"
+    }
+   ],
+   "wait": 600,
+   "shows": "설정: 원격 push 막기",
+   "docs": [
+    "README.ko.md"
+   ],
+   "status": "active",
+   "clip": {
+    "x": 400,
+    "y": 420,
+    "width": 860,
+    "height": 285
+   }
+  },
+  {
+   "id": "readme/ko/08-language-menu",
+   "file": "docs/assets/screenshots/ko/08-language-menu.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1440x900@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "언어 바꾸기"
+    }
+   ],
+   "clip": {
+    "x": 0,
+    "y": 0,
+    "width": 520,
+    "height": 260
+   },
+   "wait": 600,
+   "shows": "사이드바 언어 메뉴: 한국어 / English / 시스템 언어 따름",
+   "docs": [
+    "README.ko.md"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "readme/ko/09-settings-language",
+   "file": "docs/assets/screenshots/ko/09-settings-language.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1440x900@2x",
+   "page": "settings",
+   "query": {
+    "page": "settings",
+    "lang": "ko"
+   },
+   "actions": [],
+   "clip": {
+    "x": 360,
+    "y": 60,
+    "width": 860,
+    "height": 130
+   },
+   "wait": 600,
+   "shows": "설정: 언어 항목",
+   "docs": [
+    "README.ko.md"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/agents",
+   "file": "docs/screen-spec/img/agents.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "에이전트 탭 전체(커버·04·22쪽)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/agents",
+   "file": "docs/screen-spec/img/en/agents.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "에이전트 탭 전체(커버·04·22쪽)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/agents-dark",
+   "file": "docs/screen-spec/img/agents-dark.png",
+   "lang": "ko",
+   "theme": "dark",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "에이전트 탭 다크",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/agents-dark",
+   "file": "docs/screen-spec/img/en/agents-dark.png",
+   "lang": "en",
+   "theme": "dark",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "에이전트 탭 다크",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/agents-settings-manage",
+   "file": "docs/screen-spec/img/agents-settings-manage.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "에이전트 설정"
+    },
+    {
+     "do": "click",
+     "role": "radio",
+     "name": "에이전트 관리",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "에이전트 설정 › 에이전트 관리",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/agents-settings-manage",
+   "file": "docs/screen-spec/img/en/agents-settings-manage.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Agent settings"
+    },
+    {
+     "do": "click",
+     "role": "radio",
+     "name": "Agents",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "에이전트 설정 › 에이전트 관리",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/agents-settings-types",
+   "file": "docs/screen-spec/img/agents-settings-types.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "에이전트 설정"
+    },
+    {
+     "do": "click",
+     "role": "radio",
+     "name": "작업 유형",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "에이전트 설정 › 작업 유형(05쪽 메인)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/agents-settings-types",
+   "file": "docs/screen-spec/img/en/agents-settings-types.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Agent settings"
+    },
+    {
+     "do": "click",
+     "role": "radio",
+     "name": "Task types",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "에이전트 설정 › 작업 유형(05쪽 메인)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/agents-settings-rules",
+   "file": "docs/screen-spec/img/agents-settings-rules.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "에이전트 설정"
+    },
+    {
+     "do": "click",
+     "role": "radio",
+     "name": "팀 규칙",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "에이전트 설정 › 팀 규칙(잠금 = 안전 규칙)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/agents-settings-rules",
+   "file": "docs/screen-spec/img/en/agents-settings-rules.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Agent settings"
+    },
+    {
+     "do": "click",
+     "role": "radio",
+     "name": "Team rules",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "에이전트 설정 › 팀 규칙(잠금 = 안전 규칙)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/tasks-detail",
+   "file": "docs/screen-spec/img/tasks-detail.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "tasks",
+   "query": {
+    "page": "tasks",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "text": "flaky-test-fix"
+    }
+   ],
+   "wait": 600,
+   "shows": "작업 보드 + flaky-test-fix 상세 시트(06쪽 메인, 뒤표지)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/tasks-detail",
+   "file": "docs/screen-spec/img/en/tasks-detail.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "tasks",
+   "query": {
+    "page": "tasks",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "text": "flaky-test-fix"
+    }
+   ],
+   "wait": 600,
+   "shows": "작업 보드 + flaky-test-fix 상세 시트(06쪽 메인, 뒤표지)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/tasks",
+   "file": "docs/screen-spec/img/tasks.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "tasks",
+   "query": {
+    "page": "tasks",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "상태 보드 전체",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/tasks",
+   "file": "docs/screen-spec/img/en/tasks.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "tasks",
+   "query": {
+    "page": "tasks",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "상태 보드 전체",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/tasks-dark",
+   "file": "docs/screen-spec/img/tasks-dark.png",
+   "lang": "ko",
+   "theme": "dark",
+   "size": "1280x800@2x",
+   "page": "tasks",
+   "query": {
+    "page": "tasks",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "상태 보드 다크",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/tasks-dark",
+   "file": "docs/screen-spec/img/en/tasks-dark.png",
+   "lang": "en",
+   "theme": "dark",
+   "size": "1280x800@2x",
+   "page": "tasks",
+   "query": {
+    "page": "tasks",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "상태 보드 다크",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/tasks-composer",
+   "file": "docs/screen-spec/img/tasks-composer.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "tasks",
+   "query": {
+    "page": "tasks",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "새 작업"
+    },
+    {
+     "do": "fill",
+     "selector": "main textarea >> nth=0",
+     "value": "auth.spec.ts가 가끔 실패하는 원인을 찾아 고친다"
+    }
+   ],
+   "wait": 600,
+   "shows": "새 작업: 폴더·유형·구조화 브리프·미리보기(07쪽)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/tasks-composer",
+   "file": "docs/screen-spec/img/en/tasks-composer.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "tasks",
+   "query": {
+    "page": "tasks",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "New task"
+    },
+    {
+     "do": "fill",
+     "selector": "main textarea >> nth=0",
+     "value": "Find out why auth.spec.ts fails now and then, and fix it"
+    }
+   ],
+   "wait": 600,
+   "shows": "새 작업: 폴더·유형·구조화 브리프·미리보기(07쪽)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/artifacts",
+   "file": "docs/screen-spec/img/artifacts.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "artifacts",
+   "query": {
+    "page": "artifacts",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "아티팩트 목록",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/artifacts",
+   "file": "docs/screen-spec/img/en/artifacts.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "artifacts",
+   "query": {
+    "page": "artifacts",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "아티팩트 목록",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/routines",
+   "file": "docs/screen-spec/img/routines.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "routines",
+   "query": {
+    "page": "routines",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "루틴 목록(로컬)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/routines",
+   "file": "docs/screen-spec/img/en/routines.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "routines",
+   "query": {
+    "page": "routines",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "루틴 목록(로컬)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/routines-new",
+   "file": "docs/screen-spec/img/routines-new.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "routines",
+   "query": {
+    "page": "routines",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "새 루틴",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "새 루틴 만들기 폼",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/routines-new",
+   "file": "docs/screen-spec/img/en/routines-new.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "routines",
+   "query": {
+    "page": "routines",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "New routine",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "새 루틴 만들기 폼",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/routines-cloud",
+   "file": "docs/screen-spec/img/routines-cloud.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "routines",
+   "query": {
+    "page": "routines",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "클라우드 루틴 불러오기"
+    },
+    {
+     "do": "wait",
+     "ms": 600
+    }
+   ],
+   "wait": 600,
+   "shows": "클라우드 루틴 불러오기 결과",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/routines-cloud",
+   "file": "docs/screen-spec/img/en/routines-cloud.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "routines",
+   "query": {
+    "page": "routines",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Load cloud routines"
+    },
+    {
+     "do": "wait",
+     "ms": 600
+    }
+   ],
+   "wait": 600,
+   "shows": "클라우드 루틴 불러오기 결과",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/routines-cloud-edit",
+   "file": "docs/screen-spec/img/routines-cloud-edit.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "routines",
+   "query": {
+    "page": "routines",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "클라우드 루틴 불러오기"
+    },
+    {
+     "do": "wait",
+     "ms": 600
+    },
+    {
+     "do": "click",
+     "role": "button",
+     "name": "고치기",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "클라우드 루틴 고치기(이름·일정)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/routines-cloud-edit",
+   "file": "docs/screen-spec/img/en/routines-cloud-edit.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "routines",
+   "query": {
+    "page": "routines",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Load cloud routines"
+    },
+    {
+     "do": "wait",
+     "ms": 600
+    },
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Edit",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "클라우드 루틴 고치기(이름·일정)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/skills",
+   "file": "docs/screen-spec/img/skills.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "skills",
+   "query": {
+    "page": "skills",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "확장 › 스킬 칩",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/skills",
+   "file": "docs/screen-spec/img/en/skills.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "skills",
+   "query": {
+    "page": "skills",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "확장 › 스킬 칩",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/skills-addmenu",
+   "file": "docs/screen-spec/img/skills-addmenu.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "extensions",
+   "query": {
+    "page": "extensions",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "^추가",
+     "regex": true
+    }
+   ],
+   "wait": 600,
+   "shows": "추가 ▾ 메뉴",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/skills-addmenu",
+   "file": "docs/screen-spec/img/en/skills-addmenu.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "extensions",
+   "query": {
+    "page": "extensions",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "^Add",
+     "regex": true
+    }
+   ],
+   "wait": 600,
+   "shows": "추가 ▾ 메뉴",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/skills-workflows",
+   "file": "docs/screen-spec/img/skills-workflows.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "extensions",
+   "query": {
+    "page": "extensions",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "^워크플로 \\d",
+     "regex": true
+    }
+   ],
+   "wait": 600,
+   "shows": "확장 › 워크플로 칩",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/skills-workflows",
+   "file": "docs/screen-spec/img/en/skills-workflows.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "extensions",
+   "query": {
+    "page": "extensions",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "^Workflows \\d",
+     "regex": true
+    }
+   ],
+   "wait": 600,
+   "shows": "확장 › 워크플로 칩",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/skills-link",
+   "file": "docs/screen-spec/img/skills-link.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "extensions",
+   "query": {
+    "page": "extensions",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "^추가",
+     "regex": true
+    },
+    {
+     "do": "click",
+     "text": "링크로 설치"
+    },
+    {
+     "do": "fill",
+     "selector": "#add-link",
+     "value": "https://github.com/anthropics/skills/tree/main/skills/pdf"
+    },
+    {
+     "do": "click",
+     "role": "button",
+     "name": "미리 보기",
+     "exact": true
+    },
+    {
+     "do": "wait",
+     "ms": 1000
+    }
+   ],
+   "wait": 600,
+   "shows": "링크로 설치: 스킬 폴더 미리보기",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/skills-link",
+   "file": "docs/screen-spec/img/en/skills-link.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "extensions",
+   "query": {
+    "page": "extensions",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "^Add",
+     "regex": true
+    },
+    {
+     "do": "click",
+     "text": "Install from link"
+    },
+    {
+     "do": "fill",
+     "selector": "#add-link",
+     "value": "https://github.com/anthropics/skills/tree/main/skills/pdf"
+    },
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Preview",
+     "exact": true
+    },
+    {
+     "do": "wait",
+     "ms": 1000
+    }
+   ],
+   "wait": 600,
+   "shows": "링크로 설치: 스킬 폴더 미리보기",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/skills-create",
+   "file": "docs/screen-spec/img/skills-create.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "extensions",
+   "query": {
+    "page": "extensions",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "^추가",
+     "regex": true
+    },
+    {
+     "do": "click",
+     "text": "직접 만들기"
+    }
+   ],
+   "wait": 600,
+   "shows": "직접 만들기(기본 틀)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/skills-create",
+   "file": "docs/screen-spec/img/en/skills-create.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "extensions",
+   "query": {
+    "page": "extensions",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "^Add",
+     "regex": true
+    },
+    {
+     "do": "click",
+     "text": "Create"
+    }
+   ],
+   "wait": 600,
+   "shows": "직접 만들기(기본 틀)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/skills-editor",
+   "file": "docs/screen-spec/img/skills-editor.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "extensions",
+   "query": {
+    "page": "extensions",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "수정",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "스킬 편집기(design-review)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/skills-editor",
+   "file": "docs/screen-spec/img/en/skills-editor.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "extensions",
+   "query": {
+    "page": "extensions",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Edit",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "스킬 편집기(design-review)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/skills-ask",
+   "file": "docs/screen-spec/img/skills-ask.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "extensions",
+   "query": {
+    "page": "extensions",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "^추가",
+     "regex": true
+    },
+    {
+     "do": "click",
+     "text": "Claude에게 부탁하기"
+    }
+   ],
+   "wait": 600,
+   "shows": "Claude에게 부탁하기",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/skills-ask",
+   "file": "docs/screen-spec/img/en/skills-ask.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "extensions",
+   "query": {
+    "page": "extensions",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "^Add",
+     "regex": true
+    },
+    {
+     "do": "click",
+     "text": "Ask Claude"
+    }
+   ],
+   "wait": 600,
+   "shows": "Claude에게 부탁하기",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/plugins",
+   "file": "docs/screen-spec/img/plugins.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "plugins",
+   "query": {
+    "page": "plugins",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "확장 › 플러그인 칩(13쪽)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/plugins",
+   "file": "docs/screen-spec/img/en/plugins.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "plugins",
+   "query": {
+    "page": "plugins",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "확장 › 플러그인 칩(13쪽)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/skills-link-market",
+   "file": "docs/screen-spec/img/skills-link-market.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "extensions",
+   "query": {
+    "page": "extensions",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "^추가",
+     "regex": true
+    },
+    {
+     "do": "click",
+     "text": "링크로 설치"
+    },
+    {
+     "do": "fill",
+     "selector": "#add-link",
+     "value": "anthropics/skills"
+    },
+    {
+     "do": "click",
+     "role": "button",
+     "name": "미리 보기",
+     "exact": true
+    },
+    {
+     "do": "wait",
+     "ms": 1000
+    }
+   ],
+   "wait": 600,
+   "shows": "마켓플레이스 링크 미리보기",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/skills-link-market",
+   "file": "docs/screen-spec/img/en/skills-link-market.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "extensions",
+   "query": {
+    "page": "extensions",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "^Add",
+     "regex": true
+    },
+    {
+     "do": "click",
+     "text": "Install from link"
+    },
+    {
+     "do": "fill",
+     "selector": "#add-link",
+     "value": "anthropics/skills"
+    },
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Preview",
+     "exact": true
+    },
+    {
+     "do": "wait",
+     "ms": 1000
+    }
+   ],
+   "wait": 600,
+   "shows": "마켓플레이스 링크 미리보기",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/perm-catalog",
+   "file": "docs/screen-spec/img/perm-catalog.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "permissions",
+   "query": {
+    "page": "permissions",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "권한 규칙(14쪽 메인)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/perm-catalog",
+   "file": "docs/screen-spec/img/en/perm-catalog.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "permissions",
+   "query": {
+    "page": "permissions",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "권한 규칙(14쪽 메인)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/perm-recommend",
+   "file": "docs/screen-spec/img/perm-recommend.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "permissions",
+   "query": {
+    "page": "permissions",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "권장값 적용"
+    }
+   ],
+   "wait": 600,
+   "shows": "권장값 적용 전 미리보기(확인 창, 22쪽에도)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/perm-recommend",
+   "file": "docs/screen-spec/img/en/perm-recommend.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "permissions",
+   "query": {
+    "page": "permissions",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Apply recommended"
+    }
+   ],
+   "wait": 600,
+   "shows": "권장값 적용 전 미리보기(확인 창, 22쪽에도)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/perm-dark",
+   "file": "docs/screen-spec/img/perm-dark.png",
+   "lang": "ko",
+   "theme": "dark",
+   "size": "1280x800@2x",
+   "page": "permissions",
+   "query": {
+    "page": "permissions",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "권한 다크",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/perm-dark",
+   "file": "docs/screen-spec/img/en/perm-dark.png",
+   "lang": "en",
+   "theme": "dark",
+   "size": "1280x800@2x",
+   "page": "permissions",
+   "query": {
+    "page": "permissions",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "권한 다크",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/perm-explainer",
+   "file": "docs/screen-spec/img/perm-explainer.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "permissions",
+   "query": {
+    "page": "permissions",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "fill",
+     "selector": "main input >> nth=-1",
+     "value": "Bash(git push origin main)"
+    },
+    {
+     "do": "press",
+     "key": "Enter"
+    },
+    {
+     "do": "scrollTo",
+     "selector": "main input >> nth=-1",
+     "block": "center"
+    }
+   ],
+   "wait": 600,
+   "shows": "실효 확인: 높은 위험 명령·판정과 근거 규칙(15쪽)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/perm-explainer",
+   "file": "docs/screen-spec/img/en/perm-explainer.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "permissions",
+   "query": {
+    "page": "permissions",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "fill",
+     "selector": "main input >> nth=-1",
+     "value": "Bash(git push origin main)"
+    },
+    {
+     "do": "press",
+     "key": "Enter"
+    },
+    {
+     "do": "scrollTo",
+     "selector": "main input >> nth=-1",
+     "block": "center"
+    }
+   ],
+   "wait": 600,
+   "shows": "실효 확인: 높은 위험 명령·판정과 근거 규칙(15쪽)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/perm-json",
+   "file": "docs/screen-spec/img/perm-json.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "permissions",
+   "query": {
+    "page": "permissions",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "직접 고치기"
+    }
+   ],
+   "wait": 600,
+   "shows": "permissions JSON 직접 고치기",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/perm-json",
+   "file": "docs/screen-spec/img/en/perm-json.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "permissions",
+   "query": {
+    "page": "permissions",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Edit directly"
+    }
+   ],
+   "wait": 600,
+   "shows": "permissions JSON 직접 고치기",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/perm-agent",
+   "file": "docs/screen-spec/img/perm-agent.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "permissions",
+   "query": {
+    "page": "permissions",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "radio",
+     "name": "에이전트",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "에이전트 범위: 도구 허용·차단",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/perm-agent",
+   "file": "docs/screen-spec/img/en/perm-agent.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "permissions",
+   "query": {
+    "page": "permissions",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "radio",
+     "name": "Agents",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "에이전트 범위: 도구 허용·차단",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/memory",
+   "file": "docs/screen-spec/img/memory.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "memory",
+   "query": {
+    "page": "memory",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "메모리(16쪽 메인)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/memory",
+   "file": "docs/screen-spec/img/en/memory.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "memory",
+   "query": {
+    "page": "memory",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "메모리(16쪽 메인)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/memory-claudemd",
+   "file": "docs/screen-spec/img/memory-claudemd.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "memory",
+   "query": {
+    "page": "memory",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "radio",
+     "name": "지시 파일 (CLAUDE.md)",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "지시 파일(CLAUDE.md) 목록",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/memory-claudemd",
+   "file": "docs/screen-spec/img/en/memory-claudemd.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "memory",
+   "query": {
+    "page": "memory",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "radio",
+     "name": "Instruction files (CLAUDE.md)",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "지시 파일(CLAUDE.md) 목록",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/memory-off",
+   "file": "docs/screen-spec/img/memory-off.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "memory",
+   "query": {
+    "page": "memory",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "radio",
+     "name": "전체 꺼짐",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "자동 메모리 전체 끄기(확인 창은 자동 수락)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/memory-off",
+   "file": "docs/screen-spec/img/en/memory-off.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "memory",
+   "query": {
+    "page": "memory",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "radio",
+     "name": "Off everywhere",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "자동 메모리 전체 끄기(확인 창은 자동 수락)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/usage-top",
+   "file": "docs/screen-spec/img/usage-top.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "usage",
+   "query": {
+    "page": "usage",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "사용 통계 상단(커버·17쪽)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/usage-top",
+   "file": "docs/screen-spec/img/en/usage-top.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "usage",
+   "query": {
+    "page": "usage",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "사용 통계 상단(커버·17쪽)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/usage-charts",
+   "file": "docs/screen-spec/img/usage-charts.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "usage",
+   "query": {
+    "page": "usage",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "scroll",
+     "y": 700
+    }
+   ],
+   "wait": 600,
+   "shows": "일별 비용·출력 토큰 차트",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/usage-charts",
+   "file": "docs/screen-spec/img/en/usage-charts.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "usage",
+   "query": {
+    "page": "usage",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "scroll",
+     "y": 700
+    }
+   ],
+   "wait": 600,
+   "shows": "일별 비용·출력 토큰 차트",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/usage-dark",
+   "file": "docs/screen-spec/img/usage-dark.png",
+   "lang": "ko",
+   "theme": "dark",
+   "size": "1280x800@2x",
+   "page": "usage",
+   "query": {
+    "page": "usage",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "사용 통계 다크",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/usage-dark",
+   "file": "docs/screen-spec/img/en/usage-dark.png",
+   "lang": "en",
+   "theme": "dark",
+   "size": "1280x800@2x",
+   "page": "usage",
+   "query": {
+    "page": "usage",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "사용 통계 다크",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/usage-drawer",
+   "file": "docs/screen-spec/img/usage-drawer.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "usage",
+   "query": {
+    "page": "usage",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "D.Duck 기획 정리",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "세션 서랍: 비용 요약·흐름(18쪽 메인)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/usage-drawer",
+   "file": "docs/screen-spec/img/en/usage-drawer.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "usage",
+   "query": {
+    "page": "usage",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "D.Duck planning notes",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "세션 서랍: 비용 요약·흐름(18쪽 메인)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/usage-sessions",
+   "file": "docs/screen-spec/img/usage-sessions.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "usage",
+   "query": {
+    "page": "usage",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "scrollTo",
+     "text": "D.Duck 기획 정리",
+     "exact": true,
+     "block": "center"
+    }
+   ],
+   "wait": 600,
+   "shows": "세션 목록과 사용 칩",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/usage-sessions",
+   "file": "docs/screen-spec/img/en/usage-sessions.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "usage",
+   "query": {
+    "page": "usage",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "scrollTo",
+     "text": "D.Duck planning notes",
+     "exact": true,
+     "block": "center"
+    }
+   ],
+   "wait": 600,
+   "shows": "세션 목록과 사용 칩",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/usage-raw",
+   "file": "docs/screen-spec/img/usage-raw.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "usage",
+   "query": {
+    "page": "usage",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "D.Duck 기획 정리",
+     "exact": true
+    },
+    {
+     "do": "click",
+     "selector": "[role=dialog] li >> nth=0",
+     "optional": true
+    }
+   ],
+   "wait": 600,
+   "shows": "항목별 원문 JSON(비밀값 가림) — 항목 선택자 미확정",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/usage-raw",
+   "file": "docs/screen-spec/img/en/usage-raw.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "usage",
+   "query": {
+    "page": "usage",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "D.Duck planning notes",
+     "exact": true
+    },
+    {
+     "do": "click",
+     "selector": "[role=dialog] li >> nth=0",
+     "optional": true
+    }
+   ],
+   "wait": 600,
+   "shows": "항목별 원문 JSON(비밀값 가림) — 항목 선택자 미확정",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/usage-raw-tab",
+   "file": "docs/screen-spec/img/usage-raw-tab.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "usage",
+   "query": {
+    "page": "usage",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "D.Duck 기획 정리",
+     "exact": true
+    },
+    {
+     "do": "click",
+     "role": "button",
+     "name": "원문",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "세션 전체 원문 탭",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/usage-raw-tab",
+   "file": "docs/screen-spec/img/en/usage-raw-tab.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "usage",
+   "query": {
+    "page": "usage",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "D.Duck planning notes",
+     "exact": true
+    },
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Raw",
+     "exact": true
+    }
+   ],
+   "wait": 600,
+   "shows": "세션 전체 원문 탭",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/usage-insights",
+   "file": "docs/screen-spec/img/usage-insights.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "usage",
+   "query": {
+    "page": "usage",
+    "lang": "ko"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "사용 개선 분석"
+    }
+   ],
+   "wait": 600,
+   "shows": "사용 개선 분석(19쪽)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/usage-insights",
+   "file": "docs/screen-spec/img/en/usage-insights.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "usage",
+   "query": {
+    "page": "usage",
+    "lang": "en"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Usage insights"
+    }
+   ],
+   "wait": 600,
+   "shows": "사용 개선 분석(19쪽)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/settings",
+   "file": "docs/screen-spec/img/settings.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "settings",
+   "query": {
+    "page": "settings",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "설정 상단(20쪽 메인)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/settings",
+   "file": "docs/screen-spec/img/en/settings.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "settings",
+   "query": {
+    "page": "settings",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "설정 상단(20쪽 메인)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/settings-connectors",
+   "file": "docs/screen-spec/img/settings-connectors.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "mcp",
+   "query": {
+    "page": "mcp",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "커넥터(MCP) 상태 — 설정에서 MCP 탭으로 옮겨져 MCP 탭을 찍음",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/settings-connectors",
+   "file": "docs/screen-spec/img/en/settings-connectors.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "mcp",
+   "query": {
+    "page": "mcp",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "커넥터(MCP) 상태 — 설정에서 MCP 탭으로 옮겨져 MCP 탭을 찍음",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/tour",
+   "file": "docs/screen-spec/img/tour.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "ko",
+    "tour": "first"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "다음"
+    },
+    {
+     "do": "click",
+     "role": "button",
+     "name": "다음"
+    }
+   ],
+   "wait": 600,
+   "shows": "튜토리얼 3/5 카드(해 보기·이 화면 열기, 21쪽 메인)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/tour",
+   "file": "docs/screen-spec/img/en/tour.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "en",
+    "tour": "first"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Next"
+    },
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Next"
+    }
+   ],
+   "wait": 600,
+   "shows": "튜토리얼 3/5 카드(해 보기·이 화면 열기, 21쪽 메인)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/tour-00",
+   "file": "docs/screen-spec/img/tour-00.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "ko",
+    "tour": "first"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "튜토리얼 첫 카드",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/tour-00",
+   "file": "docs/screen-spec/img/en/tour-00.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "en",
+    "tour": "first"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "튜토리얼 첫 카드",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/tour-01",
+   "file": "docs/screen-spec/img/tour-01.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "ko",
+    "tour": "first"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "다음"
+    }
+   ],
+   "wait": 600,
+   "shows": "튜토리얼 2/5 카드(오리 역할, 뒤표지)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/tour-01",
+   "file": "docs/screen-spec/img/en/tour-01.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "en",
+    "tour": "first"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Next"
+    }
+   ],
+   "wait": 600,
+   "shows": "튜토리얼 2/5 카드(오리 역할, 뒤표지)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/tour-last",
+   "file": "docs/screen-spec/img/tour-last.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "ko",
+    "tour": "first"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "다음"
+    },
+    {
+     "do": "click",
+     "role": "button",
+     "name": "다음"
+    },
+    {
+     "do": "click",
+     "role": "button",
+     "name": "다음"
+    },
+    {
+     "do": "click",
+     "role": "button",
+     "name": "다음"
+    }
+   ],
+   "wait": 600,
+   "shows": "튜토리얼 마지막(5/5) 카드",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/tour-last",
+   "file": "docs/screen-spec/img/en/tour-last.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "en",
+    "tour": "first"
+   },
+   "actions": [
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Next"
+    },
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Next"
+    },
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Next"
+    },
+    {
+     "do": "click",
+     "role": "button",
+     "name": "Next"
+    }
+   ],
+   "wait": 600,
+   "shows": "튜토리얼 마지막(5/5) 카드",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/tour-checklist",
+   "file": "docs/screen-spec/img/tour-checklist.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "ko",
+    "tour": "checklist"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "시작하기 체크리스트",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/tour-checklist",
+   "file": "docs/screen-spec/img/en/tour-checklist.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "en",
+    "tour": "checklist"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "시작하기 체크리스트",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/ko/crop-sidebar",
+   "file": "docs/screen-spec/img/crop-sidebar.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "사이드바만 잘라 냄(03쪽 정보 구조)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active",
+   "clip": {
+    "x": 0,
+    "y": 0,
+    "width": 216,
+    "height": 800
+   }
+  },
+  {
+   "id": "spec/en/crop-sidebar",
+   "file": "docs/screen-spec/img/en/crop-sidebar.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1280x800@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "사이드바만 잘라 냄(03쪽 정보 구조)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active",
+   "clip": {
+    "x": 0,
+    "y": 0,
+    "width": 216,
+    "height": 800
+   }
+  },
+  {
+   "id": "spec/ko/crop-ducks",
+   "file": "docs/screen-spec/img/crop-ducks.png",
+   "lang": "ko",
+   "theme": "light",
+   "size": "1440x900@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "오리 카드 한 줄 잘라 냄(22쪽)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active",
+   "clip": {
+    "x": 250,
+    "y": 110,
+    "width": 1110,
+    "height": 265
+   }
+  },
+  {
+   "id": "spec/en/crop-ducks",
+   "file": "docs/screen-spec/img/en/crop-ducks.png",
+   "lang": "en",
+   "theme": "light",
+   "size": "1440x900@2x",
+   "page": "agents",
+   "query": {
+    "page": "agents",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "오리 카드 한 줄 잘라 냄(22쪽)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active",
+   "clip": {
+    "x": 250,
+    "y": 110,
+    "width": 1110,
+    "height": 265
+   }
+  },
+  {
+   "id": "spec/ko/w960-tasks-dark",
+   "file": "docs/screen-spec/img/w960-tasks-dark.png",
+   "lang": "ko",
+   "theme": "dark",
+   "size": "960x700@2x",
+   "page": "tasks",
+   "query": {
+    "page": "tasks",
+    "lang": "ko"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "960px 창 작업 보드 다크(22쪽)",
+   "docs": [
+    "docs/screen-spec/index.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/en/w960-tasks-dark",
+   "file": "docs/screen-spec/img/en/w960-tasks-dark.png",
+   "lang": "en",
+   "theme": "dark",
+   "size": "960x700@2x",
+   "page": "tasks",
+   "query": {
+    "page": "tasks",
+    "lang": "en"
+   },
+   "actions": [],
+   "wait": 600,
+   "shows": "960px 창 작업 보드 다크(22쪽)",
+   "docs": [
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "spec/mascot",
+   "file": "docs/screen-spec/img/mascot.png",
+   "kind": "copy",
+   "from": "app/src/assets/mascot.png",
+   "lang": "neutral",
+   "shows": "앱 마스코트(캡처 아님, 언어 무관)",
+   "docs": [
+    "docs/screen-spec/index.html",
+    "docs/screen-spec/index.en.html"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "video/frame-chapter-title",
+   "file": "docs/service-intro/video/frame-chapter-title.png",
+   "kind": "video",
+   "owner": "tasks 3.5 (소개 영상 담당)",
+   "lang": "ko",
+   "size": "1920x1200",
+   "shows": "장 제목 카드 — 영상 프레임, 캡처 스크립트는 찍지 않음",
+   "docs": [
+    "docs/service-intro/video/README.md"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "video/frame-grilling-rewrite",
+   "file": "docs/service-intro/video/frame-grilling-rewrite.png",
+   "kind": "video",
+   "owner": "tasks 3.5 (소개 영상 담당)",
+   "lang": "ko",
+   "size": "1920x1200",
+   "shows": "요구사항 다듬기 → 고쳐 쓰기 — 영상 프레임, 캡처 스크립트는 찍지 않음",
+   "docs": [
+    "docs/service-intro/video/README.md"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "video/frame-workflow",
+   "file": "docs/service-intro/video/frame-workflow.png",
+   "kind": "video",
+   "owner": "tasks 3.5 (소개 영상 담당)",
+   "lang": "ko",
+   "size": "1920x1200",
+   "shows": "작업 흐름 — 영상 프레임, 캡처 스크립트는 찍지 않음",
+   "docs": [
+    "docs/service-intro/video/README.md"
+   ],
+   "status": "active"
+  },
+  {
+   "id": "video/frame-safety",
+   "file": "docs/service-intro/video/frame-safety.png",
+   "kind": "video",
+   "owner": "tasks 3.5 (소개 영상 담당)",
+   "lang": "ko",
+   "size": "1920x1200",
+   "shows": "안전장치 — 영상 프레임, 캡처 스크립트는 찍지 않음",
+   "docs": [
+    "docs/service-intro/video/README.md"
+   ],
+   "status": "active"
+  }
+ ],
+ "pendingDocEdits": []
+}

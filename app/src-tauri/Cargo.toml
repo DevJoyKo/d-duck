@@ -1,0 +1,38 @@
+[package]
+name = "dduck"
+description = "D.Duck - local control center for Claude Code"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+# The `_lib` suffix keeps the lib name distinct from the bin name (cargo#8519).
+name = "dduck_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+chrono = "0.4.45"
+dduck-core = { path = "../crates/dduck-core" }
+tauri = { version = "2", features = ["image-png", "tray-icon"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-notification = "2.8.0"
+tauri-plugin-dialog = "2.8.4"
+tauri-plugin-single-instance = "2.5.5"
+tokio = { version = "1.54.1", features = ["rt", "time", "sync", "macros"] }
+notify = "8.2.1"
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+# Step durations only (D-159, timing.rs); already in the tree via Tauri. No subscriber crate: timing.rs writes its own.
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+
+# Moving agent definitions to the Trash with NSFileManager trashItemAtURL (D-081). Already in the tree via Tauri.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSFileManager", "NSURL", "NSError", "NSString"] }
+
+[dev-dependencies]
+# Pool tests open a real WAL database file (D-161); already used by dduck-core.
+tempfile = "3.27.0"

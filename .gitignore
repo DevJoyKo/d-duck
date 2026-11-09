@@ -1,0 +1,55 @@
+# --- Private: never published (oss-publish-prep, D-172~174) ---
+# Claude session transcripts and any JSONL (test fixtures are generated at test time)
+*.jsonl
+# Lock file the fixture helper (dduck-core testkit) creates while generating
+app/crates/dduck-core/tests/fixtures/.gen.lock
+# PDFs (screen specs, intro deck, third-party articles)
+*.pdf
+# Videos and archives (source bundles, DMG/zip release bundles)
+*.mp4
+*.mov
+*.zip
+*.tar.gz
+*.dmg
+# Release and handoff bundles, publish checklists
+publish/
+**/PUBLISH-CHECKLIST*.md
+# Full decision log and internal planning (a public summary lives in docs/DECISIONS-SUMMARY.md)
+openspec/decisions.md
+openspec/requirements.md
+openspec/research/
+openspec/follow-ups.md
+openspec/changes/archive/
+agent-system-guide-decisions.md
+# Internal docs: Korean screen spec, intro materials, improvement notes
+docs/screen-spec/
+**/key-points*.md
+docs/service-intro/
+docs/improvement-proposals.md
+
+# --- Local settings ---
+.env
+.env.*
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/worktrees/
+
+# --- Build output ---
+app/target/
+app/node_modules/
+app/dist/
+app/dist-ssr/
+*.tsbuildinfo
+*.log
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Local databases, subtitles
+*.db
+*.db-*
+*.sqlite*
+*.srt

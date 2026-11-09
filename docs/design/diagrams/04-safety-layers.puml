@@ -1,0 +1,54 @@
+@startuml 04-safety-layers
+!include _style.iuml
+top to bottom direction
+skinparam nodesep 60
+skinparam ranksep 38
+title 안전 계층 (전달 범위 · delivery-guard) — 어디서 강제되는가
+
+!$APP = "#E6E0F5"
+!$PROMPT = "#FFF4CC"
+!$CLIC = "#E8E8E8"
+!$HOOK = "#DDF2DD"
+
+rectangle "작업 시작 요청\n(Composer · 루틴 · 한도 재개)" as req $UI
+
+package "시작 전 (start_task · 재개도 같은 가드)" as pre $APP {
+  rectangle "<b>[앱] ① 범위 판정</b>  delivery_guard::start_ctx\nlocal_only 목록 + git 저장소 → Guard(draft_pr | local_only)\n읽기 실패 = 시작 거부 · local_only면 훅 자가 시험(deny 확인)\nguard_ctx 없는 spec은 start_background가 거부 (작업·루틴·재개 공통)" as l1 $APP
+  rectangle "<b>[앱] ② 시작 거부 규칙</b>  local_only_refusal\nlocal_only + 위험 권한 모드 = 거부 (실측 전, DANGER_MODES_MEASURED=false)\nmanaged-settings가 훅을 막으면 거부" as l2 $APP
+  rectangle "<b>[앱] ③ worktree 강제</b>  force_worktree\n기본 브랜치(main·master·감지값)에서 시작하면 ~-~-worktree로 격리" as l3 $APP
+}
+
+package "실행 중 (claude ~-~-bg 세션 안)" as run $EXT {
+  rectangle "<b>[프롬프트] ④ 팀 정책 문구</b>  policy_text_guarded\n~-~-append-system-prompt · draft PR까지만 / local_only면 LOCAL_ONLY_RULE\n모델이 따르는 권고 (강제 아님)" as l4 $PROMPT
+  rectangle "<b>[CLI] ⑤ 거부 규칙</b>  deny_rules → ~-~-disallowedTools\n항상: force·mirror·all push, 기본 브랜치 push, gh pr merge/ready, git ~-~-output\nlocal_only: git push 전부 · gh · hub · mcp github 쓰기 도구" as l5 $CLIC
+  rectangle "<b>[훅] ⑥ PreToolUse 훅</b>  local_only일 때만 · ~-~-settings\nD.Duck 실행 파일 ~-~-dduck-guard-local-only → local_only_hook\nBash 명령·git alias 분석, 원격 MCP 거부, 해석 실패 = 거부(exit 2)" as l6 $HOOK
+}
+
+package "끝난 뒤" as post $APP {
+  rectangle "<b>[앱] ⑦ 사후 점검</b>  default_moved · push_detected\n<b>계획(미구현)</b>: 함수만 있고 호출처 없음 · delivery_alert 미기록" as l7 $PLAN
+}
+
+rectangle "<b>[앱] ⑧ 클라우드 루틴 거부</b>  cloud_blocked\nlocal_only 저장소의 클라우드 루틴은\n켜기·편집 거부, 끄기만 허용" as l8 $APP
+rectangle "클라우드 루틴\n편집 요청" as creq $UI
+
+req -[$KEY,bold]-> l1
+l1 -[$KEY,bold]-> l2
+l2 -[$KEY,bold]-> l3
+l3 -[$KEY,bold]-> l4 : 인자로 주입
+l4 -[$KEY,bold]-> l5
+l5 -[$KEY,bold]-> l6
+l6 -[$KEY,bold]-> l7 : 세션 종료
+creq --> l8
+
+pre -[hidden]right- l8
+
+legend right
+  |= 강제 위치 |= 뜻 |
+  |<back:#E6E0F5>      </back>| [앱] D.Duck 코드가 막음 |
+  |<back:#FFF4CC>      </back>| [프롬프트] 지시문 · 권고 |
+  |<back:#E8E8E8>      </back>| [CLI] Claude Code 권한 엔진 |
+  |<back:#DDF2DD>      </back>| [훅] PreToolUse 훅 프로세스 |
+  |<back:#FFFFFF>      </back>| 계획(미구현) |
+  실 CLI로 ⑤⑥ 동작 실측(delivery-guard 1.1)은 아직 안 함
+endlegend
+@enduml
