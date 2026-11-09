@@ -11,7 +11,7 @@ export default {
     emptyBody: "Start a background task with 'New task' and it shows up here.",
     none: "None",
     showAll: { one: "See all in Review ({count} more)", other: "See all in Review ({count} more)" },
-    showMore: { one: "Show more ({count} more)", other: "Show more ({count} more)" },
+    showMore: { one: "Show more ({count} left)", other: "Show more ({count} left)" },
   },
   kind: {
     background: "Background",
@@ -366,9 +366,10 @@ export default {
     list: "Starting tasks",
   },
   wrapup: {
-    refusalRunning: "Can't wrap up a running task",
-    refusalChanges: "Can't wrap up with uncommitted changes",
-    refusalNotChecked: "Couldn't check the changes, so it can't be wrapped up",
+    refusalRunning: "It's still running, so the worktree can't be removed",
+    refusalChanges: "There are uncommitted changes, so the worktree can't be removed",
+    refusalNotChecked: "Couldn't check the changes, so the worktree can't be removed",
+    refusalResumePending: "A resume after the usage limit is scheduled, so it can't be wrapped up",
     worktreePresent: "Worktree still there",
     worktreeGone: "Worktree cleaned up",
     worktreeUnknown: "Couldn't find the worktree",

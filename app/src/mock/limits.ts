@@ -4,13 +4,14 @@
 import type { LimitEntry, LimitView } from "../lib/api";
 import { backendLang, bt } from "./lang";
 
-const param = (() => {
+// Read on every build: tests change the URL without reloading this module.
+const limitsParam = () => {
   try {
     return new URLSearchParams(window.location.search).get("limits");
   } catch {
     return null;
   }
-})();
+};
 
 const H = 3_600_000;
 const now = Date.now();
@@ -36,6 +37,7 @@ const label = (ms: number) => {
 let skipped = new Set<number>();
 
 function build(): LimitView {
+  const param = limitsParam();
   const reset = param === "weekly" ? now + 3 * 24 * H : param === "late" ? now - 6 * H : now + 2 * H + 20 * 60_000;
   const auto = param !== "off" && param !== "late";
   const e = (id: number, sessionId: string, bgId: string | null, over: Partial<LimitEntry> = {}): LimitEntry => ({
@@ -55,9 +57,8 @@ function build(): LimitView {
     ...over,
   });
   let entries: LimitEntry[] = [];
-  // `?board=nolive` has no live session, so nothing waits for a reset either (5.2).
-  const noLive = typeof location !== "undefined" && new URLSearchParams(location.search).get("board") === "nolive";
-  if (param === "none" || noLive) entries = [];
+  // The banner counts limit_resumes rows, not live sessions or board lanes: `?board=nolive` keeps them (5.2 round 2).
+  if (param === "none") entries = [];
   else if (param === "late") entries = [e(1, "k4", "9988aabb", { state: "needs_choice", reason: "late" }), e(2, "k6", "66bb44dd", { state: "needs_choice", reason: "late" })];
   else if (param === "unknown") entries = [e(1, "k4", "9988aabb", { state: "manual", reason: "no_reset", resetsAt: null, label: null, dueAt: null, dueLabel: null })];
   else entries = [e(1, "k4", "9988aabb"), e(2, "k5", "77aa55cc"), e(3, "k6", "66bb44dd", { state: "manual", reason: "danger", dueAt: null, dueLabel: null })];
@@ -74,6 +75,11 @@ function build(): LimitView {
     autoShipped: true,
     autoOn: param !== "off",
   };
+}
+
+/** Background ids with a resume still planned (auto·manual·needs_choice): they cannot be wrapped up (5.2). */
+export function resumePendingIds(): Set<string> {
+  return new Set(build().entries.filter((x) => ["auto", "manual", "needs_choice", "starting"].includes(x.state) && x.bgId).map((x) => x.bgId as string));
 }
 
 export const limitHandlers: Record<string, (a: Record<string, unknown>) => unknown> = {

@@ -12,7 +12,12 @@ import { t } from "../i18n";
 import { useT } from "../i18n/react";
 import { localized } from "../lib/format";
 
-const REFUSAL_TEXT = localized({ running: "tasks.wrapup.refusalRunning", changes: "tasks.wrapup.refusalChanges", notChecked: "tasks.wrapup.refusalNotChecked" });
+const REFUSAL_TEXT = localized({
+  running: "tasks.wrapup.refusalRunning",
+  changes: "tasks.wrapup.refusalChanges",
+  notChecked: "tasks.wrapup.refusalNotChecked",
+  resumePending: "tasks.wrapup.refusalResumePending",
+});
 
 export const REFUSAL_LINE: Record<WrapupRefusal, string | null> = {
   get running() {
@@ -23,6 +28,9 @@ export const REFUSAL_LINE: Record<WrapupRefusal, string | null> = {
   },
   get notChecked() {
     return REFUSAL_TEXT.notChecked;
+  },
+  get resumePending() {
+    return REFUSAL_TEXT.resumePending;
   },
   noWorktree: null,
 };
@@ -81,6 +89,8 @@ export function WrapupPanel({ bgId, onWrap, onDetail, busy }: { bgId: string | n
   const c = check.data;
   const present = c?.worktree?.kind === "present";
   const reason = c?.refusal ? REFUSAL_LINE[c.refusal] : null;
+  // A planned usage-limit resume stops 정리 끝 as well; its one line stands for both buttons.
+  const wrapReason = c?.wrapRefusal ? REFUSAL_LINE[c.wrapRefusal] : null;
   return (
     <div className="mx-3 mt-1 mb-3 space-y-2 rounded-lg border border-line bg-paper px-3 py-2.5" data-wrapup-panel onClick={(e) => e.stopPropagation()}>
       {bgId && (
@@ -116,7 +126,7 @@ export function WrapupPanel({ bgId, onWrap, onDetail, busy }: { bgId: string | n
         </ul>
       )}
       {linkError && <p className="text-[11px] text-danger">{shown(linkError)}</p>}
-      {present && reason && <p className="text-[11px] text-ink-3">{reason}</p>}
+      {wrapReason ? <p className="text-[11px] text-ink-2">{wrapReason}</p> : present && reason && <p className="text-[11px] text-ink-2">{reason}</p>}
       {remove.isError && <p className="text-[11px] text-danger">{messageOf(remove.error)}</p>}
       <div className="flex flex-wrap gap-1.5">
         {present && (
@@ -124,7 +134,7 @@ export function WrapupPanel({ bgId, onWrap, onDetail, busy }: { bgId: string | n
             {t("tasks.wrapup.removeWorktree")}
           </Button>
         )}
-        <Button size="xs" disabled={busy} onClick={onWrap}>
+        <Button size="xs" disabled={busy || !!wrapReason} onClick={onWrap}>
           {t("tasks.wrapup.wrap")}
         </Button>
         {onDetail && (
