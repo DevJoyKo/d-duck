@@ -10,6 +10,11 @@
 See what Claude Code keeps out of sight, delegate more without losing quality, and spend your attention only where it matters:
 visibility, enforced guardrails, and review with evidence.
 
+[![CI](https://github.com/DevJoyKo/d-duck/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DevJoyKo/d-duck/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/DevJoyKo/d-duck?include_prereleases&sort=semver)](https://github.com/DevJoyKo/d-duck/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+![macOS](https://img.shields.io/badge/platform-macOS-lightgrey?logo=apple)
+
 [한국어](README.ko.md) · [Install](#install) · [Build from source](#build-from-source)
 
 <img src="docs/assets/screenshots/en/04-board-waiting-alert.png" width="860" alt="Task board: a task waiting for your answer sits at the top" />

@@ -10,6 +10,11 @@
 Claude Code가 보이지 않는 곳에 쌓아 두는 것을 보이게 하고, 더 많이 맡기면서도 품질은 놓치지 않으며, 인지적 공수는 꼭 필요한 곳에만 씁니다:
 가시성, 강제되는 가드레일, 근거로 하는 리뷰.
 
+[![CI](https://github.com/DevJoyKo/d-duck/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DevJoyKo/d-duck/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/DevJoyKo/d-duck?include_prereleases&sort=semver)](https://github.com/DevJoyKo/d-duck/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+![macOS](https://img.shields.io/badge/platform-macOS-lightgrey?logo=apple)
+
 [English](README.md) · [설치](#설치) · [소스로 빌드](#소스로-빌드)
 
 <img src="docs/assets/screenshots/ko/04-board-waiting-alert.png" width="860" alt="작업 보드: 내 답을 기다리는 작업이 맨 위에 표시됨" />
