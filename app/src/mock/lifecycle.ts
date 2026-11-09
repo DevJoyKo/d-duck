@@ -50,7 +50,7 @@ export function mockLanes<T extends Record<string, object>>(sessions: Session[],
   return out;
 }
 
-const ENDED: Record<string, "done" | "failed" | "stopped"> = { "4b4b4b4b": "done", "5a5a5a5a": "failed", aa11bb22: "failed" };
+const ENDED: Record<string, "done" | "failed" | "stopped"> = { "4b4b4b4b": "done", "5a5a5a5a": "failed", aa11bb22: "failed", "77aa55cc": "failed", "66bb44dd": "stopped" };
 const ENDED_OF: Record<string, "done" | "failed" | "stopped" | "unknown"> = { done: "done", failed: "failed", stopped: "stopped", unknown: "unknown" };
 const manyWrapup = () => param("wrapup") === "many";
 const MANY = Array.from({ length: 45 }, (_, i) => `d${String(i).padStart(7, "0")}`);
@@ -113,6 +113,10 @@ export function lifecycleHandlers(sessions: () => Session[]): Record<string, (a:
     finish_task: (a) => {
       const id = String(a.id);
       const r = recs().find((x) => x.bgId === id);
+      // Stopped normally: the listing and the review record see it ended (the card changes lanes).
+      const s = sessions().find((x) => x.id === id);
+      if (s) s.status = "stopped";
+      if (r) r.running = null;
       if (r && !isReviewed(id) && r.createdAt >= since) return "reviewWait";
       wrapped.add(id);
       return "done";

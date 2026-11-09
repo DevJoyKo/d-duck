@@ -104,19 +104,6 @@ describe("작업 board lifecycle", () => {
     expect(document.body.textContent).not.toContain("사용량 한도");
   });
 
-  it("끝내고 넘기기 on a task with an unreviewed report sends it to 리뷰 대기 and says so", async () => {
-    await boot();
-    fireEvent.click(await within(await screen.findByRole("region", { name: "확인 필요" })).findByText("flaky-test-fix"));
-    const drawer = await waitFor(() => {
-      const el = document.querySelector("aside") as HTMLElement | null;
-      expect(el).toBeTruthy();
-      return el as HTMLElement;
-    });
-    fireEvent.click(within(drawer).getByRole("button", { name: "끝내고 넘기기" }));
-    fireEvent.click(within(drawer).getByRole("button", { name: "끝내고 넘기기" }));
-    expect(await within(drawer).findByText("정상 종료하고 리뷰 대기로 옮겼어요. 리뷰하면 정리 칸으로 가요.")).toBeTruthy();
-  });
-
   it("리뷰했어요 from the report moves the card to 정리 and lowers the badge and the column together", async () => {
     await boot();
     const nav = screen.getByRole("navigation");
@@ -255,6 +242,43 @@ describe("작업 board lifecycle", () => {
     });
     expect(await within(card).findByText("완료")).toBeTruthy();
     expect(within(card).getByRole("button", { name: "되돌리기" })).toBeTruthy();
+  });
+
+
+  // These two change mock state other tests read (a cancelled resume, a stopped task), so they run last.
+  it("cancelling the planned resume re-reads the open checklist: 정리 끝 turns on without collapsing", async () => {
+    // An earlier test wrapped lint-sweep up for good; bring it back to 정리.
+    await (await import("@tauri-apps/api/core")).invoke("unwrap_task", { id: "9988aabb" });
+    await boot("?board=demo");
+    await waitFor(() => expect(within(column("정리")).getByText("lint-sweep")).toBeTruthy());
+    const wu = column("정리");
+    fireEvent.click(within(wu).getByText("lint-sweep"));
+    expect(await within(wu).findByText("한도 뒤 이어서 하기가 예약돼 있어 정리할 수 없어요")).toBeTruthy();
+    const lint = within(wu).getByText("lint-sweep").closest("li") as HTMLElement;
+    expect((within(lint).getByRole("button", { name: "정리 끝" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(lint).getByRole("button", { name: "이번엔 안 이어요" }));
+    await waitFor(() => expect(within(wu).queryByText("한도 뒤 이어서 하기가 예약돼 있어 정리할 수 없어요")).toBeNull());
+    expect((within(lint).getByRole("button", { name: "정리 끝" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((within(lint).getByRole("button", { name: "worktree 정리" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("끝내고 넘기기 on a task with an unreviewed report moves the card to 리뷰 대기 at once and says so", async () => {
+    await boot();
+    await within(screen.getByRole("navigation")).findByLabelText(/리뷰 전 \d+개/);
+    await waitFor(() => expect(Number(total("리뷰 대기"))).toBeGreaterThan(0));
+    const before = Number(total("리뷰 대기"));
+    fireEvent.click(await within(column("확인 필요")).findByText("flaky-test-fix"));
+    const drawer = await waitFor(() => {
+      const el = document.querySelector("aside") as HTMLElement | null;
+      expect(el).toBeTruthy();
+      return el as HTMLElement;
+    });
+    fireEvent.click(within(drawer).getByRole("button", { name: "끝내고 넘기기" }));
+    fireEvent.click(within(drawer).getByRole("button", { name: "끝내고 넘기기" }));
+    expect(await within(drawer).findByText("정상 종료하고 리뷰 대기로 옮겼어요. 리뷰하면 정리 칸으로 가요.")).toBeTruthy();
+    await waitFor(() => expect(within(column("리뷰 대기")).getByText("flaky-test-fix")).toBeTruthy());
+    expect(within(column("확인 필요")).queryByText("flaky-test-fix")).toBeNull();
+    await waitFor(() => expect(Number(total("리뷰 대기"))).toBe(before + 1));
   });
 
 });

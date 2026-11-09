@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, FileText, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { api, type AgentSession, type AgentsPayload, type AttachResult, type BoardCard, type Status, type TaskRecord, type TaskTag } from "../lib/api";
+import { api, messageOf, type AgentSession, type AgentsPayload, type AttachResult, type BoardCard, type Status, type TaskRecord, type TaskTag } from "../lib/api";
 import { taskTypeLabel, type Pose } from "../lib/agents";
 import { boardSummary } from "../lib/boardSummary";
 import { CardDuck, roleLine } from "./RoleDuck";
@@ -325,7 +325,16 @@ function Detail({ s, onClose, tag, onDraft, label }: { s: AgentSession; onClose:
   const closeRef = useRef<HTMLButtonElement>(null);
   const stop = useMutation({ mutationFn: () => api.stopTask(s.id as string), onSettled: () => setConfirm(null) });
   const kill = useMutation({ mutationFn: () => api.forceStop(s.key), onSettled: () => setConfirm(null) });
-  const finish = useMutation({ mutationFn: () => api.finishTask(s.id as string), onSettled: () => setConfirm(null) });
+  const qc = useQueryClient();
+  // The card moves lanes right away (리뷰 대기 or off the board), not on the next poll.
+  const finish = useMutation({
+    mutationFn: () => api.finishTask(s.id as string),
+    onSettled: () => setConfirm(null),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["agents"] });
+      void qc.invalidateQueries({ queryKey: ["board-wrapup"] });
+    },
+  });
   const open = useMutation({ mutationFn: () => api.openTerminal(s.key), onSuccess: setAttach });
   const control = canControl(s);
   const live = s.status === "working" || s.status === "waitingInput" || s.status === "idle";
@@ -627,7 +636,7 @@ export function TasksPage({
           {composing && <Composer key={JSON.stringify(draft ?? {})} status={status} agents={agents} draft={draft ?? null} onClose={() => setComposing(false)} />}
           {!composing && <StartingCards sessions={agents?.sessions} />}
           {agents?.error && <p className="text-xs text-danger">{cliErrorMessage(agents.error)}</p>}
-          {wrap.isError && <p className="text-xs text-danger">{String(wrap.error)}</p>}
+          {wrap.isError && <p className="text-xs text-danger">{messageOf(wrap.error)}</p>}
           {empty ? (
             <Sheet>
               <Empty title={t("tasks.page.emptyTitle")}>{t("tasks.page.emptyBody")}</Empty>
