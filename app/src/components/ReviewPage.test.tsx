@@ -73,7 +73,7 @@ describe("리뷰 tab", () => {
     expect(card("ab12cd34").textContent).toContain("일하는 중이에요");
     for (const id of ["f3e5ff71", "ab12cd34"]) expect(within(card(id)).queryByRole("button", { name: "리뷰했어요" })).toBeNull();
     expect(card("cc33dd44").textContent).toContain("보고서가 아직 없어요");
-    expect(card("aa11bb22").textContent).toContain("리뷰 끝");
+    expect(card("aa11bb22").textContent).toContain("리뷰했어요");
     expect(within(card("aa11bb22")).queryByRole("button", { name: "리뷰했어요" })).toBeNull();
     expect(within(card("aa11bb22")).getByRole("button", { name: "되돌리기" })).toBeTruthy();
     // A format error is a warning, not red.
@@ -213,7 +213,8 @@ describe("리뷰 tab", () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("task_report", { id: "4b4b4b4b" }));
     expect(listCalls()).toBeGreaterThan(before);
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "닫기" }));
-    await waitFor(() => expect((document.querySelector('[data-review-card="9988aabb"]') as HTMLElement).textContent).toContain("리뷰 끝"));
+    await waitFor(() => expect(within(document.querySelector('[data-review-card="9988aabb"]') as HTMLElement).getByRole("button", { name: "되돌리기" })).toBeTruthy());
+    expect((document.querySelector('[data-review-card="9988aabb"]') as HTMLElement).textContent).toContain("리뷰했어요");
     await invoke("unmark_reviewed", { id: "9988aabb" });
   });
 

@@ -1,4 +1,4 @@
-import { messageOf, type AgentSession, type CliError, type Lane, type SessionStatus, type TaskTag } from "./api";
+import { messageOf, type AgentSession, type BoardCard, type CliError, type Lane, type SessionStatus, type TaskTag } from "./api";
 import { currentLang, currentLocale } from "../i18n/language";
 import { t, translate, type MessageKey } from "../i18n";
 
@@ -134,7 +134,7 @@ export function statusLabel(s: SessionStatus, tag?: Pick<TaskTag, "lane" | "revi
     case "reviewWait":
       return t(s === "failed" ? "tasks.statusLine.failedReviewWait" : s === "stopped" ? "tasks.statusLine.stoppedReviewWait" : "tasks.statusLine.doneReviewWait");
     case "wrapup":
-      return t(tag.reviewed ? "tasks.statusLine.reviewedWrapup" : "tasks.statusLine.unreviewedWrapup");
+      return t(!tag.reviewed ? "tasks.statusLine.unreviewedWrapup" : s === "failed" ? "tasks.statusLine.failedReviewedWrapup" : "tasks.statusLine.reviewedWrapup");
     case "done":
       return t("tasks.statusLine.wrapped");
     default:
@@ -151,11 +151,28 @@ export function cardStatusLabel(s: SessionStatus, tag?: Pick<TaskTag, "lane" | "
     case "reviewWait":
       return t(s === "failed" ? "tasks.statusShort.failed" : s === "stopped" ? "tasks.statusShort.stopped" : "tasks.statusShort.done");
     case "wrapup":
-      return t(tag.reviewed ? "tasks.statusShort.reviewed" : "tasks.statusShort.unreviewed");
+      // A reviewed failure keeps saying it failed (5.2).
+      return t(!tag.reviewed ? "tasks.statusShort.unreviewed" : s === "failed" ? "tasks.statusShort.failedReviewed" : "tasks.statusShort.reviewed");
     case "done":
       return t("tasks.statusLine.wrapped");
     default:
       return STATUS_LABEL[s];
+  }
+}
+
+/** The state on a record card (a task the CLI no longer lists): how it last ended, kept by the backend
+ * (`ended_status`); unknown → "목록에서 사라진 작업", never a guessed "끝냈어요". */
+export function recordStatusLabel(c: Pick<BoardCard, "ended" | "reviewed">, lane: "reviewWait" | "wrapup"): string {
+  if (lane === "wrapup") return t(!c.reviewed ? "tasks.statusShort.unreviewed" : c.ended === "failed" ? "tasks.statusShort.failedReviewed" : "tasks.statusShort.reviewed");
+  switch (c.ended) {
+    case "done":
+      return t("tasks.statusShort.done");
+    case "failed":
+      return t("tasks.statusShort.failed");
+    case "stopped":
+      return t("tasks.statusShort.stopped");
+    default:
+      return t("tasks.wrapup.recordGone");
   }
 }
 

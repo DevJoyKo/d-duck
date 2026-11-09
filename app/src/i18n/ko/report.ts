@@ -201,7 +201,7 @@ export default {
     mark: "리뷰했어요",
     markNext: "리뷰했어요 · 다음",
     wrapped: "완료",
-    reviewed: "리뷰 끝",
+    reviewed: "리뷰했어요",
     undo: "되돌리기",
     noFolder: "폴더 모름",
     more: { other: "+{count}개 더" },

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentSession } from "./api";
-import { canControl, cardStatusLabel, cliErrorMessage, GROUP_LABEL, groupSessions, pct, sessionLabel, STATUS_LABEL, statusLabel, validateTaskName } from "./format";
+import { canControl, cardStatusLabel, cliErrorMessage, GROUP_LABEL, groupSessions, pct, recordStatusLabel, sessionLabel, STATUS_LABEL, statusLabel, validateTaskName } from "./format";
 import { buildQuery, msUntilNextLocalMidnight, parseLocalDate, rangeFor } from "./period";
 import { lastScreen } from "./terminal";
 
@@ -88,6 +88,17 @@ describe("task list", () => {
     expect(Object.values(GROUP_LABEL)).not.toContain("완료");
     expect(GROUP_LABEL.reviewWait).toBe("리뷰 대기");
     expect(GROUP_LABEL.wrapup).toBe("정리");
+  });
+  it("a reviewed failure keeps saying it failed, and a record card never guesses 끝냈어요 (5.2)", () => {
+    expect(cardStatusLabel("failed", { lane: "wrapup", reviewed: true })).toBe("실패 · 리뷰했어요");
+    expect(statusLabel("failed", { lane: "wrapup", reviewed: true })).toBe("실패했어요 · 리뷰했어요 · 정리 남음");
+    expect(recordStatusLabel({ ended: "failed", reviewed: false }, "reviewWait")).toBe("실패");
+    expect(recordStatusLabel({ ended: "stopped", reviewed: false }, "reviewWait")).toBe("멈췄어요");
+    expect(recordStatusLabel({ ended: "done", reviewed: false }, "reviewWait")).toBe("끝냈어요");
+    expect(recordStatusLabel({ ended: null, reviewed: false }, "reviewWait")).toBe("목록에서 사라진 작업");
+    expect(recordStatusLabel({ ended: "unknown", reviewed: false }, "reviewWait")).toBe("목록에서 사라진 작업");
+    expect(recordStatusLabel({ ended: "failed", reviewed: true }, "wrapup")).toBe("실패 · 리뷰했어요");
+    expect(recordStatusLabel({ ended: null, reviewed: true }, "wrapup")).toBe("리뷰했어요");
   });
   it("card status drops the lane its column already names (3.2 review)", () => {
     expect(cardStatusLabel("done", { lane: "reviewWait" })).toBe("끝냈어요");

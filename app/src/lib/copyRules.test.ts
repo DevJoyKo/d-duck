@@ -74,6 +74,17 @@ describe("copy rules (Korean)", () => {
     expect(formalEndings("저장했어요 · 이름이에요 · 다시 해 주세요")).toEqual([]);
   });
 
+  it("says 완료 only for 정리 끝 and the four kept phrases, never 완료로 (task-lifecycle design 8, 5.2)", () => {
+    // design.md 8: rg '"완료"|완료·|: "완료|완료로'. 정리 끝 chips are exactly "완료"; the kept phrases are 완료 기준,
+    // the onboarding "(완료)" and tour text. 끝내고 넘기기 (D-167) must not promise 완료 while a report waits.
+    const hits = ko.flatMap((c) =>
+      (c.file.endsWith("(ko)") ? c.text.split("\n") : [...c.text.matchAll(new RegExp(STR, "g"))].map((m) => m[1]))
+        .filter((v) => /"완료"|완료·|완료로/.test(`"${v}"`) || (v.includes("완료") && v !== "완료" && !/완료 기준|\(완료\)/.test(v) && !c.file.endsWith("tour.ts")))
+        .map((v) => `${c.file}: ${v}`),
+    ).filter((h) => !h.endsWith(": 완료"));
+    expect(hits).toEqual([]);
+  });
+
   it("has no 합니다체 in the Korean text", () => {
     expect(ko.flatMap((s) => formalEndings(s.text).map((h) => `${s.file}: ${h}`))).toEqual([]);
   });

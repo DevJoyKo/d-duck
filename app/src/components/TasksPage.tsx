@@ -17,6 +17,7 @@ import {
   localized,
   shortPath,
   cardStatusLabel,
+  recordStatusLabel,
   statusLabel,
   type Group,
 } from "../lib/format";
@@ -90,7 +91,8 @@ function Card({ s, selected, onSelect, tag, onDraft, label, expanded, children }
   const prompt = usePrompt(s.key);
   const chip = reportChip(tag?.report, s.status);
   const limit = useLimitCard(s);
-  const follow = canFollowUp(s, tag?.taskType) || canMarkReviewed(tag?.taskType, types);
+  // "리뷰했어요" is already the card's status line once marked, so only the button counts here (5.2).
+  const follow = canFollowUp(s, tag?.taskType) || (canMarkReviewed(s.status, tag?.taskType, types) && !tag?.reviewed);
   const id = useId();
   const role = roleLine(typeLabel, tag?.agent);
   return (
@@ -286,7 +288,7 @@ function FollowUps({ s, tag, onDraft, compact }: { s: AgentSession; tag?: TaskTa
     onSuccess: () => qc.invalidateQueries({ queryKey: ["agents"] }),
   });
   const follow = canFollowUp(s, tag?.taskType);
-  const review = canMarkReviewed(tag?.taskType, useTeamConfig().data?.config.types) && !!s.id;
+  const review = canMarkReviewed(s.status, tag?.taskType, useTeamConfig().data?.config.types) && !!s.id;
   if (!follow && !review) return null;
   const size = compact ? CARD_BUTTON : "md";
   // New sessions, not forks: the author is the worst reviewer of its own code (AG-06, AG-14).
@@ -308,7 +310,8 @@ function FollowUps({ s, tag, onDraft, compact }: { s: AgentSession; tag?: TaskTa
           {t("tasks.followUp.markReviewed")}
         </Button>
       )}
-      {review && tag?.reviewed && <span className="self-center text-[12px] text-ok">{t("tasks.followUp.reviewed")}</span>}
+      {/* On a card the status line already says 리뷰했어요; the drawer keeps this line (5.2). */}
+      {review && tag?.reviewed && !compact && <span className="self-center text-[12px] text-ok">{t("tasks.followUp.reviewed")}</span>}
     </div>
   );
 }
@@ -476,7 +479,6 @@ function Detail({ s, onClose, tag, onDraft, label }: { s: AgentSession; onClose:
 /** One card in a column: a live session, or a D.Duck record the CLI no longer lists (리뷰 대기·정리 only). */
 type Entry = { kind: "live"; s: AgentSession } | { kind: "record"; c: BoardCard };
 
-const RECORD_LINE: Record<"reviewWait" | "wrapup", string> = localized({ reviewWait: "tasks.statusShort.done", wrapup: "tasks.statusShort.reviewed" });
 
 export function TasksPage({
   status,
@@ -514,7 +516,13 @@ export function TasksPage({
   const current = sessions.find((s) => s.key === selected) ?? null;
   const columns = groupSessions(sessions, tags);
   // Read on entering the board and again when the review badge or the listing changes (no timer of its own).
-  const board = useQuery({ queryKey: ["board-wrapup", agents?.reviewPending ?? null, sessions.map((x) => `${x.key}:${x.status}`).join(",")], queryFn: api.boardWrapup });
+  // 정리 shows 40 record cards, then "더 보기" asks for 40 more (5.2).
+  const [wrapCards, setWrapCards] = useState(40);
+  const board = useQuery({
+    queryKey: ["board-wrapup", agents?.reviewPending ?? null, sessions.map((x) => `${x.key}:${x.status}`).join(","), wrapCards],
+    queryFn: () => api.boardWrapup(wrapCards),
+    placeholderData: (prev) => prev,
+  });
   const [expanded, setExpanded] = useState<string | null>(null);
   const [report, setReport] = useState<{ id: string; title: string; session: AgentSession["status"] | null } | null>(null);
   const [undo, setUndo] = useState<string | null>(null);
@@ -556,7 +564,7 @@ export function TasksPage({
     if (g === "wrapup") {
       const records = board.data?.wrapup.items ?? [];
       const list: Entry[] = [...live.map((s): Entry => ({ kind: "live", s })), ...records.map((c): Entry => ({ kind: "record", c }))];
-      return { list, total: live.length + (board.data?.wrapup.total ?? 0), more: false };
+      return { list, total: live.length + (board.data?.wrapup.total ?? 0), more: (board.data?.wrapup.total ?? 0) > records.length };
     }
     return { list: live.map((s) => ({ kind: "live", s })), total: live.length, more: false };
   };
@@ -587,7 +595,7 @@ export function TasksPage({
     };
     if (e.kind === "record") {
       return (
-        <RecordCard key={key} c={e.c} line={g === "wrapup" ? RECORD_LINE.wrapup : RECORD_LINE.reviewWait} onOpen={onOpen} expanded={g === "wrapup" ? open : undefined}>
+        <RecordCard key={key} c={e.c} line={recordStatusLabel(e.c, g === "wrapup" ? "wrapup" : "reviewWait")} onOpen={onOpen} expanded={g === "wrapup" ? open : undefined}>
           {panel}
         </RecordCard>
       );
@@ -634,22 +642,26 @@ export function TasksPage({
                     <header className="mb-2 px-1.5 pt-1" data-waiting={waiting || undefined}>
                       <div className="flex items-baseline gap-2">
                         <h3 className="text-[13px] font-semibold">{GROUP_LABEL[group]}</h3>
-                        <span className="text-xs text-ink-3" data-column-total>
+                        {/* ink-2 on the well: ink-3 there is 4.33:1 in light mode (5.2 brand). */}
+                        <span className="text-xs text-ink-2" data-column-total>
                           {total}
                         </span>
                       </div>
-                      <p className="truncate text-[12px] text-ink-3" title={COLUMN_HINT[group]}>
+                      <p className="truncate text-[12px] text-ink-2" title={COLUMN_HINT[group]}>
                         {COLUMN_HINT[group]}
                       </p>
                     </header>
                     {list.length === 0 ? (
-                      <p className="px-1 py-3 text-[12px] text-ink-3">{t("tasks.page.none")}</p>
+                      <p className="px-1 py-3 text-[12px] text-ink-2">{t("tasks.page.none")}</p>
                     ) : (
                       <ul className="space-y-2">{list.map((e) => renderEntry(group, e))}</ul>
                     )}
                     {more && (
-                      <button onClick={onOpenReview} className="mt-2 px-1 text-[12px] text-ink-2 underline underline-offset-2 hover:text-ink">
-                        {t("tasks.page.showAll", { count: total - list.length })}
+                      <button
+                        onClick={group === "wrapup" ? () => setWrapCards((n) => n + 40) : onOpenReview}
+                        className="mt-2 px-1 text-[12px] text-ink-2 underline underline-offset-2 hover:text-ink"
+                      >
+                        {t(group === "wrapup" ? "tasks.page.showMore" : "tasks.page.showAll", { count: total - list.length })}
                       </button>
                     )}
                   </section>
@@ -682,7 +694,8 @@ export function TasksPage({
           }
         />
       )}
-      {undo && <UndoBar onUndo={() => unwrap.mutate(undo)} onDone={endUndo} />}
+      {/* key: a second 정리 끝 restarts the 5 seconds instead of inheriting the first one's timer (5.2). */}
+      {undo && <UndoBar key={undo} onUndo={() => unwrap.mutate(undo)} onDone={endUndo} />}
     </div>
   );
 }

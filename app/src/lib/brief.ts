@@ -1,6 +1,6 @@
 // Tech-lead workflow on the webview side (D-061, D-063).
 // These are defaults and habits only; the backend re-checks everything that matters (AG-09).
-import type { AgentSession, AgentsPayload, TaskOrigin } from "./api";
+import type { AgentSession, AgentsPayload, SessionStatus, TaskOrigin } from "./api";
 import { endedStatus, groupOf } from "./format";
 import { isReviewType, type TeamType } from "./team";
 import { t } from "../i18n";
@@ -121,9 +121,9 @@ export function blockedCount(agents: AgentsPayload | undefined): number {
   return (agents?.sessions ?? []).filter((s) => groupOf(s.status, agents?.tags?.[s.key]?.lane) === "review").length;
 }
 
-/** "리뷰했어요" applies to every review-capacity task, whatever its state (AG-14). */
-export function canMarkReviewed(taskType: string | null | undefined, types?: TeamType[]): boolean {
-  return isReviewType(types, taskType);
+/** "리뷰했다고 표시" on a review-capacity task once it has ended (AG-14; 5.2: never while it still runs or waits). */
+export function canMarkReviewed(status: SessionStatus, taskType: string | null | undefined, types?: TeamType[]): boolean {
+  return endedStatus(status) && isReviewType(types, taskType);
 }
 
 /** QA·리뷰 맡기기 once a dev task is over: 확인 필요 (failed), 리뷰 대기 and 정리 (task-lifecycle). */
