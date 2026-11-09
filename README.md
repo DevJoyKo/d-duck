@@ -33,8 +33,9 @@ The more you delegate, the more your attention becomes the scarce resource. Most
 | With many sessions open, I check terminal tabs one by one to find what's waiting or failed. | **One task board** with tasks that need you on top, a live terminal preview, and a notification when an agent waits |
 | Skills, MCP servers, plugins, and memory are scattered across files. | **Extensions, MCP, Permissions, and Memory tabs:** see, create, edit, and delete without JSON |
 | When a way of working proves itself, I still redo it by hand every time. | **Grow what works:** save it as a skill or command, chain skills into a workflow (checked so Claude Code can actually load it), and put it on a schedule as a routine |
+| I don't notice my own bad habits: an expensive model for small tasks, failing commands repeated, outdated setups. | **Usage review:** finds patterns in your own usage that cost money or lower success rates, explains why, and turns each recommendation into a task you can hand off |
 
-The four groups below explain how these fit together.
+The five groups below explain how these fit together.
 
 ### 1. Guardrails that are enforced, not asked for
 
@@ -75,6 +76,12 @@ The four groups below explain how these fit together.
 
 Each step makes the unit of delegation bigger, so you hand off whole processes, not single prompts, and your attention stays on decisions.
 
+### 5. Find the habits you don't see, and fix them
+
+**Problem:** The ways you misuse a tool are the ones you can't see yourself. A heavy model for quick tasks, the same failing command retried, a cache that never pays off, a CLI several versions behind. None of it shows up as an error.
+
+**D.Duck:** The usage review reads your own usage records and points out patterns that cost money or lower success rates, with the reason and a source for each. Each recommendation can become a task in one click, so the fix is handed off like any other work instead of staying a note.
+
 <table>
 <tr>
 <td width="50%"><img src="docs/assets/screenshots/en/07-settings-block-remote-push.png" alt="Settings: Block remote push" /></td>
@@ -111,7 +118,7 @@ I wanted to hand real work to a team of Claude Code agents without giving up con
 | **Guardrails** | Draft PR by default, "Block remote push" for trust-critical repos, no risky modes for strict task types. |
 | **Routines and artifacts** | Scheduled work, locally or as claude.ai cloud routines. Artifacts Claude made across sessions. |
 | **Configure without JSON** | Skills, commands, workflows, plugins, MCP servers, rules, memory, and effective permissions. Changes are shown before they're saved. |
-| **Usage** | Cost, models, and tool and skill calls by period, usage-limit alerts, and a usage review. |
+| **Usage** | Cost, models, and tool and skill calls by period, usage-limit alerts, and a usage review that turns recommendations into tasks. |
 | **Language** | Korean and English, switched from the sidebar or Settings. |
 
 ## Design principles
