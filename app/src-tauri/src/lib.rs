@@ -415,10 +415,16 @@ fn poll_once(app: &AppHandle, conn: Option<&Connection>, poll: &mut tracker::Pol
     if ok {
         if let Some(c) = conn {
             let _ = routines::track(c, &sessions, chrono_now_ms());
+            // How each task ended, kept for its record card once the CLI forgets it (task-lifecycle 5.2).
+            let _ = dduck_core::task_lifecycle::note_ended(c, &sessions);
         }
         // Usage-limit stops: group, announce once per reset time (usage-limit-resume).
         limit_cmds::on_poll(app, &sessions);
     }
+    // Board lanes of ended tasks (task-lifecycle): the 확인 필요 number and the tray use the same rule as the board.
+    let lanes = conn
+        .and_then(|c| settings::review_since(c, chrono_now_ms()).ok().and_then(|since| dduck_core::task_lifecycle::lanes(c, &sessions, since).ok()))
+        .unwrap_or_default();
     let finished = conn.and_then(|c| settings::notify_finished(c).ok()).unwrap_or(true);
     {
         if finished {
@@ -427,10 +433,10 @@ fn poll_once(app: &AppHandle, conn: Option<&Connection>, poll: &mut tracker::Pol
                 let body = if t.to == dduck_core::claude_cli::SessionStatus::Failed {
                     dduck_core::task_lifecycle::failed_body(&t.name, i18n::current())
                 } else {
-                    // task-lifecycle: never "완료" before a review.
-                    let bg = sessions.iter().find(|s| s.key == t.key).and_then(|s| s.id.as_deref());
-                    let report = matches!((conn, bg), (Some(c), Some(id)) if dduck_core::task_lifecycle::has_report(c, id));
-                    dduck_core::task_lifecycle::finished_body(&t.name, report, i18n::current())
+                    // task-lifecycle: never "완료" before a review, and "리뷰 대기" only for a task that lands there (a
+                    // report task from before `review_since` goes to 정리).
+                    let waits = lanes.get(&t.key) == Some(&dduck_core::task_lifecycle::Lane::ReviewWait);
+                    dduck_core::task_lifecycle::finished_body(&t.name, waits, i18n::current())
                 };
                 let _ = app.notification().builder().title("D.Duck").body(body).show();
             }
@@ -442,10 +448,6 @@ fn poll_once(app: &AppHandle, conn: Option<&Connection>, poll: &mut tracker::Pol
             let _ = app.notification().builder().title("D.Duck").body(tracker::waiting_notification_body(&t.name, i18n::current())).show();
         }
     }
-    // Board lanes of ended tasks (task-lifecycle): the 확인 필요 number and the tray use the same rule as the board.
-    let lanes = conn
-        .and_then(|c| settings::review_since(c, chrono_now_ms()).ok().and_then(|since| dduck_core::task_lifecycle::lanes(c, &sessions, since).ok()))
-        .unwrap_or_default();
     let review_pending = conn.and_then(|c| review_pending(c, &sessions, &error));
     update_tray(app, &state, &sessions, &lanes, review_pending.unwrap_or(0));
     if let Ok(mut a) = state.agents.write() {
@@ -2781,7 +2783,7 @@ async fn stop_task(app: AppHandle, state: State<'_, AppState>, id: String) -> Re
     Ok(())
 }
 
-/// "완료로 넘기기" (D-167): stops a background task normally (the conversation stays, as "중지") and moves it on —
+/// "끝내고 넘기기" (D-167): stops a background task normally (the conversation stays, as "중지") and moves it on —
 /// an unreviewed report to 리뷰 대기, anything else straight to done. Never skips the review.
 #[tauri::command]
 async fn finish_task(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<dduck_core::task_lifecycle::Finished, CliError> {

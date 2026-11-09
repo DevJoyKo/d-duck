@@ -7,7 +7,7 @@ use rusqlite::Connection;
 use crate::Error;
 
 #[cfg(test)]
-const SCHEMA_VERSION: i64 = 14;
+const SCHEMA_VERSION: i64 = 15;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS ingest_files (
@@ -307,6 +307,10 @@ ALTER TABLE task_meta ADD COLUMN role_model TEXT;";
 /// rows, which follow the current app language.
 const SCHEMA_V14: &str = "ALTER TABLE task_meta ADD COLUMN lang TEXT;";
 
+/// task-lifecycle 5.2: how the task last ended while the CLI still listed it (`done`/`failed`/`stopped`/`unknown`),
+/// so a record card keeps it after the task leaves the listing. NULL = never seen ended (older rows, still running).
+const SCHEMA_V15: &str = "ALTER TABLE task_meta ADD COLUMN ended_status TEXT;";
+
 pub const SETTING_ARTIFACTS_BACKFILL: &str = "artifacts_backfill";
 
 /// Staged migrations, each in one transaction with its version bump. Upgrading an existing v1 DB marks a one-time
@@ -375,6 +379,9 @@ fn migrate(conn: &Connection) -> Result<(), Error> {
     }
     if version < 14 {
         conn.execute_batch(&format!("BEGIN IMMEDIATE; {SCHEMA_V14} PRAGMA user_version = 14; COMMIT;"))?;
+    }
+    if version < 15 {
+        conn.execute_batch(&format!("BEGIN IMMEDIATE; {SCHEMA_V15} PRAGMA user_version = 15; COMMIT;"))?;
     }
     Ok(())
 }
@@ -505,6 +512,19 @@ mod tests {
         assert_eq!(v, SCHEMA_VERSION);
         let w: Option<i64> = conn.query_row("SELECT wrapped_at FROM task_meta", [], |r| r.get(0)).unwrap();
         assert_eq!(w, None);
+    }
+
+    #[test]
+    fn upgrading_v14_adds_ended_status_null_for_old_rows() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(&format!("{SCHEMA_V1} {SCHEMA_V2} {SCHEMA_V3} {SCHEMA_V4} {SCHEMA_V5} {SCHEMA_V6} {SCHEMA_V7} {SCHEMA_V8} {SCHEMA_V9} {SCHEMA_V10} {SCHEMA_V11} {SCHEMA_V12} {SCHEMA_V13} {SCHEMA_V14}")).unwrap();
+        conn.pragma_update(None, "user_version", 14).unwrap();
+        conn.execute("INSERT INTO task_meta(bg_id, created_at) VALUES ('ab12cd34', 1)", []).unwrap();
+        migrate(&conn).unwrap();
+        let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+        assert_eq!(v, SCHEMA_VERSION);
+        let e: Option<String> = conn.query_row("SELECT ended_status FROM task_meta", [], |r| r.get(0)).unwrap();
+        assert_eq!(e, None);
     }
 
     #[test]

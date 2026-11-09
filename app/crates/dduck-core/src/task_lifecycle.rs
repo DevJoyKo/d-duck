@@ -162,10 +162,10 @@ pub fn tooltip(check: usize, pending: u32, lang: crate::i18n::Lang) -> String {
     if parts.is_empty() { "D.Duck".to_string() } else { format!("D.Duck — {}", parts.join(" · ")) }
 }
 
-/// Finished-task notification: a task with a report waits for review.
-pub fn finished_body(name: &str, has_report: bool, lang: crate::i18n::Lang) -> String {
+/// Finished-task notification: "리뷰 대기" only when the task lands in that lane (`lane_of`).
+pub fn finished_body(name: &str, waits_for_review: bool, lang: crate::i18n::Lang) -> String {
     use crate::i18n::{Code, Params, msg};
-    msg(lang, if has_report { Code::NotifyFinishedReview } else { Code::NotifyFinished }, &Params::new().text("name", name, 64))
+    msg(lang, if waits_for_review { Code::NotifyFinishedReview } else { Code::NotifyFinished }, &Params::new().text("name", name, 64))
 }
 
 /// Failed-task notification: the task name only.
@@ -173,8 +173,29 @@ pub fn failed_body(name: &str, lang: crate::i18n::Lang) -> String {
     crate::i18n::msg(lang, crate::i18n::Code::NotifyFailed, &crate::i18n::Params::new().text("name", name, 64))
 }
 
-pub fn has_report(conn: &Connection, bg_id: &str) -> bool {
-    facts(conn, bg_id).ok().flatten().is_some_and(|f| f.has_report)
+/// The `ended_status` code of a listed session: how it ended, or `None` while it still runs.
+fn ended_code(s: SessionStatus) -> Option<&'static str> {
+    match s {
+        SessionStatus::Done => Some("done"),
+        SessionStatus::Failed => Some("failed"),
+        SessionStatus::Stopped => Some("stopped"),
+        SessionStatus::Unknown => Some("unknown"),
+        SessionStatus::Working | SessionStatus::WaitingInput | SessionStatus::Idle => None,
+    }
+}
+
+const ENDED_CODES: [&str; 4] = ["done", "failed", "stopped", "unknown"];
+
+/// Keeps how each listed D.Duck task ended (`task_meta.ended_status`), so its record card still says "실패" or
+/// "멈췄어요" after the CLI forgets it. A running task clears it. Writes only rows whose value changes.
+pub fn note_ended(conn: &Connection, sessions: &[AgentSession]) -> Result<usize, Error> {
+    let mut stmt = conn.prepare_cached("UPDATE task_meta SET ended_status = ?2 WHERE bg_id = ?1 AND ended_status IS NOT ?2")?;
+    let mut changed = 0;
+    for s in sessions {
+        let Some(id) = s.id.as_deref().filter(|id| crate::task_meta::valid_bg_id(id)) else { continue };
+        changed += stmt.execute(params![id, ended_code(s.status)])?;
+    }
+    Ok(changed)
 }
 
 // ---------- board ----------
@@ -192,6 +213,8 @@ pub struct BoardCard {
     pub reviewed: bool,
     /// The CLI still lists it (the webview draws the live session's card instead).
     pub listed: bool,
+    /// How it last ended while listed (`done`/`failed`/`stopped`/`unknown`); `None` = never seen ended.
+    pub ended: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -220,6 +243,7 @@ struct Rec {
     reviewed: bool,
     report_ok: bool,
     goal: Option<String>,
+    ended: Option<String>,
 }
 
 fn name_of(name: Option<String>, brief: Option<String>) -> Option<String> {
@@ -243,6 +267,7 @@ fn read_recs(conn: &Connection, sql: &str, since: Option<i64>) -> Result<Vec<Rec
             reviewed: r.get::<_, Option<i64>>(5)?.is_some(),
             report_ok: r.get::<_, Option<String>>(6)?.is_some_and(|id| crate::task_report::valid_id(&id)),
             goal: r.get(7)?,
+            ended: r.get(8)?,
         })
     };
     let rows: Vec<Rec> = match since {
@@ -261,16 +286,18 @@ fn card(r: Rec, listed: &HashSet<&str>) -> BoardCard {
         task_type: r.task_type,
         created_at: r.created_at,
         reviewed: r.reviewed,
+        ended: r.ended.as_deref().and_then(|e| ENDED_CODES.into_iter().find(|c| *c == e)),
     }
 }
 
 /// The two DB-backed columns. Same rows, order, id checks and 500 cap as `review_inbox::pending_count`.
-pub fn board(conn: &Connection, sessions: &[AgentSession], since: i64) -> Result<Board, Error> {
+/// `wrapup_cards` is how many 정리 cards to return ("더 보기" asks for more), clamped to 40..=500.
+pub fn board(conn: &Connection, sessions: &[AgentSession], since: i64, wrapup_cards: usize) -> Result<Board, Error> {
     let running: HashMap<String, Running> = review_inbox::running_map(sessions);
     let listed: HashSet<&str> = sessions.iter().filter_map(|s| s.id.as_deref()).collect();
     let pending: Vec<Rec> = read_recs(
         conn,
-        "SELECT bg_id, name, cwd, task_type, created_at, reviewed_at, report_id, brief_json FROM task_meta
+        "SELECT bg_id, name, cwd, task_type, created_at, reviewed_at, report_id, brief_json, ended_status FROM task_meta
          WHERE report_id IS NOT NULL ORDER BY created_at DESC, bg_id LIMIT ?1",
         None,
     )?
@@ -282,14 +309,15 @@ pub fn board(conn: &Connection, sessions: &[AgentSession], since: i64) -> Result
     let review_wait = Column { total: pending.len(), items: pending.into_iter().take(MAX_CARDS).map(|r| card(r, &listed)).collect() };
     let wrapped: Vec<Rec> = read_recs(
         conn,
-        "SELECT bg_id, name, cwd, task_type, created_at, reviewed_at, report_id, brief_json FROM task_meta
+        "SELECT bg_id, name, cwd, task_type, created_at, reviewed_at, report_id, brief_json, ended_status FROM task_meta
          WHERE reviewed_at IS NOT NULL AND wrapped_at IS NULL AND created_at >= ?2 ORDER BY created_at DESC, bg_id LIMIT ?1",
         Some(since),
     )?
     .into_iter()
     .filter(|r| !running.contains_key(&r.bg_id) && !listed.contains(r.bg_id.as_str()))
     .collect();
-    let wrapup = Column { total: wrapped.len(), items: wrapped.into_iter().take(MAX_CARDS).map(|r| card(r, &listed)).collect() };
+    let cap = wrapup_cards.clamp(MAX_CARDS, MAX_ROWS);
+    let wrapup = Column { total: wrapped.len(), items: wrapped.into_iter().take(cap).map(|r| card(r, &listed)).collect() };
     Ok(Board { review_wait, wrapup })
 }
 
@@ -333,7 +361,7 @@ pub fn wrap(conn: &Connection, id: &str, sessions: &[AgentSession], known: bool,
     put_wrapped_keys(conn, &keys)
 }
 
-/// Where "완료로 넘기기" sent a task (D-167).
+/// Where "끝내고 넘기기" sent a task (D-167).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Finished {
@@ -343,7 +371,7 @@ pub enum Finished {
     Done,
 }
 
-/// "완료로 넘기기" for a background task the caller has just stopped (D-167): the same lane rule as an ended task —
+/// "끝내고 넘기기" for a background task the caller has just stopped (D-167): the same lane rule as an ended task —
 /// an unreviewed report goes to 리뷰 대기 (the review gate is never skipped), anything else is wrapped up at once.
 /// `key` is the session key (for a task without a D.Duck record).
 pub fn finish_stopped(conn: &Connection, bg_id: &str, key: &str, since: i64, now_ms: i64) -> Result<Finished, Error> {
@@ -738,7 +766,7 @@ mod tests {
             session("k6", Some("aaaaaaa6"), SessionStatus::Done),
             session("k7", Some("aaaaaaa7"), SessionStatus::Failed),
         ];
-        let b = board(&conn, &sessions, SINCE).unwrap();
+        let b = board(&conn, &sessions, SINCE, MAX_CARDS).unwrap();
         let badge = review_inbox::pending_count(&conn, &review_inbox::running_map(&sessions), SINCE).unwrap();
         assert_eq!(b.review_wait.total, badge as usize);
         assert_eq!(b.review_wait.total, 4);
@@ -763,36 +791,118 @@ mod tests {
         for i in 0..45u8 {
             rec(&conn, &format!("bbbbbb{i:02x}"), "/tmp", Some(&rid(i + 1)), SINCE + i64::from(i), false);
         }
-        let b = board(&conn, &[], SINCE).unwrap();
+        let b = board(&conn, &[], SINCE, MAX_CARDS).unwrap();
         assert_eq!(b.review_wait.total, 45);
         assert_eq!(b.review_wait.items.len(), MAX_CARDS);
         assert_eq!(b.review_wait.total, review_inbox::pending_count(&conn, &HashMap::new(), SINCE).unwrap() as usize);
     }
 
     #[test]
+    fn a_record_card_keeps_how_the_task_ended_after_it_leaves_the_listing() {
+        let conn = crate::db::open_in_memory().unwrap();
+        rec(&conn, "eeeeeee1", "/tmp", Some(&rid(1)), SINCE + 1, false);
+        rec(&conn, "eeeeeee2", "/tmp", Some(&rid(2)), SINCE + 2, false);
+        rec(&conn, "eeeeeee3", "/tmp", Some(&rid(3)), SINCE + 3, false);
+        rec(&conn, "eeeeeee4", "/tmp", Some(&rid(4)), SINCE + 4, false); // never seen ended
+        let listed = [
+            session("k1", Some("eeeeeee1"), SessionStatus::Failed),
+            session("k2", Some("eeeeeee2"), SessionStatus::Stopped),
+            session("k3", Some("eeeeeee3"), SessionStatus::Done),
+        ];
+        assert_eq!(note_ended(&conn, &listed).unwrap(), 3);
+        assert_eq!(note_ended(&conn, &listed).unwrap(), 0, "unchanged rows are not written again");
+        // The CLI forgot them: the cards still say how each ended.
+        let b = board(&conn, &[], SINCE, MAX_CARDS).unwrap();
+        let ended: HashMap<_, _> = b.review_wait.items.iter().map(|c| (c.bg_id.as_str(), c.ended)).collect();
+        assert_eq!(ended["eeeeeee1"], Some("failed"));
+        assert_eq!(ended["eeeeeee2"], Some("stopped"));
+        assert_eq!(ended["eeeeeee3"], Some("done"));
+        assert_eq!(ended["eeeeeee4"], None);
+        // Resumed: running again clears it; anything not in the known set is dropped on read.
+        note_ended(&conn, &[session("k1", Some("eeeeeee1"), SessionStatus::Working)]).unwrap();
+        conn.execute("UPDATE task_meta SET ended_status = 'weird' WHERE bg_id = 'eeeeeee2'", []).unwrap();
+        let b = board(&conn, &[], SINCE, MAX_CARDS).unwrap();
+        assert!(b.review_wait.items.iter().all(|c| c.bg_id != "eeeeeee1" || c.ended.is_none()));
+        assert!(b.review_wait.items.iter().all(|c| c.bg_id != "eeeeeee2" || c.ended.is_none()));
+    }
+
+    #[test]
+    fn thirty_old_report_tasks_do_not_flood_review_wait_and_only_the_last_24_hours_show() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let now = SINCE + 1000;
+        let day = 24 * 3_600_000;
+        let mut listing = Vec::new();
+        for i in 0..30u8 {
+            let bg = format!("0dd0dd{i:02x}");
+            rec(&conn, &bg, "/tmp", Some(&rid(i + 1)), SINCE - 1 - i64::from(i), false); // before review_since
+            let key = format!("old-{i}");
+            // Half ended more than 24 hours ago (first seen then), half within the last 24 hours.
+            let seen = if i % 2 == 0 { now - day - 1 } else { now - 60_000 };
+            conn.execute("INSERT INTO session_observations(session_id, ended_observed_at) VALUES (?1, ?2)", params![key, seen]).unwrap();
+            listing.push(session(&key, Some(&bg), if i % 3 == 0 { SessionStatus::Stopped } else { SessionStatus::Done }));
+        }
+        let visible = crate::tracker::visible_sessions(&conn, listing, now).unwrap();
+        assert_eq!(visible.len(), 15, "only the last 24 hours stay listed");
+        let b = board(&conn, &visible, SINCE, MAX_CARDS).unwrap();
+        assert_eq!(b.review_wait.total, 0, "리뷰 대기 stays empty");
+        assert_eq!(b.review_wait.total as u32, review_inbox::pending_count(&conn, &review_inbox::running_map(&visible), SINCE).unwrap());
+        assert_eq!(b.wrapup.total, 0, "unreviewed old records are not 정리 records");
+        let l = lanes(&conn, &visible, SINCE).unwrap();
+        assert_eq!(l.len(), 15);
+        assert!(l.values().all(|x| *x == Lane::Wrapup), "the 24-hour ones show in 정리 as 리뷰 없이 끝났어요");
+    }
+
+    #[test]
+    fn wrapup_column_returns_more_cards_on_request() {
+        let conn = crate::db::open_in_memory().unwrap();
+        for i in 0..45u8 {
+            let bg = format!("ffffff{i:02x}");
+            rec(&conn, &bg, "/tmp", Some(&rid(i + 1)), SINCE + i64::from(i), false);
+            reviewed(&conn, &bg);
+        }
+        let b = board(&conn, &[], SINCE, MAX_CARDS).unwrap();
+        assert_eq!((b.wrapup.total, b.wrapup.items.len()), (45, MAX_CARDS));
+        let b = board(&conn, &[], SINCE, 80).unwrap();
+        assert_eq!(b.wrapup.items.len(), 45, "더 보기 shows the rest");
+        assert_eq!(board(&conn, &[], SINCE, 0).unwrap().wrapup.items.len(), MAX_CARDS, "never fewer than 40");
+    }
+
+    #[test]
+    fn finished_notification_says_review_wait_only_for_tasks_in_that_lane() {
+        let conn = crate::db::open_in_memory().unwrap();
+        rec(&conn, "abab0001", "/tmp", Some(&rid(1)), SINCE + 1, false);
+        rec(&conn, "abab0002", "/tmp", Some(&rid(2)), SINCE - 1, false); // before review_since
+        let s = [session("k1", Some("abab0001"), SessionStatus::Done), session("k2", Some("abab0002"), SessionStatus::Done)];
+        let l = lanes(&conn, &s, SINCE).unwrap();
+        let body = |k: &str| finished_body("x", l.get(k) == Some(&Lane::ReviewWait), crate::i18n::Lang::Ko);
+        assert_eq!(body("k1"), "오리가 끝냈어요 · 리뷰 대기: x");
+        assert_eq!(body("k2"), "오리가 끝냈어요: x", "an old report task goes to 정리, not 리뷰 대기");
+    }
+
+    #[test]
     fn reviewing_moves_a_card_to_wrapup_and_wrapping_takes_it_off() {
         let conn = crate::db::open_in_memory().unwrap();
         rec(&conn, "ccccccc1", "/Users/me/proj", Some(&rid(1)), SINCE + 1, false);
-        let b = board(&conn, &[], SINCE).unwrap();
+        let b = board(&conn, &[], SINCE, MAX_CARDS).unwrap();
         assert_eq!((b.review_wait.total, b.wrapup.total), (1, 0));
         assert!(wrap(&conn, "ccccccc1", &[], true, SINCE, SINCE + 9).is_err(), "리뷰 대기 cannot be wrapped up");
         reviewed(&conn, "ccccccc1");
-        let b = board(&conn, &[], SINCE).unwrap();
+        let b = board(&conn, &[], SINCE, MAX_CARDS).unwrap();
         assert_eq!((b.review_wait.total, b.wrapup.total), (0, 1));
         assert_eq!(b.wrapup.items[0].folder.as_deref(), Some("proj"), "folder name only");
         assert_eq!(b.wrapup.items[0].name.as_deref(), Some("작업 이름"));
         wrap(&conn, "ccccccc1", &[], true, SINCE, SINCE + 9).unwrap();
-        assert_eq!(board(&conn, &[], SINCE).unwrap().wrapup.total, 0);
+        assert_eq!(board(&conn, &[], SINCE, MAX_CARDS).unwrap().wrapup.total, 0);
         assert!(facts(&conn, "ccccccc1").unwrap().unwrap().wrapped);
         // 5-second undo.
         assert!(unwrap(&conn, "ccccccc1", &[]).unwrap());
-        assert_eq!(board(&conn, &[], SINCE).unwrap().wrapup.total, 1);
+        assert_eq!(board(&conn, &[], SINCE, MAX_CARDS).unwrap().wrapup.total, 1);
         // Undoing the review also undoes 정리 끝: never an unreviewed "완료".
         wrap(&conn, "ccccccc1", &[], true, SINCE, SINCE + 9).unwrap();
         assert!(review_inbox::unmark(&conn, "ccccccc1").unwrap());
         let f = facts(&conn, "ccccccc1").unwrap().unwrap();
         assert!(!f.wrapped && !f.reviewed);
-        assert_eq!(board(&conn, &[], SINCE).unwrap().review_wait.total, 1);
+        assert_eq!(board(&conn, &[], SINCE, MAX_CARDS).unwrap().review_wait.total, 1);
     }
 
     #[test]
