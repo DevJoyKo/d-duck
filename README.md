@@ -7,8 +7,8 @@
 
 **Open a team, not a session.**
 
-A local macOS app for running Claude Code like a tech lead:
-hand off work to role-based agents, see what's blocked, and review results with evidence.
+**Delegate more to Claude Code agents, and keep quality under control.**
+Spend your attention only where it matters: enforced guardrails, review with evidence, and one place to see what needs you.
 
 [한국어](README.ko.md) · [Install](#install) · [Build from source](#build-from-source)
 
@@ -18,88 +18,101 @@ hand off work to role-based agents, see what's blocked, and review results with 
 
 ---
 
-## Why I built this
+## What it does
 
-I wanted to hand real work to a team of Claude Code agents without giving up control over permissions, and without spending all the time I saved on reviewing their output. D.Duck came out of about a week of thinking that through and building it. It's centered on running Claude Code locally.
+The more you delegate, the more your attention becomes the scarce resource. Most tools help you watch one session closely. D.Duck is built for the level above that: you set direction, draw the guardrails, and make the calls only you can make, while the agents carry out the work. You raise the level of delegation without lowering the quality bar. Running several Claude Code agents at once raises a set of problems, and D.Duck answers each one.
 
-Claude Code is powerful, but once you run several sessions at once, state and settings scatter:
-
-- Session status, token cost, and which skills and tools were used live in separate terminals and sessions.
-- Permissions, memory, plugins, and skills are split across several files, so it's hard to tell what actually applies.
-- As background tasks pile up, it's easy to miss what's blocked and what needs review.
-- Existing tools show stats or a single session. They don't connect handing off, checking, and configuring.
-
-### Why a duck?
-
-D.Duck stands for **Developer Duck**, from [rubber duck debugging](https://en.wikipedia.org/wiki/Rubber_duck_debugging): you explain the problem to a duck, and the explaining helps. Here the ducks are your agents, and they answer back.
-
-## The idea: run Claude like a tech lead
-
-You don't read every line of code. You focus on what's blocked and what needs review.
-
-```text
- 1. Hand off          2. Run by role         3. Unblock first        4. Verify with fresh eyes
- ───────────────  →   ───────────────   →    ───────────────    →    ─────────────────────────
- A structured         Each task type         Tasks waiting on        Send finished work to a
- brief: goal, out     brings its role,       you or failed rise      new QA or review session
- of scope,            tools, default         to the top, with a      that never saw the original
- constraints,         permissions, and       sidebar badge and an    conversation. The session
- done criteria.       effort. Dev work       "Unblock first" jump.   that wrote the code is its
-                      runs in its own                                worst reviewer.
-                      worktree.
-```
-
-Three things hold it together:
-
-- **Team rules.** The same rules are added to every task. For example: don't touch what's out of scope, stop with "Blocked:" instead of guessing, never commit to the default branch, ask right before deploy, payment, or delete commands. Safety rules are locked. You can edit the rest in the app.
-- **Review capacity.** You set how many changes you can properly review in a day (3 by default). Past that, D.Duck asks once more before starting new work, because the bottleneck is the lead's review time, not the number of sessions.
-- **Role ducks.** Ten built-in roles: dev, QA, review, security, release, research, writing, tutor, design, and architecture. They're injected into task sessions only, so your own settings files stay untouched. If you already have your own agent definitions, D.Duck uses them as they are.
-
-## What you can do
-
-| Area | What it does |
+| Pain point | D.Duck feature |
 |---|---|
-| **Agents** | See every agent (user, project, plugin, built-in) as a duck card that shows whether it's working, waiting for you, failed, or idle. Use "Unblock first" to jump to what's stuck. |
-| **Hand off a task** | Pick a folder and one of 10 task types. Claude asks clarifying questions and rewrites the brief before it starts. Preview the exact instructions it will receive. |
-| **Task board** | Waiting → working → needs attention → to review → wrap-up. Terminal sessions and D.Duck tasks are on the same board, with a live terminal preview and a notification when a task needs your answer. |
-| **Review** | Every task leaves a report: each done criterion as met, partly met, or not met, the decisions made without asking, and evidence such as screenshots, test reports, and commands. The Review tab groups finished work by role. |
-| **Guardrails** | Decide where delegated work must stop and wait for you. By default the guardrail sits at a draft PR: agents can push a work branch and open a draft, but never merge. For trust-critical repos, move the guardrail onto your machine with "Block remote push": nothing leaves until you have reviewed it locally. Strict task types (security, deploy, QA) can't pick risky permission modes. |
-| **Routines and artifacts** | Run work on a schedule, locally or as claude.ai cloud routines. Find the artifacts Claude made across sessions. |
-| **Configure without JSON** | Skills, commands, workflows, plugins, MCP servers, rules, memory, and effective permissions with their risk levels. Create, edit, and delete them in the app. Changes are shown before they're saved. |
-| **Usage** | Cost, models, and tool and skill calls by period, session flows, usage-limit alerts, and a usage review that finds ways to cut cost and raise success rates. |
+| I want agents to work on their own, but not to merge or push code I haven't reviewed. "Don't merge" in a prompt is only a request. | **Guardrails enforced outside the prompt:** draft PR by default, "Block remote push" for trust-critical repos, risky modes blocked for strict task types |
+| I can't tell which permissions actually apply when settings come from several files. | **Effective permissions** merged across every scope, next to each rule |
+| A vague ask comes back off target, and I only find out at review time. | **Structured brief** (goal, out of scope, constraints, done criteria) with Claude's clarifying questions before it starts |
+| "Done, tests pass" tells me little, so I end up re-checking everything. | **Reports with evidence:** each done criterion as met, partly met, or not met, with screenshots, test reports, or command output |
+| The session that wrote the code is the worst reviewer of it. | **Fresh-eyes review:** hand finished work to a new QA or review session that never saw the conversation |
+| Agents finish faster than I can review, so review becomes the bottleneck. | **Review capacity** per day, and a **Review tab** that groups finished work by role |
+| With many sessions open, I check terminal tabs one by one to find what's waiting or failed. | **One task board** with tasks that need you on top, a live terminal preview, and a notification when an agent waits |
+| Skills, MCP servers, plugins, and memory are scattered across files. | **Extensions, MCP, Permissions, and Memory tabs:** see, create, edit, and delete without JSON |
+| When a way of working proves itself, I still redo it by hand every time. | **Grow what works:** save it as a skill or command, chain skills into a workflow (checked so Claude Code can actually load it), and put it on a schedule as a routine |
+
+The four groups below explain how these fit together.
+
+### 1. Guardrails that are enforced, not asked for
+
+**Problem:** You want agents to work on their own, but not to merge, or push a repo you haven't reviewed. A line in the prompt like "don't merge" is a request; nothing stops an agent that ignores it.
+
+**D.Duck:** You decide where delegated work stops and waits for you, and that line is enforced outside the prompt by CLI deny rules, a pre-tool hook, and git settings.
+
+- **Default guardrail: a draft PR.** Agents can push a work branch and open a draft PR. Merging stays with you.
+- **Trust-critical repos: keep it on your machine.** Turn on "Block remote push" and nothing leaves until you've reviewed it locally.
+- **Risky permission modes are blocked** for security, deploy, and QA tasks.
+
+### 2. Review with evidence, sized to your time
+
+**Problem:** Agents finish work faster than you can read it, and "done, tests pass" tells you little. Review becomes the new bottleneck.
+
+**D.Duck:**
+
+- **Brief before you hand off:** goal, out of scope, constraints, and done criteria. Claude asks clarifying questions first.
+- **Reports with evidence:** each done criterion comes back as met, partly met, or not met, with screenshots, test reports, or command output. No evidence, no pass.
+- **Fresh eyes:** send finished work to a new QA or review session that never saw the original conversation.
+- **Review capacity:** set how many changes you can properly review in a day. Past that, D.Duck asks before starting more.
+
+### 3. See what needs you
+
+**Problem:** With many sessions open, you check terminal tabs one by one to find what's waiting, failed, or done, and settings are scattered across files.
+
+**D.Duck:** One board for terminal sessions and D.Duck tasks, with tasks that need your answer at the top, a live terminal preview, and a notification when an agent waits. Skills, MCP servers, plugins, memory, and the permissions that *actually* apply are in one place, editable without JSON.
+
+### 4. Grow what works into skills, workflows, and routines
+
+**Problem:** Delegation pays off when a good way of working is reused, not retyped. A prompt that worked once lives in a chat history, and turning it into something repeatable means hand-editing files you can't easily check.
+
+**D.Duck:** Move what works up a level, step by step.
+
+- **Skill or command:** save a way of working as a skill or slash command, write it yourself or ask Claude to draft it, or install one from a link.
+- **Workflow:** chain those skills into a larger multi-step workflow. D.Duck checks the workflow the way Claude Code reads it, so a file that Claude Code would silently skip is flagged before you save it.
+- **Routine:** run the workflow on a schedule, on your Mac or as a claude.ai cloud routine, with the same guardrails as any other task.
+
+Each step makes the unit of delegation bigger, so you hand off whole processes, not single prompts, and your attention stays on decisions.
 
 <table>
 <tr>
 <td width="50%"><img src="docs/assets/screenshots/en/07-settings-block-remote-push.png" alt="Settings: Block remote push" /></td>
-<td width="25%"><img src="docs/assets/screenshots/en/08-language-menu.png" alt="Sidebar language menu" /></td>
-<td width="25%"><img src="docs/assets/screenshots/en/09-settings-language.png" alt="Settings: Language" /></td>
+<td width="50%"><img src="docs/assets/screenshots/en/05-task-report.png" alt="Task report with evidence" /></td>
 </tr>
 <tr>
-<td align="center">Block remote push keeps a project local</td>
-<td align="center">Switch language from the sidebar</td>
-<td align="center">Or pick it in Settings</td>
+<td align="center">Guardrail: keep a trust-critical repo local</td>
+<td align="center">A report with evidence for each done criterion</td>
 </tr>
-</table>
-
-<table>
 <tr>
-<td><img src="docs/assets/screenshots/en/01-agents-team.png" alt="Agents" /></td>
 <td><img src="docs/assets/screenshots/en/02-composer-refine-questions.png" alt="Claude asks before it starts" /></td>
-</tr>
-<tr>
-<td align="center">Who's working right now</td>
-<td align="center">Claude asks before it starts</td>
-</tr>
-<tr>
-<td><img src="docs/assets/screenshots/en/05-task-report.png" alt="Task report" /></td>
 <td><img src="docs/assets/screenshots/en/06-review-tab.png" alt="Review tab" /></td>
 </tr>
 <tr>
-<td align="center">A report with evidence</td>
+<td align="center">Claude asks before it starts</td>
 <td align="center">Finished work, grouped by role</td>
 </tr>
 </table>
 
+## Why I built this
+
+I wanted to hand real work to a team of Claude Code agents without giving up control over permissions, and without spending all the time I saved on reviewing their output. D.Duck came out of about a week of thinking that through and building it. It's centered on running Claude Code locally.
+
+**Why a duck?** D.Duck stands for **Developer Duck**, from [rubber duck debugging](https://en.wikipedia.org/wiki/Rubber_duck_debugging): you explain the problem to a duck, and the explaining helps. Here the ducks are your agents, each with a role, and they answer back.
+
+## All features
+
+| Area | What it does |
+|---|---|
+| **Agents** | Every agent (user, project, plugin, built-in) as a duck card showing whether it's working, waiting for you, failed, or idle. Ten built-in roles, injected into task sessions only. |
+| **Hand off a task** | Pick a folder and one of 10 task types. Each type brings its role, tools, default permissions, and effort. Team rules are added to every task; safety rules are locked. |
+| **Task board** | Queued → in progress → needs you → waiting for review → wrap-up, with a live terminal preview. |
+| **Review** | Reports with evidence, a Review tab grouped by role, copy text and save attachments. |
+| **Guardrails** | Draft PR by default, "Block remote push" for trust-critical repos, no risky modes for strict task types. |
+| **Routines and artifacts** | Scheduled work, locally or as claude.ai cloud routines. Artifacts Claude made across sessions. |
+| **Configure without JSON** | Skills, commands, workflows, plugins, MCP servers, rules, memory, and effective permissions. Changes are shown before they're saved. |
+| **Usage** | Cost, models, and tool and skill calls by period, usage-limit alerts, and a usage review. |
+| **Language** | Korean and English, switched from the sidebar or Settings. |
 
 ## Design principles
 
@@ -110,7 +123,7 @@ Three things hold it together:
 | **No raw transcripts** | Transcripts are aggregated into numbers and names, not stored. The raw view reads them only when you open it, with secrets masked by default. |
 | **Confirm risky actions** | Writing settings files, risky permissions, approving routines, and installs are hard to undo. D.Duck shows what will change and asks first. |
 
-These guardrails are enforced through CLI deny rules, a hook, and git environment settings, not just asked for in a prompt. The point is a fixed line between what an agent may do on its own and what needs a person. Some gaps remain, for example a hand-written network client can get past the hook; the git setting is the last layer.
+Guardrails are enforced in layers (CLI deny rules, a hook, and git settings). Some gaps remain: a hand-written network client can get past the hook, so the git setting is the last layer.
 
 ## Install
 
