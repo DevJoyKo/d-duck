@@ -703,6 +703,17 @@ pub fn remove_plan(rec: &Record, live_cwd: Option<&Path>, running: bool) -> Resu
     Ok(RemovePlan { folder: folder_name(&path), branch: branch_of(&path), ignored: count_ignored(&path), repo, path, start, session: session_cwd })
 }
 
+/// Right after the native confirm, before the delete: a usage-limit resume may have been scheduled while the dialog
+/// was open (D-191). A record that can't be read counts as not checked.
+pub fn still_removable(conn: &Connection, bg_id: &str) -> Result<(), Refusal> {
+    match record(conn, bg_id) {
+        Ok(Some(r)) if r.resume_pending => Err(Refusal::ResumePending),
+        Ok(Some(_)) => Ok(()),
+        Ok(None) => Err(Refusal::NoWorktree),
+        Err(_) => Err(Refusal::NotChecked),
+    }
+}
+
 /// After the confirm: checks the changes once more, then `git worktree remove <path>` (no `--force`, 10 s). The
 /// branch stays.
 pub fn remove(plan: &RemovePlan) -> Result<(), Refusal> {
@@ -1151,6 +1162,17 @@ mod tests {
         assert_eq!(check(&r, Some(&wt), false, None).wrap_refusal, None);
         assert!(remove_plan(&r, Some(&wt), false).is_ok());
         wrap(&conn, "abcd0001", &[], true, SINCE, SINCE + 9).unwrap();
+    }
+
+    #[test]
+    fn a_resume_scheduled_while_the_confirm_is_open_stops_the_delete() {
+        let conn = crate::db::open_in_memory().unwrap();
+        rec(&conn, "abcd0002", "/tmp", None, SINCE + 1, true);
+        assert_eq!(still_removable(&conn, "abcd0002"), Ok(()));
+        plan_resume(&conn, "abcd0002", "auto");
+        assert_eq!(still_removable(&conn, "abcd0002"), Err(Refusal::ResumePending));
+        assert_eq!(still_removable(&conn, "abcd0003"), Err(Refusal::NoWorktree), "no record");
+        assert_eq!(still_removable(&conn, "bad id"), Err(Refusal::NotChecked));
     }
 
     #[test]
