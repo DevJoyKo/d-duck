@@ -1,9 +1,9 @@
-# Spec Delta
+# public-repository Specification
 
 ## Purpose
 공개 저장소에 무엇이 들어가고 무엇이 빠지는지 정하고, 저장소만 받아도 테스트와 문서 이미지를 재현할 수 있게 한다.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: 저장소에서 빼는 것
 공개 저장소에는 다음이 없어야 한다(MUST NOT):

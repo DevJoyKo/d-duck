@@ -1,4 +1,9 @@
-## ADDED Requirements
+# task-lifecycle Specification
+
+## Purpose
+TBD - created by archiving change task-lifecycle. Update Purpose after archive.
+
+## Requirements
 
 ### Requirement: 리뷰를 해야 끝나는 작업
 에이전트가 일을 끝냈지만 리뷰하지 않은 작업은 앱 어디에서도(작업 보드 칸, 상태 칩, 알림, 트레이 툴팁, 리뷰 탭, 보고서 머리) "완료"라고 부르지 않아야 한다(MUST NOT). 그런 작업은 상세 서랍과 알림에서 "오리가 끝냈어요 · 리뷰 대기"로 보여야 한다(SHALL). 보드 카드는 칸이 이미 단계를 말하므로 칸 이름을 반복하지 않고 짧은 상태(`statusShort`: "끝냈어요"·"실패"·"멈췄어요"·"리뷰했어요"·"리뷰 없음" (+ 실패 · 리뷰했어요, 목록에서 사라진 작업))만 보여야 한다(SHALL, D-186). "완료"는 정리를 끝낸 작업(정리 끝)에만 써야 하며(SHALL), 정리 끝은 리뷰했거나 리뷰 대상이 아닌 작업만 될 수 있다(SHALL). 루틴 실행 상태는 "끝났어요"로 보여야 한다(SHALL).
