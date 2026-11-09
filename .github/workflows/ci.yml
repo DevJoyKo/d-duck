@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+    branches: [main]
   push:
     branches: [main]
 
@@ -14,8 +15,17 @@ concurrency:
 
 jobs:
   check:
-    name: Test and lint (macOS)
-    runs-on: macos-latest
+    # Every PR into main must pass on both Mac architectures before it can merge (branch protection).
+    name: Test and lint (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Apple Silicon
+            runner: macos-15
+          - name: macOS Intel
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     defaults:
       run:
@@ -41,6 +51,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: app
+          key: ${{ matrix.runner }}
 
       # UI
       - run: npm ci
