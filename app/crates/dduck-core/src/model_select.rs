@@ -608,7 +608,7 @@ pub fn resolve(task: Option<&str>, runner: Runner<'_>, type_default: Option<&str
                 (Some(t), _, _) => Ok(ModelPin { layer: Layer::Task, arg: Some(t.to_string()), role: None }),
                 // `--model` wins over `--agent` (spike 1.1) and is not kept across `--resume`: the file's value is passed
                 // explicitly so a resume reproduces it even if the file changes later.
-                (None, Some(f), _) => Ok(ModelPin { layer: Layer::Agent, arg: Some(f.to_string()), role: None }),
+                (None, Some(f), _) => Ok(ModelPin { layer: Layer::Agent, arg: FILE_AGENT_MODEL_OVERRIDE_VERIFIED.then(|| f.to_string()), role: None }),
                 (None, None, Some(d)) => Ok(ModelPin { layer: Layer::Type, arg: Some(d), role: None }),
                 (None, None, None) => Ok(ModelPin { layer: Layer::Cli, arg: None, role: None }),
             }
