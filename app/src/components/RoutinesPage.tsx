@@ -58,17 +58,12 @@ function Toggle({ on, label, onChange }: { on: boolean; label: string; onChange:
   );
 }
 
-function hhmm(s: Schedule) {
-  return s.kind === "interval" ? "09:00" : `${String(s.hour).padStart(2, "0")}:${String(s.minute).padStart(2, "0")}`;
-}
-
 function ScheduleInput({ value, onChange }: { value: Schedule; onChange: (s: Schedule) => void }) {
   const t = useT();
-  const time = hhmm(value);
-  const [h, m] = time.split(":").map(Number);
-  const setTime = (t: string) => {
-    const [hour, minute] = t.split(":").map(Number);
-    if (Number.isNaN(hour) || Number.isNaN(minute)) return;
+  // Interval has no clock time; switching back to daily/weekly starts at 09:00.
+  const h = value.kind === "interval" ? 9 : value.hour;
+  const m = value.kind === "interval" ? 0 : value.minute;
+  const setTime = (hour: number, minute: number) => {
     if (value.kind === "daily") onChange({ kind: "daily", hour, minute });
     if (value.kind === "weekly") onChange({ ...value, hour, minute });
   };
@@ -113,7 +108,10 @@ function ScheduleInput({ value, onChange }: { value: Schedule; onChange: (s: Sch
               })}
             </div>
           )}
-          <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className={`${fieldClass} w-32`} aria-label={t("routines.scheduleInput.time")} />
+          {/* Two 24-hour selects, same as the cloud form: no AM/PM segment, and no half-typed value can reach the schedule. */}
+          <div role="group" aria-label={t("routines.scheduleInput.time")}>
+            <TimeSelect hour={h} minute={m} onChange={setTime} />
+          </div>
         </div>
       )}
     </div>
