@@ -176,6 +176,13 @@ describe("리뷰 tab", () => {
     expect(card.closest("[data-review-group]")?.getAttribute("data-review-group")).toBe("");
     expect(card.querySelector("[data-card-title]")?.textContent).toBe("아침 공고 확인");
     expect(card.textContent).toMatch(/루틴 · notices · /);
+    fireEvent.click(within(card).getByRole("button", { name: /보고서 열기/ }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("task_report", { id: "7a7a7a7a" }));
+    // The report screen's 맡긴 내용 carries the routine chip.
+    await waitFor(() => expect(within(dialog).getAllByText("루틴").length).toBeGreaterThan(0));
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     fireEvent.click(within(card).getByRole("button", { name: "리뷰했어요" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("inbox_mark_reviewed", { id: "7a7a7a7a" }));
     await waitFor(() => expect(within(nav).getByLabelText("리뷰 전 5개")).toBeTruthy());
