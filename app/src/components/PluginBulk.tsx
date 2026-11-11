@@ -1,20 +1,28 @@
 // "모두 업데이트" / "선택한 것 업데이트" (plugin-bulk-update, D-203): the bar above the 확장 list, the row checkbox
 // and the row's one-line batch status. State lives in lib/pluginBulk.ts.
+import { useEffect, useRef } from "react";
 import { type Plugin, shown } from "../lib/api";
 import { allTargets, bulkStore, MAX_BULK, progressOf, type RowState, selectable, SUMMARY_ORDER, useBulk } from "../lib/pluginBulk";
 import { useT } from "../i18n/react";
-import { noteFor } from "../lib/pluginNotes";
 import { Button } from "./ui";
 
 /** Buttons, progress and the summary line. Hidden when nothing can be updated and no batch has run. */
 export function PluginBulkBar({ plugins, busy, onSettled }: { plugins: Plugin[]; busy: boolean; onSettled: () => void }) {
   const t = useT();
   const s = useBulk();
+  const bar = useRef<HTMLDivElement>(null);
+  const idleNow = s.phase === "idle";
+  // The pressed button goes away while a batch runs: keep keyboard focus on the bar's main button instead of the page.
+  useEffect(() => {
+    if (document.activeElement === document.body || document.activeElement === null) bar.current?.querySelector<HTMLButtonElement>("button:last-of-type")?.focus();
+  }, [idleNow]);
   const all = allTargets(plugins);
   const allIds = all.slice(0, MAX_BULK);
   // A selection can outlive a plugin (uninstalled, now up to date): count only what is still offered.
   // Runs in the order the list shows (not the click order).
   const offered = new Set(plugins.filter(selectable).map((p) => p.id));
+  const offeredKey = [...offered].join(" ");
+  useEffect(() => bulkStore.prune(new Set(offeredKey.split(" ").filter(Boolean))), [offeredKey]);
   const picked = plugins.filter((p) => offered.has(p.id) && s.selected.includes(p.id)).map((p) => p.id);
   const idle = s.phase === "idle";
   const summary = s.counts ? SUMMARY_ORDER.filter((k) => s.counts![k] > 0).map((k) => t(`extensions.plugins.bulk.summary.${k}`, { count: s.counts![k] })) : [];
@@ -22,14 +30,11 @@ export function PluginBulkBar({ plugins, busy, onSettled }: { plugins: Plugin[];
   const { done, total } = progressOf(s);
   const status = s.phase === "confirming" ? t("extensions.plugins.bulk.confirming") : !idle ? t("extensions.plugins.bulk.progress", { done: String(Math.min(done + 1, total)), total: String(total) }) : summary.join(", ");
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      {status ? (
-        <p role="status" className="mr-auto min-w-0 truncate text-xs text-ink-2">
-          {status}
-        </p>
-      ) : (
-        <span className="mr-auto" />
-      )}
+    <div ref={bar} className="flex flex-wrap items-center justify-end gap-2">
+      {/* Always mounted so the first "confirming"/progress text is announced (a live region added with its text may not be). */}
+      <p aria-live="polite" aria-atomic="true" data-bulk-status className="mr-auto min-w-0 truncate text-xs text-ink-2">
+        {status}
+      </p>
       {s.error && (
         <p role="alert" className="w-full text-right text-xs text-danger">
           {shown(s.error)}
@@ -48,7 +53,7 @@ export function PluginBulkBar({ plugins, busy, onSettled }: { plugins: Plugin[];
           </Button>
         </>
       ) : (
-        <Button size="sm" disabled={s.phase !== "running"} onClick={() => bulkStore.stop()}>
+        <Button size="sm" aria-disabled={s.phase !== "running"} onClick={() => bulkStore.stop()}>
           {s.phase === "stopping" ? t("extensions.plugins.bulk.stopping") : t("extensions.plugins.bulk.stop")}
         </Button>
       )}
@@ -77,7 +82,7 @@ export function PluginBulkCheck({ p, busy }: { p: Plugin; busy: boolean }) {
 }
 
 /** One line under the row while a batch runs or after it ran; null when the batch never touched this plugin. */
-export function useBulkLine(p: Plugin): { tone: "ok" | "warn" | "error" | "quiet"; text: string } | null {
+export function useBulkLine(p: Plugin): { tone: "ok" | "warn" | "error" | "quiet"; text: string; title?: string } | null {
   const t = useT();
   const r: RowState | undefined = useBulk().rows[p.id];
   if (!r) return null;
@@ -91,10 +96,11 @@ export function useBulkLine(p: Plugin): { tone: "ok" | "warn" | "error" | "quiet
     case "skipped":
       return { tone: "warn", text: t(`extensions.plugins.bulk.skip.${r.reason}`) };
     case "finished": {
-      const n = noteFor(p, r.outcome, "update");
-      if (!n) return null;
-      const text = shown(n.text);
-      return n.tone === "error" ? { tone: "error", text: t("extensions.plugins.bulk.failed", { reason: text }) } : { tone: n.tone, text };
+      const k = r.outcome.kind;
+      if (k === "done") return { tone: "ok", text: t("extensions.plugins.note.updated") };
+      if (k === "cancelled") return null;
+      // The exact command stays in the tooltip so the line fits on one row.
+      return { tone: k === "needsApproval" || k === "unchanged" ? "warn" : "error", text: t(`extensions.plugins.bulk.outcome.${k}`), title: k === "needsApproval" ? `claude plugin update ${p.id}` : undefined };
     }
   }
 }

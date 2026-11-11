@@ -122,12 +122,12 @@ pub fn recheck(t: &Target, installed: &[Installed], updates: &HashMap<String, Up
 }
 
 /// Runs targets one at a time. Before each: `stop()` ends the batch (the rest become `Stopped`), then `check` may
-/// skip it. `update` runs one target; a failure there is just that row's outcome and the next one still runs.
+/// settle it without running (skipped as changed, or failed when the list can't be read). `update` runs one target; a failure there is just that row's outcome and the next one still runs.
 /// `report` sees every status change in order.
 pub fn run(
     targets: &[Target],
     stop: &dyn Fn() -> bool,
-    check: &mut dyn FnMut(&Target) -> Option<Skip>,
+    check: &mut dyn FnMut(&Target) -> Option<Status>,
     update: &mut dyn FnMut(&Target) -> Outcome,
     report: &mut dyn FnMut(&Item),
 ) -> Vec<Item> {
@@ -142,8 +142,8 @@ pub fn run(
             push(Item { id, status: Status::Stopped }, &mut out, report);
             continue;
         }
-        if let Some(reason) = check(t) {
-            push(Item { id, status: Status::Skipped { reason } }, &mut out, report);
+        if let Some(status) = check(t) {
+            push(Item { id, status }, &mut out, report);
             continue;
         }
         report(&Item { id: id.clone(), status: Status::Running });
@@ -391,7 +391,7 @@ mod tests {
     fn a_changed_target_is_skipped_without_running() {
         let ts = targets(2);
         let ran = RefCell::new(Vec::new());
-        let mut check = |t: &Target| (t.plugin.id == "p0@m").then_some(Skip::Changed);
+        let mut check = |t: &Target| (t.plugin.id == "p0@m").then_some(Status::Skipped { reason: Skip::Changed });
         let mut update = |t: &Target| {
             ran.borrow_mut().push(t.plugin.id.clone());
             Outcome::Done
