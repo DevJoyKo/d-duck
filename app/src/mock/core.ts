@@ -415,6 +415,7 @@ const handlers: Record<string, (a: Record<string, unknown>) => unknown> = {
   task_records: () => [
     { bgId: "f3e5ff71", name: "flaky-test-fix", cwd: "/Users/me/Agents/dev_team", agent: "dduck-developer", taskType: "dev", createdAt: now - 900_000, promptLen: 64, reviewed: false },
     { bgId: "aa11bb22", name: "payment-refactor", cwd: "/Users/me/Agents/side-project", agent: null, taskType: "dev", createdAt: now - 2 * day, promptLen: 120, reviewed: true, hasReport: true },
+    { bgId: "ee0c0d22", name: "market-research", cwd: "/Users/me/Agents/dev_team", agent: null, taskType: "research", createdAt: now - 4 * day, promptLen: 48, reviewed: false, hasReport: false },
     { bgId: "cc33dd44", name: "release-notes-1.2", cwd: "/Users/me/Agents/side-project", agent: "dduck-release", taskType: "deploy", createdAt: now - 5 * day, promptLen: 0, reviewed: false, hasReport: true },
   ].map((r) => ({ ...r, wrapped: wrapped.has(r.bgId) })),
   task_record: (a) =>

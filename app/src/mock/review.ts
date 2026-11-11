@@ -1,7 +1,8 @@
 // Mock 리뷰 탭 (review-inbox) for design review: the task board's report records plus a finished QA and design task,
 // one record from before the tab existed (only under 전체), a running and a waiting task (전체 only), a reviewed one,
 // a missing and a malformed report. `?review=empty` shows no records, `?report=off` the report setting turned off,
-// `?routine=1` adds a finished routine run with a report (review-routine-runs).
+// `?routine=1` adds a finished routine run with a report (review-routine-runs). 전체 also lists a finished task
+// started without a report (D-196), never counted as 리뷰 전.
 // Summaries are cut the same way Rust does (verdict fields only). Generic names only.
 import { mockProjectPath } from "./projects";
 import { mockTaskReport } from "./report";
@@ -85,6 +86,8 @@ export interface Rec {
   createdAt: number;
   running: "working" | "waiting" | null;
   routine?: boolean;
+  /** Started without a report (D-196). */
+  noReport?: { name: string; ended: "done" | "failed" | "stopped" | "unknown" };
 }
 
 const all: Rec[] = [
@@ -114,10 +117,14 @@ export const wrapped = new Set<string>();
 const allDone = () => param("review") === "done";
 
 export const isReviewed = (id: string) => reviewed.has(id) || allDone() || (boardDemo() && demoReviewed.has(id));
-export const pending = (r: Rec) => !isReviewed(r.bgId) && r.running === null && r.createdAt >= since;
+export const pending = (r: Rec) => !r.noReport && !isReviewed(r.bgId) && r.running === null && r.createdAt >= since;
+/** D-196: finished D.Duck tasks without a report, 전체 only (the same record as 지난 작업's "market-research"). */
+const plainRecs = (): Rec[] => (empty() ? [] : [{ bgId: "ee0c0d22", cwd: "/Users/me/Agents/dev_team", taskType: "research", createdAt: now - 4 * day, running: null, noReport: { name: "market-research", ended: "done" } }]);
 
 type View = ReturnType<typeof mockTaskReport>;
 function card(r: Rec) {
+  if (r.noReport)
+    return { bgId: r.bgId, taskType: r.taskType, folder: r.cwd.split("/").pop() ?? null, createdAt: r.createdAt, reviewed: false, running: null, goal: r.noReport.name, stored: true, done: null, report: { kind: "none" }, deliveryAlert: null, wrapped: false, routine: false, ended: r.noReport.ended };
   const v = (mockEvidenceReport(r.bgId) ?? mockReviewReport(r.bgId) ?? mockTaskReport(r.bgId)) as View & { report?: typeof qaReport; code?: string };
   const d = v.delegated;
   type Item = { kind: string; status: string; failed?: number };
@@ -182,7 +189,8 @@ export const reviewHandlers: Record<string, (a: Record<string, unknown>) => unkn
     if (a.project && !root) throw "이 프로젝트 폴더를 찾지 못했어요";
     const records = recs();
     const scoped = records.filter((r) => inScope(r.cwd, root));
-    const matching = scoped.filter((r) => a.filter === "all" || pending(r));
+    const plain = pollUnknown() ? [] : plainRecs().filter((r) => inScope(r.cwd, root));
+    const matching = a.filter === "all" ? [...scoped, ...plain].sort((x, y) => y.createdAt - x.createdAt) : scoped.filter(pending);
     const offset = Number(a.offset ?? 0);
     const limit = Math.min(Math.max(Number(a.limit ?? 10), 1), 40);
     return {
@@ -190,6 +198,7 @@ export const reviewHandlers: Record<string, (a: Record<string, unknown>) => unkn
       total: matching.length,
       pendingOther: records.filter(pending).length - scoped.filter(pending).length,
       hasAny: scoped.length > 0,
+      noReport: plain.length,
       running: scoped.filter((r) => r.running).length,
       groups: [...new Set(matching.map((r) => r.taskType))].map((taskType) => ({ taskType, total: matching.filter((r) => r.taskType === taskType).length })),
       items: matching.slice(offset, offset + limit).map(card),

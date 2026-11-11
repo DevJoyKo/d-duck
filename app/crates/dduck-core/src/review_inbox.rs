@@ -124,7 +124,8 @@ fn routine_live(conn: &Connection, run_id: i64) -> Result<bool, Error> {
     Ok(conn.query_row("SELECT status IN ('starting', 'running', 'waiting') FROM routine_runs WHERE id = ?1", [run_id], |r| r.get(0))?)
 }
 
-/// One record with a report. Internal: holds the report id and the stored instruction.
+/// One record: with a report (a review target), or a finished D.Duck task without one (listed under 전체 only, D-196).
+/// Internal: holds the report id and the stored instruction.
 pub struct Row {
     bg_id: String,
     name: Option<String>,
@@ -132,19 +133,23 @@ pub struct Row {
     task_type: Option<String>,
     created_at: i64,
     reviewed: bool,
-    report_id: String,
+    report_id: Option<String>,
     brief: Option<crate::team::Brief>,
     prompt: Option<String>,
     delivery_alert: Option<i64>,
     wrapped: bool,
     routine: bool,
+    ended: Option<&'static str>,
 }
 
-/// Records that were given a report, newest first. Call under the DB lock, then release it before [`build`].
+const ENDED_CODES: [&str; 4] = ["done", "failed", "stopped", "unknown"];
+
+/// Records newest first: those given a report, and task records without one (D-196). Call under the DB lock, then
+/// release it before [`build`].
 pub fn rows(conn: &Connection) -> Result<Vec<Row>, Error> {
     let mut stmt = conn.prepare(&format!(
-        "SELECT bg_id, name, cwd, task_type, created_at, reviewed_at, report_id, brief_json, prompt, delivery_alert, wrapped_at, routine FROM {RECORDS}
-         WHERE report_id IS NOT NULL ORDER BY created_at DESC, bg_id LIMIT ?1"
+        "SELECT bg_id, name, cwd, task_type, created_at, reviewed_at, report_id, brief_json, prompt, delivery_alert, wrapped_at, routine, ended_status
+         FROM {RECORDS} ORDER BY created_at DESC, bg_id LIMIT ?1"
     ))?;
     let rows = stmt.query_map([READ_BOUND], |r| {
         Ok(Row {
@@ -160,14 +165,19 @@ pub fn rows(conn: &Connection) -> Result<Vec<Row>, Error> {
             delivery_alert: r.get::<_, Option<i64>>(9)?.filter(|a| (0..=3).contains(a)),
             wrapped: r.get::<_, Option<i64>>(10)?.is_some(),
             routine: r.get::<_, i64>(11)? != 0,
+            ended: r.get::<_, Option<String>>(12)?.and_then(|e| ENDED_CODES.into_iter().find(|c| *c == e)),
         })
     })?;
-    Ok(rows.filter_map(Result::ok).filter(|r| task_report::valid_id(&r.report_id) && crate::task_meta::valid_bg_id(&r.bg_id)).collect())
+    // A stored report id that is not a valid one leaves the row out (as before); it never becomes "no report".
+    let rows: Vec<Row> = rows.filter_map(Result::ok).filter(|r| r.report_id.as_deref().is_none_or(task_report::valid_id) && crate::task_meta::valid_bg_id(&r.bg_id)).collect();
+    // A task record without a report whose id has a routine report is that routine card, never a second one.
+    let reported: std::collections::HashSet<String> = rows.iter().filter(|r| r.report_id.is_some()).map(|r| r.bg_id.clone()).collect();
+    Ok(rows.into_iter().filter(|r| r.report_id.is_some() || !reported.contains(&r.bg_id)).collect())
 }
 
-/// "리뷰 전": not marked, not wrapped up, not running, started at or after `review_since`.
+/// "리뷰 전": has a report, not marked, not wrapped up, not running, started at or after `review_since`.
 fn pending(r: &Row, running: &HashMap<String, Running>, since: i64) -> bool {
-    is_pending(&r.bg_id, r.reviewed, r.wrapped, r.created_at, running, since)
+    r.report_id.is_some() && is_pending(&r.bg_id, r.reviewed, r.wrapped, r.created_at, running, since)
 }
 
 /// A wrapped-up record is never "리뷰 전": a routine run wrapped up before it became a review target stays off the
@@ -314,6 +324,8 @@ impl Summary {
 pub enum CardReport {
     Ready { summary: Summary },
     Missing,
+    /// A finished D.Duck task started without a report (D-196): "보고서 없음", nothing to review or mark.
+    None,
     Invalid { code: ReportError },
 }
 
@@ -342,6 +354,8 @@ pub struct Item {
     pub wrapped: bool,
     /// A routine run (review-routine-runs): the card says "루틴".
     pub routine: bool,
+    /// How the task last ended while listed (`done`/`failed`/`stopped`/`unknown`), for a card without a report.
+    pub ended: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -354,6 +368,8 @@ pub struct Inbox {
     pub pending_other: usize,
     /// Any record with a report in this project, whatever the filter: tells "모두 리뷰했어요" from "아직 없어요".
     pub has_any: bool,
+    /// Finished D.Duck tasks without a report in this project (D-196): listed under 전체, never counted as 리뷰 전.
+    pub no_report: usize,
     /// Tasks with a report in this project that are still running ("모두 리뷰했어요 · 일하는 중 N개").
     pub running: usize,
     /// Matching items per role (all pages), so a group header's count is right before 더 보기.
@@ -387,23 +403,31 @@ fn folder_of(cwd: Option<&str>) -> Option<String> {
     Path::new(cwd?).file_name().map(|n| crate::text::display_safe(&n.to_string_lossy(), 64))
 }
 
-fn card(r: Row, root: &Path, running: Option<Running>) -> Item {
-    let report = match task_report::read(root, &r.report_id) {
+/// A card's report summary from a validated read (paths and the id stay here).
+fn report_card(read: Result<task_report::Report, ReportError>, report_id: &str, root: &Path, cwd: Option<&str>) -> CardReport {
+    match read {
         Ok(mut rep) => {
-            let dir = std::fs::canonicalize(root).ok().map(|d| d.join(&r.report_id));
+            let dir = std::fs::canonicalize(root).ok().map(|d| d.join(report_id));
             let mut first = None;
             if let Some(dir) = dir.filter(|d| std::fs::symlink_metadata(d).is_ok_and(|m| m.file_type().is_dir())) {
-                let cwd = r.cwd.as_deref().map(Path::new);
-                task_report::annotate(&mut rep, &r.report_id, &dir, cwd);
+                let cwd = cwd.map(Path::new);
+                task_report::annotate(&mut rep, report_id, &dir, cwd);
                 if rep.criteria.is_empty() {
                     let size = crate::evidence::measure(&dir);
-                    first = rep.attachment_refs.first().map(|a| AttachmentLine { title: a.title.clone(), line: crate::attachment::first_line(&r.report_id, &dir, a, size) });
+                    first = rep.attachment_refs.first().map(|a| AttachmentLine { title: a.title.clone(), line: crate::attachment::first_line(report_id, &dir, a, size) });
                 }
             }
             CardReport::Ready { summary: Summary::of(rep, first) }
         }
         Err(ReportError::Missing) => CardReport::Missing,
         Err(code) => CardReport::Invalid { code },
+    }
+}
+
+fn card(r: Row, root: &Path, running: Option<Running>) -> Item {
+    let report = match r.report_id.as_deref() {
+        None => CardReport::None,
+        Some(rid) => report_card(task_report::read(root, rid), rid, root, r.cwd.as_deref()),
     };
     Item {
         goal: goal_of(&r),
@@ -420,6 +444,7 @@ fn card(r: Row, root: &Path, running: Option<Running>) -> Item {
         delivery_alert: r.delivery_alert,
         wrapped: r.wrapped,
         routine: r.routine,
+        ended: r.ended,
     }
 }
 
@@ -449,17 +474,28 @@ pub fn build(rows: Vec<Row>, root: &Path, running: &HashMap<String, Running>, q:
     if q.offset > MAX_OFFSET {
         return Err(Error::Config("offset"));
     }
+    // Records without a report never touch the review numbers: the badge's 500 rows are the reported ones only.
+    let (reported, plain): (Vec<Row>, Vec<Row>) = rows.into_iter().partition(|r| r.report_id.is_some());
     // Same 500 rows as the badge for "other projects"; the cap applies after scoping for this project's numbers.
-    let pending_all = rows.iter().take(MAX_ROWS).filter(|r| pending(r, running, q.since)).count();
+    let pending_all = reported.iter().take(MAX_ROWS).filter(|r| pending(r, running, q.since)).count();
     let mut seen = HashMap::new();
-    let scoped: Vec<Row> = match q.scope {
-        Some(scope) => rows.into_iter().filter(|r| in_scope(r.cwd.as_deref(), scope, &mut seen)).take(MAX_ROWS).collect(),
-        None => rows.into_iter().take(MAX_ROWS).collect(),
-    };
+    let mut here = |r: &Row| q.scope.is_none_or(|scope| in_scope(r.cwd.as_deref(), scope, &mut seen));
+    let scoped: Vec<Row> = reported.into_iter().filter(|r| here(r)).take(MAX_ROWS).collect();
+    // Finished only: not running by the last listing, and only once a good poll says so.
+    let plain: Vec<Row> = if q.known { plain.into_iter().filter(|r| !running.contains_key(&r.bg_id) && here(r)).collect() } else { Vec::new() };
     let has_any = !scoped.is_empty();
+    let no_report = plain.len();
     let running_here = scoped.iter().filter(|r| running.contains_key(&r.bg_id)).count();
     let pending_here = scoped.iter().filter(|r| pending(r, running, q.since)).count();
-    let matching: Vec<Row> = scoped.into_iter().filter(|r| q.filter == Filter::All || pending(r, running, q.since)).collect();
+    let matching: Vec<Row> = match q.filter {
+        Filter::Pending => scoped.into_iter().filter(|r| pending(r, running, q.since)).collect(),
+        Filter::All => {
+            let mut all: Vec<Row> = scoped.into_iter().chain(plain).collect();
+            all.sort_by(|a, b| b.created_at.cmp(&a.created_at).then_with(|| a.bg_id.cmp(&b.bg_id)));
+            all.truncate(MAX_ROWS);
+            all
+        }
+    };
     let total = matching.len();
     let mut groups: Vec<GroupTotal> = Vec::new();
     for r in &matching {
@@ -473,11 +509,11 @@ pub fn build(rows: Vec<Row>, root: &Path, running: &HashMap<String, Running>, q:
         .skip(q.offset)
         .take(q.limit.clamp(1, MAX_LIMIT))
         .map(|r| {
-            let run = if q.known { running.get(&r.bg_id).copied() } else { (!r.reviewed).then_some(Running::Checking) };
+            let run = if q.known { running.get(&r.bg_id).copied() } else { (!r.reviewed && r.report_id.is_some()).then_some(Running::Checking) };
             card(r, root, run)
         })
         .collect();
-    Ok(Inbox { report_setting: q.report_setting, total, pending_other: pending_all.saturating_sub(pending_here), has_any, running: running_here, groups, items })
+    Ok(Inbox { report_setting: q.report_setting, total, pending_other: pending_all.saturating_sub(pending_here), has_any, no_report, running: running_here, groups, items })
 }
 
 /// "리뷰했어요" from the 리뷰 탭: only a record that has a report and is not running (the shell passes the last
@@ -602,9 +638,9 @@ mod tests {
         assert_eq!(p.items.iter().map(|i| i.bg_id.as_str()).collect::<Vec<_>>(), ["aaaaaaa1"]);
         assert_eq!(p.items[0].report, CardReport::Missing, "no report.json yet still counts");
         let all = build(rows(&conn).unwrap(), &root, &running, &q(Filter::All)).unwrap();
-        assert_eq!(all.total, 5, "everything with a report, old ones included");
-        assert_eq!(all.running, 2);
-        assert_eq!(all.groups, vec![GroupTotal { task_type: Some("dev".into()), total: 4 }, GroupTotal { task_type: Some("qa".into()), total: 1 }]);
+        assert_eq!(all.total, 6, "everything with a report, old ones included, plus the finished task without one (D-196)");
+        assert_eq!((all.running, all.no_report), (2, 1));
+        assert_eq!(all.groups, vec![GroupTotal { task_type: Some("dev".into()), total: 5 }, GroupTotal { task_type: Some("qa".into()), total: 1 }]);
         let by = |b: &str| all.items.iter().find(|i| i.bg_id == b).unwrap().clone();
         assert_eq!(by("aaaaaaa3").running, Some(Running::Waiting));
         assert_eq!(by("aaaaaaa2").running, Some(Running::Working));
@@ -840,11 +876,11 @@ mod tests {
         run(&conn, 1, "aaaa0003", "done", Some(&id(4)), now() + 2);
         run(&conn, 1, "aaaa0003", "done", Some(&id(5)), now() + 3);
         let rows = rows(&conn).unwrap();
-        let got: Vec<(String, String, bool)> = rows.iter().map(|r| (r.bg_id.clone(), r.report_id.clone(), r.routine)).collect();
+        let got: Vec<(String, Option<String>, bool)> = rows.iter().map(|r| (r.bg_id.clone(), r.report_id.clone(), r.routine)).collect();
         assert_eq!(got.len(), 3, "{got:?}");
-        assert!(got.contains(&("aaaa0001".into(), id(1), false)));
-        assert!(got.contains(&("aaaa0002".into(), id(3), true)));
-        assert!(got.contains(&("aaaa0003".into(), id(5), true)));
+        assert!(got.contains(&("aaaa0001".into(), Some(id(1)), false)));
+        assert!(got.contains(&("aaaa0002".into(), Some(id(3)), true)), "one card, not a second no-report one");
+        assert!(got.contains(&("aaaa0003".into(), Some(id(5)), true)));
     }
 
     #[test]
@@ -892,11 +928,47 @@ mod tests {
         for n in 0..=task_report::KEEP_PER_ROUTINE {
             run(&conn, 1, &format!("ab{n:06x}"), "done", Some(&format!("{n:032x}")), now() + n);
         }
-        let ids: Vec<String> = rows(&conn).unwrap().into_iter().map(|r| r.bg_id).collect();
+        let ids: Vec<String> = rows(&conn).unwrap().into_iter().filter(|r| r.report_id.is_some()).map(|r| r.bg_id).collect();
         assert_eq!(ids.len(), task_report::KEEP_PER_ROUTINE as usize, "21st report: the oldest card goes, reviewed or not");
         assert!(!ids.contains(&"ab000000".to_string()));
         rec(&conn, "aaaa0001", "/tmp", "dev", Some(&id(200)), now(), None, None);
         crate::task_meta::delete_all(&conn).unwrap();
         assert_eq!(rows(&conn).unwrap().len(), task_report::KEEP_PER_ROUTINE as usize, "routine cards stay; the routine owns them");
+    }
+
+    #[test]
+    fn a_finished_task_without_a_report_is_listed_under_all_only() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let t = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(t.path()).unwrap().join(task_report::DIR_NAME);
+        let since = now() - 10_000;
+        rec(&conn, "ee6cd22a", "/w/dev_team", "research", None, now(), Some("NO-REPORT-PROMPT-CANARY 조사해 줘"), None);
+        conn.execute("UPDATE task_meta SET ended_status = 'failed' WHERE bg_id = 'ee6cd22a'", []).unwrap();
+        rec(&conn, "f00dbabe", "/w/dev_team", "dev", None, now() + 1, None, None); // still running
+        rec(&conn, "aaaa0001", "/w/dev_team", "dev", Some(&id(1)), now() - 1, None, None);
+        let running = running_map(&[session("f00dbabe", SessionStatus::Working)]);
+        let q = |filter| Query { filter, scope: None, offset: 0, limit: PAGE, since, report_setting: true, known: true };
+        // Not 리뷰 전, not on the badge.
+        let p = build(rows(&conn).unwrap(), &root, &running, &q(Filter::Pending)).unwrap();
+        assert_eq!(p.items.iter().map(|i| i.bg_id.as_str()).collect::<Vec<_>>(), ["aaaa0001"]);
+        assert_eq!(pending_count(&conn, &running, since).unwrap(), 1, "badge unchanged");
+        // 전체: newest first, the running one left out.
+        let all = build(rows(&conn).unwrap(), &root, &running, &q(Filter::All)).unwrap();
+        assert_eq!(all.items.iter().map(|i| i.bg_id.as_str()).collect::<Vec<_>>(), ["ee6cd22a", "aaaa0001"]);
+        assert_eq!((all.total, all.no_report, all.has_any), (2, 1, true));
+        let it = &all.items[0];
+        assert_eq!((&it.report, it.ended, it.task_type.as_deref(), it.folder.as_deref(), it.goal.as_deref()), (&CardReport::None, Some("failed"), Some("research"), Some("dev_team"), Some("작업 이름")));
+        assert!(!serde_json::to_string(&all).unwrap().contains("NO-REPORT-PROMPT-CANARY"), "no instruction text");
+        // Nothing to mark or undo.
+        assert!(mark(&conn, "ee6cd22a", &running, true, now()).is_err());
+        assert!(!unmark(&conn, "ee6cd22a").unwrap());
+        // Before a good poll nobody knows it has finished: left out.
+        let unknown = build(rows(&conn).unwrap(), &root, &HashMap::new(), &Query { known: false, ..q(Filter::All) }).unwrap();
+        assert_eq!((unknown.total, unknown.no_report), (1, 0));
+        // Only no-report records in a project: not "has a report", but counted for the 전체 view.
+        let only = crate::db::open_in_memory().unwrap();
+        rec(&only, "ee6cd22a", "/w/x", "research", None, now(), None, None);
+        let v = build(rows(&only).unwrap(), &root, &HashMap::new(), &q(Filter::All)).unwrap();
+        assert_eq!((v.has_any, v.no_report, v.items.len()), (false, 1, 1));
     }
 }

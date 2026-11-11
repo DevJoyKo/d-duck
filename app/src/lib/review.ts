@@ -103,6 +103,10 @@ export function cardView(item: InboxItem): CardView {
   const markable = item.running === null;
   const base = { goal, markable, counts: null, failedRows: 0, first: null, preview: [], more: 0, evidence: null, attachment: null };
   const notReady = (code: ReportErrorCode): CardView => ({ ...base, line: REPORT_ERROR_TEXT[code], tone: code === "missing" ? "plain" : "warn", pose: "waiting" });
+  if (item.report.kind === "none") {
+    // D-196: nothing to check against, so no verdict and no mark; only how it ended.
+    return { ...base, markable: false, line: t(`report.review.ended.${item.ended ?? "unknown"}`), tone: "plain", pose: item.ended === "failed" ? "failed" : "done" };
+  }
   if (item.report.kind !== "ready") {
     if (item.running) return { ...base, line: STATUS_LINE[item.running], tone: "plain", pose: item.running === "working" ? "working" : "waiting" };
     return notReady(item.report.kind === "missing" ? "missing" : item.report.code);

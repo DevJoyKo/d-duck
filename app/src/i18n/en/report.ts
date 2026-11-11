@@ -228,6 +228,10 @@ export default {
     close: "Close",
     status: { working: "Working", waiting: "Waiting for your answer", checking: "Checking if it's running" },
     noGoal: "A task with no goal left",
+    noReport: "No report",
+    openTask: "View task",
+    openTaskLabel: "{title}: view task",
+    ended: { done: "Finished", failed: "Failed", stopped: "Stopped", unknown: "Ended" },
     badge: { tasks: { one: "{count} needs you", other: "{count} need you" }, review: { one: "{count} task to review", other: "{count} tasks to review" } },
   },
 } satisfies Shape<typeof ko>;
