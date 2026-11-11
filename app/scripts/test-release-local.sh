@@ -29,7 +29,7 @@ write_fakes() {
 #!/bin/bash
 echo "$* | APPLE_ID=${APPLE_ID-unset}" >>"$CALLS"
 EOF
-  for t in codesign dwarfdump osascript open sleep npx spctl hdiutil xcrun; do
+  for t in codesign dwarfdump osascript open sleep npx spctl hdiutil xcrun ditto; do
     # shellcheck disable=SC2016  # the fake's own code, expanded when the fake runs
     printf '#!/bin/bash\n"$(dirname "$0")/_log" %s "$@"\n' "$t" >"$bin/$t"
   done
@@ -40,19 +40,39 @@ EOF
 [ "${DDUCK_SKIP_BUILD:-}" = 1 ] && { echo "npx called although DDUCK_SKIP_BUILD=1" >&2; exit 99; }
 exit 0
 EOF
+  # codesign: FAKE_CODESIGN=fail-new fails the check of the copy staged in the install location.
+  cat >>"$bin/codesign" <<'EOF'
+for a in "$@"; do last="$a"; done
+if [ "${FAKE_CODESIGN:-ok}" = fail-new ] && [ "$1" = --verify ] && [[ "$last" == *.D.Duck.app.new ]]; then exit 1; fi
+exit 0
+EOF
+  # ditto: the real one, except FAKE_DITTO=fail-install leaves half a copy in the install location and fails.
+  cat >>"$bin/ditto" <<'EOF'
+for a in "$@"; do last="$a"; done
+if [ "${FAKE_DITTO:-ok}" = fail-install ] && [[ "$last" == *.D.Duck.app.new ]]; then
+  mkdir -p "$last/Contents" && echo half >"$last/Contents/partial"; echo "ditto: No space left on device" >&2; exit 1
+fi
+exec /usr/bin/ditto "$@"
+EOF
   cat >>"$bin/hdiutil" <<'EOF'
 if [ "$1" = create ]; then
   for a in "$@"; do case "$a" in *.dmg) echo "NEW-DMG" >"$a" ;; esac; done
 fi
 exit 0
 EOF
+  # spctl: FAKE_SPCTL=reject fails; devid accepts both as plain Developer ID (not notarized); devid-dmg only the DMG.
   cat >>"$bin/spctl" <<'EOF'
 for a in "$@"; do last="$a"; done
 if [ "${FAKE_SPCTL:-accept}" = reject ]; then echo "$last: rejected" >&2; exit 3; fi
 echo "$last: accepted" >&2
-echo "source=Notarized Developer ID" >&2
+case "${FAKE_SPCTL:-accept}:$last" in
+  devid:* | devid-dmg:*.dmg) echo "source=Developer ID" >&2 ;;
+  *) echo "source=Notarized Developer ID" >&2 ;;
+esac
 exit 0
 EOF
+  # notarytool: FAKE_NOTARY is a comma list, one outcome per submission: accepted | invalid | timeout | <other> (401,
+  # no JSON). submit never waits; wait and info answer from the outcome stored under the submission id.
   cat >>"$bin/xcrun" <<'EOF'
 tool="$1"; shift
 case "$tool" in
@@ -63,10 +83,23 @@ case "$tool" in
         outcome="$(echo "${FAKE_NOTARY:-accepted}" | cut -d, -f"$n")"; outcome="${outcome:-accepted}"
         echo "Conducting pre-submission checks..." >&2
         case "$outcome" in
-          accepted) echo "{\"id\":\"sub-$n\",\"status\":\"Accepted\",\"message\":\"Processing complete\"}"; exit 0 ;;
-          invalid)  echo "{\"id\":\"sub-$n\",\"status\":\"Invalid\",\"message\":\"Processing complete\"}"; exit 1 ;;
-          timeout)  echo "{\"id\":\"sub-$n\",\"status\":\"In Progress\",\"message\":\"Timeout\"}"; exit 1 ;;
-          *)        echo "Error: HTTP 401" >&2; exit 1 ;;
+          accepted | invalid | timeout)
+            echo "$outcome" >"$NOTARY_COUNT.sub-$n"
+            echo "{\"id\":\"sub-$n\",\"path\":\"x\",\"message\":\"Successfully uploaded file\"}"; exit 0 ;;
+          garbage) echo "Uploading... done"; exit 0 ;;
+          *) echo "Error: HTTP status code: 401. Unable to authenticate." >&2; exit 1 ;;
+        esac ;;
+      wait)
+        case "$(cat "$NOTARY_COUNT.$2")" in
+          accepted) echo "{\"id\":\"$2\",\"status\":\"Accepted\"}" ;;
+          invalid)  echo "{\"id\":\"$2\",\"status\":\"Invalid\"}" ;;
+          *)        echo "Error: Timeout of 30m reached." >&2; exit 1 ;;
+        esac ;;
+      info)
+        case "$(cat "$NOTARY_COUNT.$2")" in
+          accepted) echo "{\"id\":\"$2\",\"status\":\"Accepted\"}" ;;
+          invalid)  echo "{\"id\":\"$2\",\"status\":\"Invalid\"}" ;;
+          *)        echo "{\"id\":\"$2\",\"status\":\"In Progress\"}" ;;
         esac ;;
       log) echo "FAKE NOTARY LOG for $2: The binary is not signed with a valid Developer ID certificate." ;;
     esac ;;
@@ -123,7 +156,13 @@ replaced() {
     && compgen -G "$SB/home/.Trash/D.Duck.app-*" >/dev/null
 }
 temp_clean() { [ -z "$(ls -A "$SB/tmp")" ] && grep -qF "$SB/tmp/dduck-release." "$CALLS"; }  # temp dir was used, then removed
+# No half-made copies left in the three locations.
+no_leftovers() {
+  [ ! -e "$SB/Applications/.D.Duck.app.new" ] && ! compgen -G "$SB/repo/app/target/release/bundle/dmg/*.partial" >/dev/null \
+    && ! compgen -G "$SB/repo/publish/dmg/*.partial" >/dev/null
+}
 out_has() { grep -qF -- "$1" "$OUT"; }
+out_lacks() { ! grep -qF -- "$1" "$OUT"; }
 calls_has() { grep -qF -- "$1" "$CALLS"; }
 calls_lacks() { ! grep -qF -- "$1" "$CALLS"; }
 # in_order pattern...: each fixed string appears on a later calls.log line than the previous one.
@@ -146,8 +185,11 @@ check "tauri build ran with APPLE_* unset" calls_has "npx tauri build --bundles 
 check "ad-hoc --deep signature" calls_has "codesign --force --deep --sign - "
 check "no notarytool/stapler/spctl" calls_lacks "xcrun" ; check "no spctl" calls_lacks "spctl"
 check "not-notarized notice" out_has "NOT notarized"
+check "notice points to Open Anyway" out_has "System Settings > Privacy & Security > Open Anyway"
+check "notice drops right-click > Open (no bypass on Sequoia)" out_lacks "right-click"
 check "three locations replaced, old app in Trash" replaced
 check "relaunched" calls_has "open $SB/Applications/D.Duck.app"
+check "no .new or .partial left" no_leftovers
 check "dSYM kept by UUID" [ -d "$SB/repo/publish/dsym/11111111-2222-3333-4444-555555555555.dSYM" ]
 check "temp dir cleaned" temp_clean
 show_on_fail "$f"
@@ -179,13 +221,61 @@ check "three locations unchanged" unchanged
 check "temp dir cleaned" temp_clean
 show_on_fail "$f"
 
-echo "(d) notarization timeout -> fail with submission id"
+echo "(d) notarization wait timeout -> fail, id printed with info/log/history hint"
 setup d; f=$FAIL; run DDUCK_SIGN_IDENTITY="$ID" DDUCK_NOTARY_PROFILE=dduck-notary DDUCK_SKIP_BUILD=1 FAKE_NOTARY=timeout
 check "exit non-zero" [ "$RC" -ne 0 ]
-check "submission id printed" out_has "submission sub-1"
+check "submit does not wait" calls_lacks "--wait"
+check "submit asks for json" calls_has "D.Duck.zip --keychain-profile dduck-notary --output-format json"
+check "submission id printed before waiting" in_order "notarytool submit" "notarytool wait sub-1"
+check "id printed" out_has "notarize: submission sub-1"
+check "wait has the 30m timeout" calls_has "xcrun notarytool wait sub-1 --timeout 30m --keychain-profile dduck-notary"
+check "status read with info" calls_has "xcrun notarytool info sub-1 --keychain-profile dduck-notary"
 check "notarytool info hint" out_has "xcrun notarytool info sub-1 --keychain-profile"
-check "30m timeout and json requested" calls_has "--wait --timeout 30m --output-format json"
+check "notarytool log hint" out_has "xcrun notarytool log sub-1 --keychain-profile"
+check "notarytool history hint" out_has "xcrun notarytool history --keychain-profile"
+check "nothing stapled" calls_lacks "stapler staple"
 check "three locations unchanged" unchanged
+check "temp dir cleaned" temp_clean
+setup d1; run DDUCK_SIGN_IDENTITY="$ID" DDUCK_NOTARY_PROFILE=dduck-notary DDUCK_SKIP_BUILD=1 FAKE_NOTARY=accepted,timeout
+check "DMG wait timeout: exit non-zero" [ "$RC" -ne 0 ]
+check "DMG id printed with hint" out_has "xcrun notarytool log sub-2 --keychain-profile"
+check "three locations unchanged" unchanged
+show_on_fail "$f"
+
+echo "(d1) notarytool submit 401 / no JSON -> clear error, no id"
+setup d1b; f=$FAIL; run DDUCK_SIGN_IDENTITY="$ID" DDUCK_NOTARY_PROFILE=dduck-notary DDUCK_SKIP_BUILD=1 FAKE_NOTARY=auth401
+check "exit non-zero" [ "$RC" -ne 0 ]
+check "says no submission id" out_has "no submission id"
+check "notarytool's own error shown" out_has "HTTP status code: 401"
+check "no made-up id" out_lacks "submission sub-"
+check "no wait without an id" calls_lacks "notarytool wait"
+check "three locations unchanged" unchanged
+check "temp dir cleaned" temp_clean
+setup d1c; run DDUCK_SIGN_IDENTITY="$ID" DDUCK_NOTARY_PROFILE=dduck-notary DDUCK_SKIP_BUILD=1 FAKE_NOTARY=garbage
+check "non-JSON submit, exit 0: exit non-zero" [ "$RC" -ne 0 ]
+check "non-JSON submit: no id (plutil error not read as id)" out_has "no submission id"
+check "non-JSON submit: no wait" calls_lacks "notarytool wait"
+check "non-JSON submit: three locations unchanged" unchanged
+show_on_fail "$f"
+
+echo "(d3) stapling fails -> three locations unchanged"
+setup d3; f=$FAIL; run DDUCK_SIGN_IDENTITY="$ID" DDUCK_NOTARY_PROFILE=dduck-notary DDUCK_SKIP_BUILD=1 FAKE_STAPLER=fail
+check "exit non-zero" [ "$RC" -ne 0 ]
+check "says stapling failed" out_has "stapling the ticket to the app failed"
+check "no DMG made after the app staple failed" calls_lacks "hdiutil create"
+check "three locations unchanged" unchanged
+check "temp dir cleaned" temp_clean
+show_on_fail "$f"
+
+echo "(d4) Gatekeeper says plain Developer ID (not notarized) -> refused"
+setup d4; f=$FAIL; run DDUCK_SIGN_IDENTITY="$ID" DDUCK_NOTARY_PROFILE=dduck-notary DDUCK_SKIP_BUILD=1 FAKE_SPCTL=devid
+check "app: exit non-zero" [ "$RC" -ne 0 ]
+check "app: says not notarized" out_has "app is not reported as Notarized Developer ID"
+check "app: three locations unchanged" unchanged
+setup d4b; run DDUCK_SIGN_IDENTITY="$ID" DDUCK_NOTARY_PROFILE=dduck-notary DDUCK_SKIP_BUILD=1 FAKE_SPCTL=devid-dmg
+check "DMG: exit non-zero" [ "$RC" -ne 0 ]
+check "DMG: says not notarized" out_has "DMG is not reported as Notarized Developer ID"
+check "DMG: three locations unchanged" unchanged
 check "temp dir cleaned" temp_clean
 show_on_fail "$f"
 
@@ -194,6 +284,27 @@ setup d2; f=$FAIL; run DDUCK_SIGN_IDENTITY="$ID" DDUCK_NOTARY_PROFILE=dduck-nota
 check "exit non-zero" [ "$RC" -ne 0 ]
 check "three locations unchanged" unchanged
 check "temp dir cleaned" temp_clean
+show_on_fail "$f"
+
+echo "(d5) install copy fails -> old app kept, nothing replaced, no leftovers"
+setup d5; f=$FAIL; run FAKE_DITTO=fail-install
+check "copy failure: exit non-zero" [ "$RC" -ne 0 ]
+check "copy failure: says the installed app was kept" out_has "were left as they were"
+check "copy failure: three locations unchanged" unchanged
+check "copy failure: no .new or .partial left" no_leftovers
+check "copy failure: app not quit" calls_lacks "osascript"
+setup d5b; run FAKE_CODESIGN=fail-new
+check "copy check failure: exit non-zero" [ "$RC" -ne 0 ]
+check "copy check failure: three locations unchanged" unchanged
+check "copy check failure: no .new or .partial left" no_leftovers
+check "temp dir cleaned" temp_clean
+setup d5c; chmod 555 "$SB/home/.Trash"; run
+chmod 755 "$SB/home/.Trash"
+check "old app cannot go to Trash: exit non-zero" [ "$RC" -ne 0 ]
+check "old app cannot go to Trash: installed app kept" [ "$(cat "$SB/Applications/D.Duck.app/marker")" = OLD-APP ]
+check "old app cannot go to Trash: says DMGs already updated" out_has "the DMGs are already updated"
+check "old app cannot go to Trash: no .new or .partial left" no_leftovers
+check "old app cannot go to Trash: not relaunched" calls_lacks "open $SB/Applications/D.Duck.app"
 show_on_fail "$f"
 
 echo "(e) both variables -> notarized, in order"
@@ -218,6 +329,8 @@ check "app zip submitted first, then DMG" in_order "D.Duck.zip --keychain-profil
 check "no --deep when signing" calls_lacks "codesign --force --deep"
 check "entitlements only on the app" [ "$(grep -c -- '--entitlements' "$CALLS")" -eq 1 ]
 check "three locations replaced" replaced
+check "no .new or .partial left" no_leftovers
+check "both submissions waited on" in_order "notarytool wait sub-1" "notarytool wait sub-2"
 check "temp dir cleaned" temp_clean
 show_on_fail "$f"
 

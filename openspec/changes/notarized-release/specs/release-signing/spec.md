@@ -10,7 +10,7 @@
 
 #### Scenario: 공증 빌드
 - **WHEN** 두 값을 설정하고 릴리스 스크립트를 실행한다
-- **THEN** `spctl -a -vv`가 앱에 대해 "source=Notarized Developer ID"를 보고하고, `xcrun stapler validate`가 앱과 DMG 모두 통과한다
+- **THEN** `spctl -a -vv`가 앱과 DMG 모두에 대해 "source=Notarized Developer ID"를 보고하고(공증 없는 "source=Developer ID"는 실패), `xcrun stapler validate`가 앱과 DMG 모두 통과한다
 
 #### Scenario: 공증 거절
 - **WHEN** 공증이 Invalid로 끝난다(시험에서는 PATH의 가짜 notarytool로 흉내 낸다)
