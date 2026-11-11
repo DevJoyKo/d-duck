@@ -92,14 +92,19 @@ describe("MCP tab", () => {
   });
 });
 
+// A nav item's own label, without the badge count (aria-label span) or the active bar (aria-hidden span).
+const navLabel = (b: HTMLElement) => b.querySelector("span:not([aria-label]):not([aria-hidden])")?.textContent;
+
 describe("sidebar groups", () => {
   it("shows 작업 공간 and Claude 구성 in order, then usage and settings, and no project picker", async () => {
     await boot("agents");
     const work = await screen.findByRole("group", { name: "작업 공간" });
-    expect(within(work).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["에이전트", "작업", "리뷰", "루틴", "아티팩트"]);
-    const config = screen.getByRole("group", { name: "Claude 구성" });
-    expect(within(config).getAllByRole("button").map((b) => b.textContent)).toEqual(["확장", "MCP", "권한", "메모리"]);
     const nav = screen.getByRole("navigation");
+    // Badge counts load later and sit inside the button ("리뷰5"): wait for them, then read only the label span.
+    await within(nav).findByLabelText(/리뷰 전 \d+개/);
+    expect(within(work).getAllByRole("button").map(navLabel)).toEqual(["에이전트", "작업", "리뷰", "루틴", "아티팩트"]);
+    const config = screen.getByRole("group", { name: "Claude 구성" });
+    expect(within(config).getAllByRole("button").map(navLabel)).toEqual(["확장", "MCP", "권한", "메모리"]);
     const order = ["사용 통계", "설정"].map((n) => within(nav).getByRole("button", { name: n }));
     expect(within(nav).queryByRole("button", { name: /현재 프로젝트/ })).toBeNull();
     expect(config.compareDocumentPosition(order[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
