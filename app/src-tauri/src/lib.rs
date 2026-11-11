@@ -1965,7 +1965,9 @@ fn preferred_for(config_dir: &std::path::Path, cwd: &std::path::Path) -> Vec<ddu
     let skills = dduck_core::skills_catalog::discover(config_dir, canon.as_slice());
     let roots = agents_catalog::Roots { config_dir: config_dir.to_path_buf(), project_dirs: Vec::new() };
     let agents = agents_catalog::discover_for(&roots, canon.as_deref());
-    dduck_core::preferred::available(&skills, &agents, true)
+    // Plugins only when recorded and enabled for this folder, from their own marketplace (preferred-default).
+    let plugins = dduck_core::preferred::plugin_env(config_dir, &[canon.as_deref()]);
+    dduck_core::preferred::available(&skills, &agents, true, &plugins)
 }
 
 /// Choices for "먼저 살펴볼 스킬·에이전트": user, plugin and project items of the folders the tabs use. No file paths.
@@ -1976,7 +1978,10 @@ async fn preferred_options(app: AppHandle) -> Res<Vec<dduck_core::preferred::Ava
         let roots = catalog_roots(&state)?;
         let skills = dduck_core::skills_catalog::discover(&roots.config_dir, &roots.project_dirs);
         let agents = agents_catalog::discover(&roots);
-        Ok(dduck_core::preferred::available(&skills, &agents, false))
+        // Enabled in user settings or in any known project folder.
+        let contexts: Vec<Option<&std::path::Path>> = std::iter::once(None).chain(roots.project_dirs.iter().map(|p| Some(p.as_path()))).collect();
+        let plugins = dduck_core::preferred::plugin_env(&roots.config_dir, &contexts);
+        Ok(dduck_core::preferred::available(&skills, &agents, false, &plugins))
     })
     .await
     .map_err(err)?

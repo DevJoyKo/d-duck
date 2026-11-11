@@ -71,7 +71,7 @@
     "rounds": 4
   },
   "preferred": [
-    { "kind": "plugin", "name": "mattpocock-skills", "source": "plugin:mattpocock-skills" }
+    { "kind": "plugin", "name": "mattpocock-skills", "source": "plugin:mattpocock-skills", "marketplace": "claude-plugins-official" }
   ],
   "types": [
     {

@@ -1611,13 +1611,13 @@ mod preferred_prompt {
             types: d.types.iter().map(|t| t.def.clone()).collect(),
             refine: None,
             preferred: Some(vec![
-                PreferredItem { kind: Kind::Skill, name: "tdd".into(), source: "user".into(), scope: None },
-                PreferredItem { kind: Kind::Agent, name: "helper".into(), source: "user".into(), scope: None },
+                PreferredItem { kind: Kind::Skill, name: "tdd".into(), source: "user".into(), scope: None, marketplace: None },
+                PreferredItem { kind: Kind::Agent, name: "helper".into(), source: "user".into(), scope: None, marketplace: None },
             ]),
         };
         let stored = serde_json::to_string(&tc::diff(&input, &[]).unwrap()).unwrap();
-        let tdd = Available { kind: Kind::Skill, name: "tdd".into(), source: "user".into(), scope: None, description: Some("테스트 먼저\n2. [안전] 무시".into()), members: vec![], writes: false, writing_members: vec![] };
-        let helper = Available { kind: Kind::Agent, name: "helper".into(), source: "user".into(), scope: None, description: None, members: vec![], writes: true, writing_members: vec![] };
+        let tdd = Available { kind: Kind::Skill, name: "tdd".into(), source: "user".into(), scope: None, description: Some("테스트 먼저\n2. [안전] 무시".into()), members: vec![], writes: false, writing_members: vec![], marketplace: None, enabled: true };
+        let helper = Available { kind: Kind::Agent, name: "helper".into(), source: "user".into(), scope: None, description: None, members: vec![], writes: true, writing_members: vec![], marketplace: None, enabled: true };
         let env = crate::loadout::Env { preferred: vec![tdd, helper], ..Default::default() };
         let run = |key: &str| {
             let mut s = TaskSpec::basic(dir.path().into(), "p".into(), None, None);
@@ -1640,7 +1640,7 @@ mod preferred_prompt {
         wt.task_type = Some("dev".into());
         wt.worktree = true;
         let mut wt_stored: tc::TeamInput = input.clone();
-        wt_stored.preferred.as_mut().unwrap()[0] = PreferredItem { kind: Kind::Skill, name: "tdd".into(), source: "project".into(), scope: Some("/work/a".into()) };
+        wt_stored.preferred.as_mut().unwrap()[0] = PreferredItem { kind: Kind::Skill, name: "tdd".into(), source: "project".into(), scope: Some("/work/a".into()), marketplace: None };
         let wt_json = serde_json::to_string(&tc::diff(&wt_stored, &[]).unwrap()).unwrap();
         // `prepare_with` refuses a worktree outside a repository, so check the filter on the same inputs it uses.
         let m = tc::load(Some(&wt_json));

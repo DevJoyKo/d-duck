@@ -1649,7 +1649,7 @@ mod tests {
     #[test]
     fn preferred_items_round_trip_drop_bad_values_and_reset() {
         use crate::preferred::{Kind, PreferredItem};
-        let it = |kind, name: &str, source: &str| PreferredItem { kind, name: name.into(), source: source.into(), scope: None };
+        let it = |kind, name: &str, source: &str| PreferredItem { kind, name: name.into(), source: source.into(), scope: None, marketplace: None };
         let mut input = input_of(&defaults());
         input.preferred = Some(vec![it(Kind::Skill, "tdd", "user"), it(Kind::Agent, "reviewer", "user")]);
         let st = diff(&input, &[]).unwrap();
@@ -1672,7 +1672,7 @@ mod tests {
     }
 
     fn mattpocock() -> crate::preferred::PreferredItem {
-        crate::preferred::PreferredItem { kind: crate::preferred::Kind::Plugin, name: "mattpocock-skills".into(), source: "plugin:mattpocock-skills".into(), scope: None }
+        crate::preferred::PreferredItem { kind: crate::preferred::Kind::Plugin, name: "mattpocock-skills".into(), source: "plugin:mattpocock-skills".into(), scope: None, marketplace: Some("claude-plugins-official".into()) }
     }
 
     #[test]
@@ -1713,7 +1713,7 @@ mod tests {
         missing.preferred = None;
         assert_eq!(diff(&missing, &[]).unwrap().preferred, None);
         // "기본값으로" for this section, after clearing or changing it.
-        for chosen in [Vec::new(), vec![crate::preferred::PreferredItem { kind: crate::preferred::Kind::Skill, name: "tdd".into(), source: "user".into(), scope: None }]] {
+        for chosen in [Vec::new(), vec![crate::preferred::PreferredItem { kind: crate::preferred::Kind::Skill, name: "tdd".into(), source: "user".into(), scope: None, marketplace: None }]] {
             let mut input = input_of(&defaults());
             input.preferred = Some(chosen);
             let mut st = diff(&input, &[]).unwrap();
@@ -1739,6 +1739,8 @@ mod tests {
             members: skills.iter().map(|s| s.to_string()).collect(),
             writes: false,
             writing_members: Vec::new(),
+            marketplace: Some("claude-plugins-official".into()),
+            enabled: true,
         }];
         let line = crate::preferred::line(&m.preferred, &installed, crate::i18n::Lang::Ko, Ctx::default()).unwrap();
         assert!(line.contains("플러그인 mattpocock-skills"), "{line}");
