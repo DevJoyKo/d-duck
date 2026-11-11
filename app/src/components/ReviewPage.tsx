@@ -28,8 +28,8 @@ import { useT } from "../i18n/react";
 
 const FILTERS: InboxFilter[] = ["pending", "all"];
 const UNDO_MS = 5_000;
-/** The backend serves offsets up to 200: 21 pages of 10. */
-const MAX_PAGES = Math.floor(200 / PAGE_SIZE) + 1;
+/** The backend counts and serves 500 rows: 50 pages of 10 (review_inbox::MAX_ROWS). */
+const MAX_PAGES = Math.ceil(500 / PAGE_SIZE);
 
 // Warn text stays ink-2 (the warn token is too close to the duck's yellow in dark mode); only its icon is colored.
 const TONE: Record<CardView["tone"], string> = { plain: "text-ink-2", warn: "text-ink-2", danger: "text-danger" };
@@ -103,7 +103,8 @@ function Card({
   const body = useDelayedOpen(onOpen);
   // A card without a goal leads with its start time, so several of them can be told apart.
   const title = item.goal ? v.goal : `${dateTime(item.createdAt)} · ${v.goal}`;
-  const folder = item.folder ?? t("report.review.noFolder");
+  // A routine run says so before its folder (review-routine-runs); its goal is the routine's name.
+  const folder = `${item.routine ? `${t("report.delegated.routine")} · ` : ""}${item.folder ?? t("report.review.noFolder")}`;
   const when = item.goal ? `${folder} · ${dateTime(item.createdAt)}` : folder;
   return (
     <li className="flex items-start gap-3 px-1 py-2" data-review-card={item.bgId}>

@@ -727,6 +727,8 @@ export interface InboxItem {
   deliveryAlert?: number | null;
   /** 정리 끝 (task-lifecycle): the only state shown as "완료". */
   wrapped?: boolean;
+  /** A routine run with a report (review-routine-runs): the card says "루틴". */
+  routine?: boolean;
 }
 export interface Inbox {
   reportSetting: boolean;

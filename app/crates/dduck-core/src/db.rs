@@ -7,7 +7,7 @@ use rusqlite::Connection;
 use crate::Error;
 
 #[cfg(test)]
-const SCHEMA_VERSION: i64 = 15;
+const SCHEMA_VERSION: i64 = 16;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS ingest_files (
@@ -311,6 +311,12 @@ const SCHEMA_V14: &str = "ALTER TABLE task_meta ADD COLUMN lang TEXT;";
 /// so a record card keeps it after the task leaves the listing. NULL = never seen ended (older rows, still running).
 const SCHEMA_V15: &str = "ALTER TABLE task_meta ADD COLUMN ended_status TEXT;";
 
+/// review-routine-runs: a routine run with a report is a review target like a task record, so it keeps its own
+/// 리뷰했어요 and 정리 끝 times. The index serves the review rows' per-bg lookups.
+const SCHEMA_V16: &str = "ALTER TABLE routine_runs ADD COLUMN reviewed_at INTEGER;
+ALTER TABLE routine_runs ADD COLUMN wrapped_at INTEGER;
+CREATE INDEX IF NOT EXISTS routine_runs_bg ON routine_runs(bg_id);";
+
 pub const SETTING_ARTIFACTS_BACKFILL: &str = "artifacts_backfill";
 
 /// Staged migrations, each in one transaction with its version bump. Upgrading an existing v1 DB marks a one-time
@@ -383,6 +389,9 @@ fn migrate(conn: &Connection) -> Result<(), Error> {
     if version < 15 {
         conn.execute_batch(&format!("BEGIN IMMEDIATE; {SCHEMA_V15} PRAGMA user_version = 15; COMMIT;"))?;
     }
+    if version < 16 {
+        conn.execute_batch(&format!("BEGIN IMMEDIATE; {SCHEMA_V16} PRAGMA user_version = 16; COMMIT;"))?;
+    }
     Ok(())
 }
 
@@ -454,6 +463,30 @@ mod tests {
             conn.query_row("SELECT bg_id, report_id, permission_mode FROM task_meta", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap();
         assert_eq!(row, ("ab12cd34".into(), None, None));
         assert!(conn.prepare("SELECT report_id FROM routine_runs").is_ok());
+    }
+
+    #[test]
+    fn upgrading_v15_adds_routine_review_columns_and_keeps_runs() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(&format!(
+            "{SCHEMA_V1} {SCHEMA_V2} {SCHEMA_V3} {SCHEMA_V4} {SCHEMA_V5} {SCHEMA_V6} {SCHEMA_V7} {SCHEMA_V8} {SCHEMA_V9} {SCHEMA_V10} {SCHEMA_V11} {SCHEMA_V12} {SCHEMA_V13} {SCHEMA_V14} {SCHEMA_V15}"
+        ))
+        .unwrap();
+        conn.pragma_update(None, "user_version", 15).unwrap();
+        conn.execute(
+            "INSERT INTO routines(id, name, cwd, prompt, permission_mode, schedule_kind, created_at, anchor_ms, approved_digest) VALUES (1, 'r', '/w', 'p', 'manual', 'daily', 0, 0, x'00')",
+            [],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO routine_runs(routine_id, scheduled_for, status, bg_id, report_id) VALUES (1, 5, 'done', 'ab12cd34', ?1)", [format!("{:032x}", 7)]).unwrap();
+        migrate(&conn).unwrap();
+        let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+        assert_eq!(v, SCHEMA_VERSION);
+        let row: (String, Option<String>, Option<i64>, Option<i64>) =
+            conn.query_row("SELECT bg_id, report_id, reviewed_at, wrapped_at FROM routine_runs", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).unwrap();
+        assert_eq!(row, ("ab12cd34".into(), Some(format!("{:032x}", 7)), None, None), "runs kept, nothing marked reviewed for the user");
+        let idx: i64 = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'routine_runs_bg'", [], |r| r.get(0)).unwrap();
+        assert_eq!(idx, 1);
     }
 
     #[test]

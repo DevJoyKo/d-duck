@@ -20,11 +20,12 @@ pub const PAGE: usize = 10;
 pub const MAX_LIMIT: usize = 40;
 /// Evidence shown under a card's criteria preview: first line only.
 pub const EVIDENCE_CHARS: usize = 120;
-pub const MAX_OFFSET: usize = 200;
+/// Every page of the [`MAX_ROWS`] rows opens (50 pages of 10).
+pub const MAX_OFFSET: usize = MAX_ROWS;
 pub const GOAL_CHARS: usize = 120;
 const DONE_CHARS: usize = 2000;
 /// Rows considered, applied after project scoping (the list) or over every project (the badge).
-const MAX_ROWS: usize = 500;
+pub const MAX_ROWS: usize = 500;
 /// A bound on what one query reads; `task_meta` keeps 200 records, so this never cuts in practice.
 const READ_BOUND: i64 = 5000;
 
@@ -72,7 +73,58 @@ pub fn running_map(sessions: &[AgentSession]) -> HashMap<String, Running> {
     sessions.iter().filter_map(|s| Some((s.id.clone()?, running_of(s.status)?))).collect()
 }
 
-/// One `task_meta` record with a report. Internal: holds the report id and the stored instruction.
+/// Every record the review tab, the badge and the board's 리뷰 대기·정리 columns read (review-routine-runs): the
+/// `task_meta` records, plus routine runs that were given a report (`routine_runs.report_id`, set by the shell when the
+/// run started). A routine run is left out when the same background id has a `task_meta` record with a report (the
+/// order `task_report::id_for` uses), and only its newest run with a report counts. The routine's instruction is not
+/// read: the card's goal is the routine's name. Wrap it as `FROM {RECORDS} WHERE …`; values only ever go in as `?`.
+pub(crate) const RECORDS: &str = "(SELECT bg_id, name, cwd, task_type, created_at, reviewed_at, report_id, brief_json, prompt, delivery_alert,
+        wrapped_at, ended_status, 0 AS routine FROM task_meta
+    UNION ALL
+    SELECT rr.bg_id, r.name, r.cwd, NULL, COALESCE(rr.started_at, rr.scheduled_for), rr.reviewed_at, rr.report_id, NULL, NULL, NULL,
+        rr.wrapped_at, CASE rr.status WHEN 'done' THEN 'done' WHEN 'failed' THEN 'failed' WHEN 'stopped' THEN 'stopped' WHEN 'lost' THEN 'unknown' END, 1
+    FROM routine_runs rr JOIN routines r ON r.id = rr.routine_id
+    WHERE rr.report_id IS NOT NULL AND rr.bg_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM task_meta t WHERE t.bg_id = rr.bg_id AND t.report_id IS NOT NULL)
+      AND rr.id = (SELECT MAX(x.id) FROM routine_runs x WHERE x.bg_id = rr.bg_id AND x.report_id IS NOT NULL))";
+
+/// Where a record's 리뷰했어요 and 정리 끝 are stored: its `task_meta` row, or one routine run (by row id).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Owner {
+    Task,
+    Routine(i64),
+}
+
+/// The record behind `bg_id`, the same one [`RECORDS`] shows: a `task_meta` record with a report, else the newest
+/// routine run with a report, else a `task_meta` record without one. `bool` = it has a report.
+pub(crate) fn owner(conn: &Connection, bg_id: &str) -> Result<Option<(Owner, bool)>, Error> {
+    use rusqlite::OptionalExtension;
+    let task: Option<bool> = conn
+        .query_row("SELECT report_id FROM task_meta WHERE bg_id = ?1", [bg_id], |r| r.get::<_, Option<String>>(0))
+        .optional()?
+        .map(|id| id.is_some_and(|id| task_report::valid_id(&id)));
+    if task == Some(true) {
+        return Ok(Some((Owner::Task, true)));
+    }
+    let run: Option<(i64, String)> = conn
+        .query_row(
+            "SELECT id, report_id FROM routine_runs WHERE bg_id = ?1 AND report_id IS NOT NULL ORDER BY id DESC LIMIT 1",
+            [bg_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    if let Some((id, _)) = run.filter(|(_, rid)| task_report::valid_id(rid)) {
+        return Ok(Some((Owner::Routine(id), true)));
+    }
+    Ok(task.map(|has| (Owner::Task, has)))
+}
+
+/// A routine run the scheduler still counts as running: never marked, whatever the last listing said.
+fn routine_live(conn: &Connection, run_id: i64) -> Result<bool, Error> {
+    Ok(conn.query_row("SELECT status IN ('starting', 'running', 'waiting') FROM routine_runs WHERE id = ?1", [run_id], |r| r.get(0))?)
+}
+
+/// One record with a report. Internal: holds the report id and the stored instruction.
 pub struct Row {
     bg_id: String,
     name: Option<String>,
@@ -85,14 +137,15 @@ pub struct Row {
     prompt: Option<String>,
     delivery_alert: Option<i64>,
     wrapped: bool,
+    routine: bool,
 }
 
 /// Records that were given a report, newest first. Call under the DB lock, then release it before [`build`].
 pub fn rows(conn: &Connection) -> Result<Vec<Row>, Error> {
-    let mut stmt = conn.prepare(
-        "SELECT bg_id, name, cwd, task_type, created_at, reviewed_at, report_id, brief_json, prompt, delivery_alert, wrapped_at FROM task_meta
-         WHERE report_id IS NOT NULL ORDER BY created_at DESC, bg_id LIMIT ?1",
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT bg_id, name, cwd, task_type, created_at, reviewed_at, report_id, brief_json, prompt, delivery_alert, wrapped_at, routine FROM {RECORDS}
+         WHERE report_id IS NOT NULL ORDER BY created_at DESC, bg_id LIMIT ?1"
+    ))?;
     let rows = stmt.query_map([READ_BOUND], |r| {
         Ok(Row {
             bg_id: r.get(0)?,
@@ -106,30 +159,37 @@ pub fn rows(conn: &Connection) -> Result<Vec<Row>, Error> {
             prompt: r.get(8)?,
             delivery_alert: r.get::<_, Option<i64>>(9)?.filter(|a| (0..=3).contains(a)),
             wrapped: r.get::<_, Option<i64>>(10)?.is_some(),
+            routine: r.get::<_, i64>(11)? != 0,
         })
     })?;
     Ok(rows.filter_map(Result::ok).filter(|r| task_report::valid_id(&r.report_id) && crate::task_meta::valid_bg_id(&r.bg_id)).collect())
 }
 
-/// "리뷰 전": not marked, not running, started at or after `review_since`.
+/// "리뷰 전": not marked, not wrapped up, not running, started at or after `review_since`.
 fn pending(r: &Row, running: &HashMap<String, Running>, since: i64) -> bool {
-    is_pending(&r.bg_id, r.reviewed, r.created_at, running, since)
+    is_pending(&r.bg_id, r.reviewed, r.wrapped, r.created_at, running, since)
 }
 
-pub(crate) fn is_pending(bg_id: &str, reviewed: bool, created_at: i64, running: &HashMap<String, Running>, since: i64) -> bool {
-    !reviewed && !running.contains_key(bg_id) && created_at >= since
+/// A wrapped-up record is never "리뷰 전": a routine run wrapped up before it became a review target stays off the
+/// badge (a task record cannot be wrapped up while it waits for review).
+pub(crate) fn is_pending(bg_id: &str, reviewed: bool, wrapped: bool, created_at: i64, running: &HashMap<String, Running>, since: i64) -> bool {
+    !reviewed && !wrapped && !running.contains_key(bg_id) && created_at >= since
 }
 
 /// The sidebar badge, every few seconds: four narrow columns, the same id checks, order and 500 cap as the list (over
 /// every project), so the two always agree. No instruction text, no file reads.
 pub fn pending_count(conn: &Connection, running: &HashMap<String, Running>, since: i64) -> Result<u32, Error> {
-    let mut stmt = conn.prepare("SELECT bg_id, created_at, reviewed_at, report_id FROM task_meta WHERE report_id IS NOT NULL ORDER BY created_at DESC, bg_id LIMIT ?1")?;
-    let rows = stmt.query_map([READ_BOUND], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, Option<i64>>(2)?.is_some(), r.get::<_, String>(3)?)))?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT bg_id, created_at, reviewed_at, report_id, wrapped_at FROM {RECORDS} WHERE report_id IS NOT NULL ORDER BY created_at DESC, bg_id LIMIT ?1"
+    ))?;
+    let rows = stmt.query_map([READ_BOUND], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, Option<i64>>(2)?.is_some(), r.get::<_, String>(3)?, r.get::<_, Option<i64>>(4)?.is_some()))
+    })?;
     let n = rows
         .filter_map(Result::ok)
-        .filter(|(bg, _, _, rid)| task_report::valid_id(rid) && crate::task_meta::valid_bg_id(bg))
+        .filter(|(bg, _, _, rid, _)| task_report::valid_id(rid) && crate::task_meta::valid_bg_id(bg))
         .take(MAX_ROWS)
-        .filter(|(bg, at, reviewed, _)| is_pending(bg, *reviewed, *at, running, since))
+        .filter(|(bg, at, reviewed, _, wrapped)| is_pending(bg, *reviewed, *wrapped, *at, running, since))
         .count();
     Ok(n.min(999) as u32)
 }
@@ -280,6 +340,8 @@ pub struct Item {
     pub delivery_alert: Option<i64>,
     /// "정리 끝" (task-lifecycle): the only state shown as "완료".
     pub wrapped: bool,
+    /// A routine run (review-routine-runs): the card says "루틴".
+    pub routine: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -345,7 +407,8 @@ fn card(r: Row, root: &Path, running: Option<Running>) -> Item {
     };
     Item {
         goal: goal_of(&r),
-        stored: r.brief.is_some() || r.prompt.is_some(),
+        // A routine's instruction lives with the routine (not under "작업 지시 저장"); the card's goal is its name.
+        stored: r.routine || r.brief.is_some() || r.prompt.is_some(),
         done: r.brief.as_ref().map(|b| b.done.chars().take(DONE_CHARS).collect::<String>()),
         folder: folder_of(r.cwd.as_deref()),
         bg_id: r.bg_id,
@@ -356,6 +419,7 @@ fn card(r: Row, root: &Path, running: Option<Running>) -> Item {
         report,
         delivery_alert: r.delivery_alert,
         wrapped: r.wrapped,
+        routine: r.routine,
     }
 }
 
@@ -425,7 +489,16 @@ pub fn mark(conn: &Connection, bg_id: &str, running: &HashMap<String, Running>, 
     if !known || running.contains_key(bg_id) {
         return Err(Error::Config("running"));
     }
-    let n = conn.execute("UPDATE task_meta SET reviewed_at = ?2 WHERE bg_id = ?1 AND report_id IS NOT NULL", params![bg_id, now_ms])?;
+    let n = match owner(conn, bg_id)? {
+        Some((Owner::Task, true)) => conn.execute("UPDATE task_meta SET reviewed_at = ?2 WHERE bg_id = ?1 AND report_id IS NOT NULL", params![bg_id, now_ms])?,
+        Some((Owner::Routine(run), true)) => {
+            if routine_live(conn, run)? {
+                return Err(Error::Config("running"));
+            }
+            conn.execute("UPDATE routine_runs SET reviewed_at = ?2 WHERE id = ?1", params![run, now_ms])?
+        }
+        _ => 0,
+    };
     if n == 0 {
         return Err(Error::Config("no report"));
     }
@@ -438,7 +511,11 @@ pub fn unmark(conn: &Connection, bg_id: &str) -> Result<bool, Error> {
     if !crate::task_meta::valid_bg_id(bg_id) {
         return Err(Error::Config("task id"));
     }
-    Ok(conn.execute("UPDATE task_meta SET reviewed_at = NULL, wrapped_at = NULL WHERE bg_id = ?1 AND report_id IS NOT NULL", [bg_id])? > 0)
+    Ok(match owner(conn, bg_id)? {
+        Some((Owner::Task, true)) => conn.execute("UPDATE task_meta SET reviewed_at = NULL, wrapped_at = NULL WHERE bg_id = ?1 AND report_id IS NOT NULL", [bg_id])?,
+        Some((Owner::Routine(run), true)) => conn.execute("UPDATE routine_runs SET reviewed_at = NULL, wrapped_at = NULL WHERE id = ?1", [run])?,
+        _ => 0,
+    } > 0)
 }
 
 #[cfg(test)]
@@ -690,5 +767,121 @@ mod tests {
         assert_eq!(build(rows(&conn).unwrap(), &root, &HashMap::new(), &q(2 * PAGE)).unwrap().items.len(), 5);
         let big = Query { limit: 1000, ..q(0) };
         assert_eq!(build(rows(&conn).unwrap(), &root, &HashMap::new(), &big).unwrap().items.len(), 25.min(MAX_LIMIT));
+    }
+
+    // ---------- review-routine-runs ----------
+
+    const ROUTINE_PROMPT: &str = "ROUTINE-PROMPT-CANARY check the notices";
+
+    fn routine(conn: &Connection, id: i64, name: &str) {
+        conn.execute(
+            "INSERT INTO routines(id, name, cwd, prompt, permission_mode, schedule_kind, created_at, anchor_ms, approved_digest)
+             VALUES (?1, ?2, '/w/notices', ?3, 'manual', 'daily', 0, 0, x'00')",
+            params![id, name, ROUTINE_PROMPT],
+        )
+        .unwrap();
+    }
+
+    /// A routine run as `start_claim` leaves it: `routine_runs.bg_id`, and `report_id` set by `set_run_report`.
+    fn run(conn: &Connection, routine_id: i64, bg: &str, status: &str, report: Option<&str>, at: i64) -> i64 {
+        conn.execute(
+            "INSERT INTO routine_runs(routine_id, scheduled_for, started_at, status, bg_id) VALUES (?1, ?2, ?2, ?3, ?4)",
+            params![routine_id, at, status, bg],
+        )
+        .unwrap();
+        let id = conn.last_insert_rowid();
+        if let Some(r) = report {
+            task_report::set_run_report(conn, id, r).unwrap();
+        }
+        id
+    }
+
+    #[test]
+    fn a_routine_runs_report_shows_in_the_inbox_and_the_badge() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let t = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(t.path()).unwrap().join(task_report::DIR_NAME);
+        let since = now() - 10_000;
+        routine(&conn, 1, "아침 공고 확인");
+        run(&conn, 1, "bba9b3f7", "done", Some(&id(41)), now());
+        run(&conn, 1, "cca9b3f7", "done", None, now() + 1); // no report: not a review target
+        run(&conn, 1, "dda9b3f7", "done", Some(&id(42)), since - 1); // before the review tab existed
+        write_report(&root, &id(41), REPORT);
+        let none = HashMap::new();
+        let q = |filter| Query { filter, scope: None, offset: 0, limit: PAGE, since, report_setting: true, known: true };
+        let p = build(rows(&conn).unwrap(), &root, &none, &q(Filter::Pending)).unwrap();
+        assert_eq!(p.items.iter().map(|i| i.bg_id.as_str()).collect::<Vec<_>>(), ["bba9b3f7"]);
+        let it = &p.items[0];
+        assert!(it.routine);
+        assert_eq!((it.goal.as_deref(), it.folder.as_deref(), it.task_type.as_deref(), it.stored), (Some("아침 공고 확인"), Some("notices"), None, true));
+        assert!(matches!(it.report, CardReport::Ready { .. }), "the report is read like a task's");
+        assert_eq!(pending_count(&conn, &none, since).unwrap(), 1, "badge counts it");
+        let all = build(rows(&conn).unwrap(), &root, &none, &q(Filter::All)).unwrap();
+        assert_eq!(all.items.iter().map(|i| i.bg_id.as_str()).collect::<Vec<_>>(), ["bba9b3f7", "dda9b3f7"], "older one in 전체 only");
+        // Still running by the listing → not pending.
+        let running = running_map(&[session("bba9b3f7", SessionStatus::Working)]);
+        assert_eq!(pending_count(&conn, &running, since).unwrap(), 0);
+        // The list never carries the routine's instruction.
+        let json = serde_json::to_string(&all).unwrap();
+        assert!(!json.contains("ROUTINE-PROMPT-CANARY"));
+        assert!(!json.contains(&id(41)), "no report id to the webview");
+    }
+
+    #[test]
+    fn a_task_record_with_a_report_wins_over_a_routine_run_with_the_same_id() {
+        let conn = crate::db::open_in_memory().unwrap();
+        routine(&conn, 1, "루틴");
+        rec(&conn, "aaaa0001", "/tmp", "dev", Some(&id(1)), now(), None, None);
+        run(&conn, 1, "aaaa0001", "done", Some(&id(2)), now());
+        // A record without a report does not hide the routine's report (as `task_report::id_for`).
+        rec(&conn, "aaaa0002", "/tmp", "dev", None, now(), None, None);
+        run(&conn, 1, "aaaa0002", "done", Some(&id(3)), now() + 1);
+        // Two runs with one id: the newest with a report counts once.
+        run(&conn, 1, "aaaa0003", "done", Some(&id(4)), now() + 2);
+        run(&conn, 1, "aaaa0003", "done", Some(&id(5)), now() + 3);
+        let rows = rows(&conn).unwrap();
+        let got: Vec<(String, String, bool)> = rows.iter().map(|r| (r.bg_id.clone(), r.report_id.clone(), r.routine)).collect();
+        assert_eq!(got.len(), 3, "{got:?}");
+        assert!(got.contains(&("aaaa0001".into(), id(1), false)));
+        assert!(got.contains(&("aaaa0002".into(), id(3), true)));
+        assert!(got.contains(&("aaaa0003".into(), id(5), true)));
+    }
+
+    #[test]
+    fn marking_a_routine_run_stores_it_on_that_run() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let since = now() - 10_000;
+        routine(&conn, 1, "루틴");
+        let older = run(&conn, 1, "bba9b3f7", "done", None, now() - 5);
+        let r = run(&conn, 1, "bba9b3f7", "done", Some(&id(41)), now());
+        let none = HashMap::new();
+        mark(&conn, "bba9b3f7", &none, true, now() + 9).unwrap();
+        let at = |run: i64| conn.query_row("SELECT reviewed_at FROM routine_runs WHERE id = ?1", [run], |r| r.get::<_, Option<i64>>(0)).unwrap();
+        assert_eq!((at(r), at(older)), (Some(now() + 9), None), "only the run with the report");
+        assert_eq!(pending_count(&conn, &none, since).unwrap(), 0);
+        assert!(unmark(&conn, "bba9b3f7").unwrap());
+        assert_eq!(at(r), None);
+        assert_eq!(pending_count(&conn, &none, since).unwrap(), 1);
+        // The scheduler still counts it running: refused whatever the listing says.
+        conn.execute("UPDATE routine_runs SET status = 'running' WHERE id = ?1", [r]).unwrap();
+        assert!(mark(&conn, "bba9b3f7", &none, true, now()).is_err());
+        // A run without a report cannot be marked.
+        run(&conn, 1, "eea9b3f7", "done", None, now());
+        assert!(mark(&conn, "eea9b3f7", &none, true, now()).is_err());
+        assert!(!unmark(&conn, "eea9b3f7").unwrap());
+    }
+
+    #[test]
+    fn every_page_of_the_counted_rows_opens() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let t = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(t.path()).unwrap().join(task_report::DIR_NAME);
+        for n in 0..300u32 {
+            conn.execute("INSERT INTO task_meta(bg_id, created_at, report_id) VALUES (?1, ?2, ?3)", params![format!("ab{n:06x}"), now() + i64::from(n), format!("{n:032x}")]).unwrap();
+        }
+        let q = Query { filter: Filter::All, scope: None, offset: 290, limit: PAGE, since: 0, report_setting: true, known: true };
+        let last = build(rows(&conn).unwrap(), &root, &HashMap::new(), &q).unwrap();
+        assert_eq!((last.total, last.items.len()), (300, 10), "page 30 opens (was refused past page 21)");
+        assert!(build(rows(&conn).unwrap(), &root, &HashMap::new(), &Query { offset: MAX_ROWS + 1, ..q }).is_err());
     }
 }

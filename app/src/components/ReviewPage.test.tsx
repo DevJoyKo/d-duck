@@ -167,6 +167,26 @@ describe("리뷰 tab", () => {
     expect(lint.textContent).toContain("+1개 더");
   });
 
+  it("review-routine-runs: a routine run's report is a card in 기본, says 루틴, counts on the badge and can be marked", async () => {
+    const invoke = await boot("?routine=1");
+    const nav = screen.getByRole("navigation");
+    expect(await within(nav).findByLabelText("리뷰 전 6개")).toBeTruthy();
+    await waitFor(() => expect(cards()).toContain("7a7a7a7a"));
+    const card = document.querySelector('[data-review-card="7a7a7a7a"]') as HTMLElement;
+    expect(card.closest("[data-review-group]")?.getAttribute("data-review-group")).toBe("");
+    expect(card.querySelector("[data-card-title]")?.textContent).toBe("아침 공고 확인");
+    expect(card.textContent).toMatch(/루틴 · notices · /);
+    fireEvent.click(within(card).getByRole("button", { name: "리뷰했어요" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("inbox_mark_reviewed", { id: "7a7a7a7a" }));
+    await waitFor(() => expect(within(nav).getByLabelText("리뷰 전 5개")).toBeTruthy());
+  });
+
+  it("a task card does not say 루틴", async () => {
+    await boot();
+    await waitFor(() => expect(cards()).toContain("9988aabb"));
+    expect(document.querySelector('[data-review-card="9988aabb"]')?.textContent).not.toContain("루틴");
+  });
+
   it("pages hold ten cards like the 아티팩트 tab; a new filter goes back to page 1", async () => {
     const invoke = await boot("?review=many");
     await waitFor(() => expect(cards().length).toBe(10));
