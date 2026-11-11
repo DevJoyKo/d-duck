@@ -108,8 +108,12 @@ const many: Rec[] = Array.from({ length: 15 }, (_, i) => ({ bgId: `e${String(i).
 // `?evidence=1`: the report-evidence samples (근거·첨부) join the list.
 const evidenceRecs = (): Rec[] => (param("evidence") ? EVIDENCE_RECORDS.map((r) => ({ bgId: r.bgId, cwd: "/Users/me/Agents/dev_team", taskType: r.taskType, createdAt: now - r.ago, running: null })) : []);
 const routineRecs = (): Rec[] => (param("routine") ? [{ bgId: "7a7a7a7a", cwd: "/Users/me/Agents/notices", taskType: null, createdAt: now - 7_300_000, running: null, routine: true }] : []);
+/** review-delete: cards deleted in this mock session. */
+export const deleted = new Set<string>();
+const alive = (r: Rec) => !deleted.has(r.bgId);
 export const recs = () =>
-  empty() || plainOnly() ? [] : param("review") === "many" ? [...all, ...many].sort((a, b) => b.createdAt - a.createdAt) : [...all, ...evidenceRecs(), ...routineRecs()].sort((a, b) => b.createdAt - a.createdAt);
+  (empty() || plainOnly() ? [] : param("review") === "many" ? [...all, ...many].sort((a, b) => b.createdAt - a.createdAt) : [...all, ...evidenceRecs(), ...routineRecs()].sort((a, b) => b.createdAt - a.createdAt)
+  ).filter(alive);
 const reviewed = new Set(["aa11bb22"]);
 // task-lifecycle `?board=demo|nolive`: lint-sweep (live, worktree) is reviewed too and waits in 정리.
 const boardDemo = () => param("board") !== null;
@@ -121,7 +125,7 @@ const allDone = () => param("review") === "done";
 export const isReviewed = (id: string) => reviewed.has(id) || allDone() || (boardDemo() && demoReviewed.has(id));
 export const pending = (r: Rec) => !r.noReport && !isReviewed(r.bgId) && r.running === null && r.createdAt >= since;
 /** D-196: finished D.Duck tasks without a report, 전체 only (the same record as 지난 작업's "market-research"). */
-const plainRecs = (): Rec[] => (empty() ? [] : [{ bgId: "ee0c0d22", cwd: "/Users/me/Agents/dev_team", taskType: "research", createdAt: now - 4 * day, running: null, noReport: { name: "market-research", ended: "done" } }]);
+const plainRecs = (): Rec[] => (empty() ? [] : ([{ bgId: "ee0c0d22", cwd: "/Users/me/Agents/dev_team", taskType: "research", createdAt: now - 4 * day, running: null, noReport: { name: "market-research", ended: "done" } }] as Rec[]).filter(alive));
 
 type View = ReturnType<typeof mockTaskReport>;
 function card(r: Rec) {
@@ -201,6 +205,7 @@ export const reviewHandlers: Record<string, (a: Record<string, unknown>) => unkn
       pendingOther: records.filter(pending).length - scoped.filter(pending).length,
       hasAny: scoped.length > 0,
       noReport: plain.length,
+      known: !pollUnknown(),
       running: scoped.filter((r) => r.running).length,
       groups: [...new Set(matching.map((r) => r.taskType))].map((taskType) => ({ taskType, total: matching.filter((r) => r.taskType === taskType).length })),
       items: matching.slice(offset, offset + limit).map(card),
@@ -212,6 +217,17 @@ export const reviewHandlers: Record<string, (a: Record<string, unknown>) => unkn
     reviewed.add(r.bgId);
     return null;
   },
+  // review-delete: `?confirm=cancel` answers the native dialog with 취소.
+  inbox_delete: (a) => {
+    const id = String(a.id);
+    const r = [...recs(), ...plainRecs()].find((x) => x.bgId === id);
+    if (!r || r.running || pollUnknown()) throw "실행 중이라 지울 수 없어요";
+    if (param("confirm") === "cancel") return false;
+    deleted.add(id);
+    return true;
+  },
+  /** Mock only: tests put deleted cards back (the mock module outlives each test). */
+  mock_restore_deleted: () => (deleted.clear(), null),
   // Undoing the review undoes 정리 끝 too (task-lifecycle).
   unmark_reviewed: (a) => (wrapped.delete(String(a.id)), demoReviewed.delete(String(a.id)), reviewed.delete(String(a.id))),
 };
