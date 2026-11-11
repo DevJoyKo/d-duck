@@ -287,6 +287,15 @@ table! {
             "Updates the {name} plugin.\n\nNow {current} → {target}\n\nCode from this marketplace ({market}) — hooks, MCP, commands — runs with your permissions from the next Claude start.\nIf the marketplace asks to approve extra commands, D.Duck doesn't run them and only shows Terminal steps.\n\nUpdate?",
         ),
         PluginNoVersion => ("버전 없음", "No version"),
+        DlgPluginBulkTitle => ("플러그인 {count}개 업데이트", "Update {count} plugins"),
+        DlgPluginBulkIntro => ("다음 플러그인을 하나씩 차례로 업데이트해요. 하나가 실패해도 나머지는 계속해요.", "Updates these plugins one at a time. If one fails, the rest still run."),
+        DlgPluginBulkItem => ("· {id} ({scope}) {current} → {target}", "· {id} ({scope}) {current} → {target}"),
+        DlgPluginBulkSkipped => ("여기서 업데이트할 수 없는 {count}개는 건너뛰어요.", "{count} that can't be updated here are skipped."),
+        DlgPluginBulkRisk => (
+            "이 마켓플레이스({markets})의 코드(훅·MCP·커맨드)가 다음 Claude 시작부터 내 권한으로 실행돼요.\n마켓플레이스가 추가 명령 승인을 요구하면 D.Duck은 실행하지 않고 터미널 안내만 해요.\n\n업데이트할까요?",
+            "Code from these marketplaces ({markets}) — hooks, MCP, commands — runs with your permissions from the next Claude start.\nIf a marketplace asks to approve extra commands, D.Duck doesn't run them and only shows Terminal steps.\n\nUpdate?",
+        ),
+        PluginBulkUnknown => ("새 버전 확인 불가(최신일 수 있음)", "New version unknown (may be up to date)"),
         PluginLatestSame => ("마켓플레이스 최신(로컬 사본 기준 같은 버전)", "Marketplace latest (same version as the local copy)"),
         PluginLatestUnknown => ("마켓플레이스 최신(버전 확인 불가)", "Marketplace latest (version unknown)"),
         // ---- settings ----
