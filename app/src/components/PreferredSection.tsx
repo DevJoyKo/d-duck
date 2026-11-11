@@ -1,6 +1,6 @@
 // "먼저 살펴볼 스킬·에이전트" in the team rules tab (preferred-skills, D-198): pick installed plugins, skills and agents.
 // Prompt guidance only; the backend checks every item again and puts only installed ones into the start line.
-import { Plus, RotateCcw, X } from "lucide-react";
+import { Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { useT } from "../i18n/react";
 import { addable, folderName, installedOf, itemKey, KINDS, MAX_PREFERRED, toItem, usePreferredOptions, type PreferredItem } from "../lib/preferred";
@@ -18,6 +18,7 @@ export function PreferredSection({ value, onChange }: { value: PreferredItem[]; 
     if (!chosen || full) return;
     onChange([...value, toItem(chosen)]);
     setPick("");
+    setQuery("");
   };
   return (
     <fieldset className="space-y-2 rounded-lg border border-line p-3" data-preferred>
@@ -33,12 +34,12 @@ export function PreferredSection({ value, onChange }: { value: PreferredItem[]; 
             const folder = item.source === "project" ? folderName(item.scope) : null;
             return (
               <li key={itemKey(item)} className="flex items-start gap-2 rounded-md border border-line bg-sheet px-2.5 py-1.5">
-                <span className="mt-0.5 shrink-0 rounded border border-line px-1.5 text-[10px] text-ink-2">{tr(`agents.preferred.kind.${item.kind}`)}</span>
+                <span className="mt-0.5 min-w-[52px] shrink-0 rounded border border-line px-1.5 text-center text-[11px] text-ink-2">{tr(`agents.preferred.kind.${item.kind}`)}</span>
                 <div className="min-w-0 flex-1">
                   <p className="flex flex-wrap items-center gap-x-2 text-[13px]">
                     <span className="font-medium break-all">{item.name}</span>
                     {folder && <span className="text-[11px] text-ink-3">{folder}</span>}
-                    {o === null && <span className="text-[11px] text-danger">{tr("agents.preferred.notInstalled")}</span>}
+                    {o === null && <span className="text-[11px] text-ink-2">{tr("agents.preferred.notInstalled")}</span>}
                   </p>
                   {o && (o.kind === "plugin" ? <p className="truncate text-[11px] text-ink-3">{tr("agents.preferred.pluginMembers", { n: o.members.length })}</p> : o.description && <p className="truncate text-[11px] text-ink-3" title={o.description}>{o.description}</p>)}
                 </div>
@@ -89,9 +90,9 @@ export function PreferredSection({ value, onChange }: { value: PreferredItem[]; 
         {full && <span role="status">{tr("agents.preferred.max", { max: MAX_PREFERRED })}</span>}
         <span>{tr("agents.preferred.projectNote")}</span>
         {value.length > 0 && (
-          <Button size="sm" className="ml-auto" onClick={() => onChange([])}>
-            <RotateCcw size={12} /> {tr("agents.preferred.toDefault")}
-          </Button>
+          <button type="button" className="ml-auto flex items-center gap-1 rounded px-1.5 py-1 text-ink-3 hover:bg-paper hover:text-ink" onClick={() => onChange([])}>
+            <Trash2 size={12} aria-hidden /> {tr("agents.preferred.clear")}
+          </button>
         )}
       </div>
     </fieldset>

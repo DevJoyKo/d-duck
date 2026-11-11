@@ -1558,6 +1558,22 @@ mod preferred_prompt {
         let line = dev.lines().find(|l| l.contains("작업을 시작하기 전에")).unwrap();
         assert!(line.contains("[필수]") && line.contains("스킬 tdd") && line.contains("에이전트 helper"), "{line}");
         assert!(!line.contains("[안전]"), "a description cannot add a marker: {line}");
+        assert!(!line.contains("(안전)") && !line.contains("테스트 먼저"), "a description that still looks like a marker is dropped: {line}");
+        // A worktree may not have project items: a project-sourced pick is left out, user items stay.
+        let mut proj = env.clone();
+        proj.preferred[0].source = "project".into();
+        proj.preferred[0].scope = Some("/work/a".into());
+        let mut wt = TaskSpec::basic(dir.path().into(), "p".into(), None, None);
+        wt.task_type = Some("dev".into());
+        wt.worktree = true;
+        let mut wt_stored: tc::TeamInput = input.clone();
+        wt_stored.preferred[0] = PreferredItem { kind: Kind::Skill, name: "tdd".into(), source: "project".into(), scope: Some("/work/a".into()) };
+        let wt_json = serde_json::to_string(&tc::diff(&wt_stored, &[]).unwrap()).unwrap();
+        // `prepare_with` refuses a worktree outside a repository, so check the filter on the same inputs it uses.
+        let m = tc::load(Some(&wt_json));
+        let ctx = crate::preferred::Ctx { strict: false, worktree: wt.worktree };
+        let wt_line = crate::preferred::line(&m.preferred, &proj.preferred, m.lang, ctx).unwrap();
+        assert!(!wt_line.contains("tdd") && wt_line.contains("helper"), "{wt_line}");
         let qa = run("qa");
         assert!(!qa.contains("에이전트 helper"), "strict types leave out agents that write");
         // Nothing installed: the prompt is the same as without the setting.

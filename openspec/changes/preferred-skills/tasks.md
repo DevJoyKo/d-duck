@@ -17,4 +17,4 @@
 
 ## 4. 검증·리뷰
 - [x] 4.1 `cargo test -p dduck-core`, clippy, tsc, vitest, lint. mock 1436에서 스크린샷 라이트 1440·다크 900.
-- [ ] 4.2 테스트 리뷰: qa-verifier + design-critic + brand-reviewer. BLOCKER/HIGH/FAIL 해결.
+- [x] 4.2 테스트 리뷰: qa-verifier + design-critic + brand-reviewer. BLOCKER/HIGH/FAIL 해결. — 완료: qa 14/15 PASS(FAIL 1은 spec 문구, 고침), critic MAJOR 2·MINOR 4, brand HIGH 0·MEDIUM 3 반영
