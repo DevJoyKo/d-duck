@@ -117,3 +117,30 @@ D.Duck은 Claude 자격증명을 읽지 않고, 설치된 `claude` CLI가 Remote
 #### Scenario: 메뉴 이동
 - **WHEN** 사용자가 사이드바의 "루틴"을 누른다
 - **THEN** 루틴 페이지가 열린다
+
+### Requirement: 루틴 시간 입력
+로컬 루틴의 "매일"·"매주" 시간은 새로 만들 때와 고칠 때 모두 시(00–23)와 분(00–59)을 고르는 선택 두 개로 받아야 한다(SHALL). 클라우드 루틴 폼과 같은 입력이며, 브라우저 기본 시간 입력(`<input type="time">`)은 쓰지 않는다(SHALL). 24시간제 표기 규칙은 app-language "날짜·숫자 형식"을 따른다. "N시간마다"에서 "매일"·"매주"로 바꾸면 09:00에서 시작해야 한다(SHALL). 저장 전 검사(`validateRoutineForm`)는 시·분이 정수가 아니거나 범위를 벗어나면 시간 오류 문구(`routines.validate.time`)를 돌려주고 저장 명령을 부르지 않아야 한다(SHALL). 백엔드 검사는 그대로 따로 막는다.
+
+#### Scenario: 매일 07:30으로 만들기
+- **WHEN** 새 루틴에서 "매일"을 두고 시 07, 분 30을 고른 뒤 저장한다
+- **THEN** `save_routine`의 일정은 `{kind: "daily", hour: 7, minute: 30}`이고, 화면에 오전/오후 칸이 없다
+
+#### Scenario: 매주로 바꿔도 시간 유지
+- **WHEN** 매일 07:30을 고른 뒤 "매주"로 바꾸고 저장한다
+- **THEN** 시·분 선택은 07·30 그대로이고 월–금이 켜져 있으며, 저장 일정은 `{kind: "weekly", weekdays: 31, hour: 7, minute: 30}`이다
+
+#### Scenario: N시간마다에서 돌아오면 09:00
+- **WHEN** "N시간마다"를 골랐다가 다시 "매일"로 바꾼다
+- **THEN** 시·분 선택은 09·00이다
+
+#### Scenario: 기존 루틴 고치기
+- **WHEN** 매주 월·금 14:30 루틴을 "고치기"로 열고 분을 45로 바꿔 저장한다
+- **THEN** 열 때 시·분 선택이 14·30이고, 저장 일정은 `{kind: "weekly", weekdays: 17, hour: 14, minute: 45}`이다
+
+#### Scenario: 깨진 시간은 저장 전에 막힘
+- **WHEN** 폼의 일정에 분이 없거나(`undefined`), 시가 NaN·음수·소수다
+- **THEN** `validateRoutineForm`은 "시각이 올바르지 않아요"를 돌려준다(저장은 폼의 저장 가드가 이 결과로 막는다)
+
+#### Scenario: 영어 화면
+- **WHEN** 앱 언어가 English이고 새 루틴을 연다
+- **THEN** 시간 그룹 이름은 "Run time", 두 선택의 이름은 "Hour"·"Minute"이다
