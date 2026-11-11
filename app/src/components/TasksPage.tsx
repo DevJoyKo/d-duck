@@ -213,8 +213,11 @@ function HistoryRow({ r, focus = false, onDraft, onDeleted }: { r: TaskRecord; f
   const rowRef = useRef<HTMLLIElement>(null);
   useEffect(() => {
     if (!focus) return;
-    // After the board above has laid out, so the row really ends up in view.
-    const id = window.setTimeout(() => rowRef.current?.scrollIntoView?.({ block: "center" }), 150);
+    // After the board above has laid out, so the row really ends up in view; focus marks which row it is.
+    const id = window.setTimeout(() => {
+      rowRef.current?.scrollIntoView?.({ block: "center" });
+      rowRef.current?.querySelector<HTMLButtonElement>("button[aria-expanded]")?.focus();
+    }, 150);
     return () => window.clearTimeout(id);
   }, [focus]);
   const [confirm, setConfirm] = useState(false);

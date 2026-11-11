@@ -13,6 +13,8 @@ const now = Date.now();
 // Read on every call: tests change the URL without reloading this module.
 const param = (k: string) => (typeof location === "undefined" ? null : new URLSearchParams(location.search).get(k));
 const empty = () => param("review") === "empty";
+/** `?review=plain`: only a finished task without a report (D-196). */
+const plainOnly = () => param("review") === "plain";
 const reportOff = () => param("report") === "off";
 /** `?poll=none`: no good `claude agents` poll yet. */
 export const pollUnknown = () => param("poll") === "none";
@@ -107,7 +109,7 @@ const many: Rec[] = Array.from({ length: 15 }, (_, i) => ({ bgId: `e${String(i).
 const evidenceRecs = (): Rec[] => (param("evidence") ? EVIDENCE_RECORDS.map((r) => ({ bgId: r.bgId, cwd: "/Users/me/Agents/dev_team", taskType: r.taskType, createdAt: now - r.ago, running: null })) : []);
 const routineRecs = (): Rec[] => (param("routine") ? [{ bgId: "7a7a7a7a", cwd: "/Users/me/Agents/notices", taskType: null, createdAt: now - 7_300_000, running: null, routine: true }] : []);
 export const recs = () =>
-  empty() ? [] : param("review") === "many" ? [...all, ...many].sort((a, b) => b.createdAt - a.createdAt) : [...all, ...evidenceRecs(), ...routineRecs()].sort((a, b) => b.createdAt - a.createdAt);
+  empty() || plainOnly() ? [] : param("review") === "many" ? [...all, ...many].sort((a, b) => b.createdAt - a.createdAt) : [...all, ...evidenceRecs(), ...routineRecs()].sort((a, b) => b.createdAt - a.createdAt);
 const reviewed = new Set(["aa11bb22"]);
 // task-lifecycle `?board=demo|nolive`: lint-sweep (live, worktree) is reviewed too and waits in 정리.
 const boardDemo = () => param("board") !== null;
