@@ -23,7 +23,7 @@ use std::sync::LazyLock;
 
 use crate::Error;
 use crate::claude_cli::{AgentSession, SessionStatus};
-use crate::review_inbox::{self, Running};
+use crate::review_inbox::{self, Owner, RECORDS, Running};
 
 /// Settings key for sessions without a D.Duck record that were wrapped up (session keys, newest last).
 pub const WRAPPED_KEYS: &str = "wrapped_keys";
@@ -57,10 +57,12 @@ pub struct Facts {
 pub fn lane_of(failed: bool, rec: Option<&Facts>, external_wrapped: bool, since: i64) -> Option<Lane> {
     match rec {
         Some(f) => {
-            if f.has_report && !f.reviewed && f.created_at >= since {
-                Some(Lane::ReviewWait)
-            } else if f.wrapped {
+            // Wrapped up first: a task record cannot be wrapped while it waits for review, so this only keeps a
+            // routine run that was wrapped up (by session key) before it became a review target off the 리뷰 대기 lane.
+            if f.wrapped || external_wrapped {
                 Some(Lane::Done)
+            } else if f.has_report && !f.reviewed && f.created_at >= since {
+                Some(Lane::ReviewWait)
             } else if failed && !f.reviewed {
                 None
             } else {
@@ -81,8 +83,9 @@ pub fn facts(conn: &Connection, bg_id: &str) -> Result<Option<Facts>, Error> {
     if !crate::task_meta::valid_bg_id(bg_id) {
         return Ok(None);
     }
+    // Same rows as the review tab (task records and routine runs with a report); the one with a report wins.
     Ok(conn
-        .query_row("SELECT report_id, reviewed_at, wrapped_at, created_at FROM task_meta WHERE bg_id = ?1", [bg_id], |r| {
+        .query_row(&format!("SELECT report_id, reviewed_at, wrapped_at, created_at FROM {RECORDS} WHERE bg_id = ?1 ORDER BY report_id IS NULL, routine LIMIT 1"), [bg_id], |r| {
             Ok(Facts {
                 has_report: r.get::<_, Option<String>>(0)?.is_some_and(|id| crate::task_report::valid_id(&id)),
                 reviewed: r.get::<_, Option<i64>>(1)?.is_some(),
@@ -117,7 +120,10 @@ pub fn lanes(conn: &Connection, sessions: &[AgentSession], since: i64) -> Result
     let mut by_id: HashMap<String, Facts> = HashMap::new();
     if !ids.is_empty() {
         let json = serde_json::to_string(&ids).map_err(|_| Error::Config("ids"))?;
-        let mut stmt = conn.prepare("SELECT bg_id, report_id, reviewed_at, wrapped_at, created_at FROM task_meta WHERE bg_id IN (SELECT value FROM json_each(?1))")?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT bg_id, report_id, reviewed_at, wrapped_at, created_at FROM {RECORDS} WHERE bg_id IN (SELECT value FROM json_each(?1))
+             ORDER BY report_id IS NOT NULL, routine DESC"
+        ))?;
         let rows = stmt.query_map([json], |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -129,6 +135,7 @@ pub fn lanes(conn: &Connection, sessions: &[AgentSession], since: i64) -> Result
                 },
             ))
         })?;
+        // Ordered so the row with a report comes last and wins (as `facts`).
         by_id.extend(rows.filter_map(Result::ok));
     }
     let mut out = HashMap::new();
@@ -188,6 +195,9 @@ const ENDED_CODES: [&str; 4] = ["done", "failed", "stopped", "unknown"];
 
 /// Keeps how each listed D.Duck task ended (`task_meta.ended_status`), so its record card still says "실패" or
 /// "멈췄어요" after the CLI forgets it. A running task clears it. Writes only rows whose value changes.
+///
+/// Also carries an older 정리 끝 over to a routine run with a report: before review-routine-runs it was kept only as
+/// the session key (`WRAPPED_KEYS`), and only the listing knows which background id a key belongs to.
 pub fn note_ended(conn: &Connection, sessions: &[AgentSession]) -> Result<usize, Error> {
     let mut stmt = conn.prepare_cached("UPDATE task_meta SET ended_status = ?2 WHERE bg_id = ?1 AND ended_status IS NOT ?2")?;
     let mut changed = 0;
@@ -195,7 +205,29 @@ pub fn note_ended(conn: &Connection, sessions: &[AgentSession]) -> Result<usize,
         let Some(id) = s.id.as_deref().filter(|id| crate::task_meta::valid_bg_id(id)) else { continue };
         changed += stmt.execute(params![id, ended_code(s.status)])?;
     }
+    let external: HashSet<String> = wrapped_keys(conn)?.into_iter().collect();
+    if !external.is_empty() {
+        let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX));
+        for s in sessions.iter().filter(|s| ended(s) && external.contains(&s.key)) {
+            let Some(id) = s.id.as_deref().filter(|id| crate::task_meta::valid_bg_id(id)) else { continue };
+            if let Some((Owner::Routine(_), true)) = review_inbox::owner(conn, id)? {
+                changed += set_wrapped(conn, id, Some(now_ms))?;
+            }
+        }
+    }
     Ok(changed)
+}
+
+/// Writes 정리 끝 (`Some`, only when not set yet) or clears it (`None`) on the record behind `bg_id` (a `task_meta`
+/// row or its routine run, as [`facts`] reads). Returns the rows changed.
+fn set_wrapped(conn: &Connection, bg_id: &str, at: Option<i64>) -> Result<usize, Error> {
+    Ok(match (review_inbox::owner(conn, bg_id)?, at) {
+        (None, _) => 0,
+        (Some((Owner::Task, _)), Some(now)) => conn.execute("UPDATE task_meta SET wrapped_at = ?2 WHERE bg_id = ?1 AND wrapped_at IS NULL", params![bg_id, now])?,
+        (Some((Owner::Task, _)), None) => conn.execute("UPDATE task_meta SET wrapped_at = NULL WHERE bg_id = ?1", [bg_id])?,
+        (Some((Owner::Routine(run), _)), Some(now)) => conn.execute("UPDATE routine_runs SET wrapped_at = ?2 WHERE id = ?1 AND wrapped_at IS NULL", params![run, now])?,
+        (Some((Owner::Routine(run), _)), None) => conn.execute("UPDATE routine_runs SET wrapped_at = NULL WHERE id = ?1", [run])?,
+    })
 }
 
 // ---------- board ----------
@@ -244,6 +276,7 @@ struct Rec {
     report_ok: bool,
     goal: Option<String>,
     ended: Option<String>,
+    wrapped: bool,
 }
 
 fn name_of(name: Option<String>, brief: Option<String>) -> Option<String> {
@@ -268,6 +301,7 @@ fn read_recs(conn: &Connection, sql: &str, since: Option<i64>) -> Result<Vec<Rec
             report_ok: r.get::<_, Option<String>>(6)?.is_some_and(|id| crate::task_report::valid_id(&id)),
             goal: r.get(7)?,
             ended: r.get(8)?,
+            wrapped: r.get::<_, Option<i64>>(9)?.is_some(),
         })
     };
     let rows: Vec<Rec> = match since {
@@ -297,20 +331,24 @@ pub fn board(conn: &Connection, sessions: &[AgentSession], since: i64, wrapup_ca
     let listed: HashSet<&str> = sessions.iter().filter_map(|s| s.id.as_deref()).collect();
     let pending: Vec<Rec> = read_recs(
         conn,
-        "SELECT bg_id, name, cwd, task_type, created_at, reviewed_at, report_id, brief_json, ended_status FROM task_meta
-         WHERE report_id IS NOT NULL ORDER BY created_at DESC, bg_id LIMIT ?1",
+        &format!(
+            "SELECT bg_id, name, cwd, task_type, created_at, reviewed_at, report_id, brief_json, ended_status, wrapped_at FROM {RECORDS}
+             WHERE report_id IS NOT NULL ORDER BY created_at DESC, bg_id LIMIT ?1"
+        ),
         None,
     )?
     .into_iter()
     .filter(|r| r.report_ok)
     .take(MAX_ROWS)
-    .filter(|r| review_inbox::is_pending(&r.bg_id, r.reviewed, r.created_at, &running, since))
+    .filter(|r| review_inbox::is_pending(&r.bg_id, r.reviewed, r.wrapped, r.created_at, &running, since))
     .collect();
     let review_wait = Column { total: pending.len(), items: pending.into_iter().take(MAX_CARDS).map(|r| card(r, &listed)).collect() };
     let wrapped: Vec<Rec> = read_recs(
         conn,
-        "SELECT bg_id, name, cwd, task_type, created_at, reviewed_at, report_id, brief_json, ended_status FROM task_meta
-         WHERE reviewed_at IS NOT NULL AND wrapped_at IS NULL AND created_at >= ?2 ORDER BY created_at DESC, bg_id LIMIT ?1",
+        &format!(
+            "SELECT bg_id, name, cwd, task_type, created_at, reviewed_at, report_id, brief_json, ended_status, wrapped_at FROM {RECORDS}
+             WHERE reviewed_at IS NOT NULL AND wrapped_at IS NULL AND created_at >= ?2 ORDER BY created_at DESC, bg_id LIMIT ?1"
+        ),
         Some(since),
     )?
     .into_iter()
@@ -365,7 +403,7 @@ pub fn wrap(conn: &Connection, id: &str, sessions: &[AgentSession], known: bool,
             if lane_of(false, Some(&f), false, since) == Some(Lane::ReviewWait) {
                 return Err(Error::Config("review pending"));
             }
-            conn.execute("UPDATE task_meta SET wrapped_at = ?2 WHERE bg_id = ?1 AND wrapped_at IS NULL", params![bg, now_ms])?;
+            set_wrapped(conn, &bg, Some(now_ms))?;
             return Ok(());
         }
     }
@@ -397,7 +435,7 @@ pub fn finish_stopped(conn: &Connection, bg_id: &str, key: &str, since: i64, now
         if lane_of(false, Some(&f), false, since) == Some(Lane::ReviewWait) {
             return Ok(Finished::ReviewWait);
         }
-        conn.execute("UPDATE task_meta SET wrapped_at = ?2 WHERE bg_id = ?1 AND wrapped_at IS NULL", params![bg_id, now_ms])?;
+        set_wrapped(conn, bg_id, Some(now_ms))?;
         return Ok(Finished::Done);
     }
     if !valid_key(key) {
@@ -415,7 +453,7 @@ pub fn unwrap(conn: &Connection, id: &str, sessions: &[AgentSession]) -> Result<
     let (listed, bg) = resolve(sessions, id);
     let mut changed = false;
     if let Some(bg) = bg {
-        changed |= conn.execute("UPDATE task_meta SET wrapped_at = NULL WHERE bg_id = ?1", [bg])? > 0;
+        changed |= set_wrapped(conn, &bg, None)? > 0;
     }
     let key = listed.map(|s| s.key.as_str()).unwrap_or(id);
     let mut keys = wrapped_keys(conn)?;
@@ -1285,5 +1323,81 @@ mod tests {
             std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
             assert_eq!(remove_plan(&record(&conn, "fffffff2").unwrap().unwrap(), Some(&link), false), Err(Refusal::NoWorktree));
         }
+    }
+
+    // ---------- review-routine-runs ----------
+
+    fn routine_run(conn: &Connection, bg: &str, report: Option<&str>, at: i64) -> i64 {
+        conn.execute(
+            "INSERT OR IGNORE INTO routines(id, name, cwd, prompt, permission_mode, schedule_kind, created_at, anchor_ms, approved_digest)
+             VALUES (1, '아침 공고 확인', '/w/notices', 'p', 'manual', 'daily', 0, 0, x'00')",
+            [],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO routine_runs(routine_id, scheduled_for, started_at, status, bg_id) VALUES (1, ?1, ?1, 'done', ?2)", params![at, bg]).unwrap();
+        let id = conn.last_insert_rowid();
+        if let Some(r) = report {
+            crate::task_report::set_run_report(conn, id, r).unwrap();
+        }
+        id
+    }
+
+    #[test]
+    fn a_routine_report_waits_for_review_on_the_board_like_a_task() {
+        let conn = crate::db::open_in_memory().unwrap();
+        routine_run(&conn, "bba9b3f7", Some(&rid(41)), SINCE + 5);
+        routine_run(&conn, "cca9b3f7", None, SINCE + 6); // no report: as before, not a review target
+        rec(&conn, "aaaa1111", "/tmp", Some(&rid(1)), SINCE + 1, false);
+        let none = HashMap::new();
+        let b = board(&conn, &[], SINCE, MAX_CARDS).unwrap();
+        assert_eq!(b.review_wait.total, 2);
+        assert_eq!(b.review_wait.total as u32, review_inbox::pending_count(&conn, &none, SINCE).unwrap(), "column = badge, routine included");
+        let card = b.review_wait.items.iter().find(|c| c.bg_id == "bba9b3f7").unwrap();
+        assert_eq!((card.name.as_deref(), card.folder.as_deref(), card.ended), (Some("아침 공고 확인"), Some("notices"), Some("done")));
+        // A listed ended routine session lands in 리뷰 대기 (the finished notification says so).
+        let listed = [session("sess-r1", Some("bba9b3f7"), SessionStatus::Done), session("sess-r2", Some("cca9b3f7"), SessionStatus::Done)];
+        let l = lanes(&conn, &listed, SINCE).unwrap();
+        assert_eq!((l.get("sess-r1"), l.get("sess-r2")), (Some(&Lane::ReviewWait), Some(&Lane::Wrapup)));
+        // Unreviewed: 정리 끝 refused; reviewed → 정리 column → wrapped → off the board → undo.
+        assert!(wrap(&conn, "bba9b3f7", &[], true, SINCE, SINCE + 9).is_err());
+        review_inbox::mark(&conn, "bba9b3f7", &none, true, SINCE + 10).unwrap();
+        let b = board(&conn, &[], SINCE, MAX_CARDS).unwrap();
+        assert!(b.wrapup.items.iter().any(|c| c.bg_id == "bba9b3f7" && c.reviewed));
+        wrap(&conn, "bba9b3f7", &[], true, SINCE, SINCE + 11).unwrap();
+        let wrapped: Option<i64> = conn.query_row("SELECT wrapped_at FROM routine_runs WHERE bg_id = 'bba9b3f7' AND report_id IS NOT NULL", [], |r| r.get(0)).unwrap();
+        assert_eq!(wrapped, Some(SINCE + 11), "stored on the run");
+        assert!(!board(&conn, &[], SINCE, MAX_CARDS).unwrap().wrapup.items.iter().any(|c| c.bg_id == "bba9b3f7"));
+        assert!(unwrap(&conn, "bba9b3f7", &[]).unwrap());
+        assert!(board(&conn, &[], SINCE, MAX_CARDS).unwrap().wrapup.items.iter().any(|c| c.bg_id == "bba9b3f7"));
+    }
+
+    #[test]
+    fn finish_stopped_keeps_the_review_gate_for_a_routine_run() {
+        let conn = crate::db::open_in_memory().unwrap();
+        routine_run(&conn, "bba9b3f7", Some(&rid(41)), SINCE + 5);
+        assert_eq!(finish_stopped(&conn, "bba9b3f7", "sess-r1", SINCE, SINCE + 9).unwrap(), Finished::ReviewWait);
+        review_inbox::mark(&conn, "bba9b3f7", &HashMap::new(), true, SINCE + 10).unwrap();
+        assert_eq!(finish_stopped(&conn, "bba9b3f7", "sess-r1", SINCE, SINCE + 11).unwrap(), Finished::Done);
+        assert!(facts(&conn, "bba9b3f7").unwrap().unwrap().wrapped);
+        assert!(!wrapped_keys(&conn).unwrap().contains(&"sess-r1".to_string()), "stored on the run, not as a key");
+    }
+
+    #[test]
+    fn a_routine_run_wrapped_up_by_session_key_before_stays_wrapped() {
+        let conn = crate::db::open_in_memory().unwrap();
+        routine_run(&conn, "bba9b3f7", Some(&rid(41)), SINCE + 5);
+        put_wrapped_keys(&conn, &["sess-old".to_string()]).unwrap();
+        let listed = [session("sess-old", Some("bba9b3f7"), SessionStatus::Stopped)];
+        // Before the carry-over: the key alone keeps it off 리뷰 대기.
+        assert_eq!(lanes(&conn, &listed, SINCE).unwrap().get("sess-old"), Some(&Lane::Done));
+        assert!(note_ended(&conn, &listed).unwrap() >= 1);
+        assert!(facts(&conn, "bba9b3f7").unwrap().unwrap().wrapped, "carried over to the run");
+        let none = HashMap::new();
+        assert_eq!(review_inbox::pending_count(&conn, &none, SINCE).unwrap(), 0, "not on the badge");
+        assert_eq!(board(&conn, &[], SINCE, MAX_CARDS).unwrap().review_wait.total, 0, "nor in 리뷰 대기 once it leaves the listing");
+        // A key nobody wrapped carries nothing over.
+        routine_run(&conn, "dda9b3f7", Some(&rid(42)), SINCE + 6);
+        note_ended(&conn, &[session("sess-new", Some("dda9b3f7"), SessionStatus::Done)]).unwrap();
+        assert!(!facts(&conn, "dda9b3f7").unwrap().unwrap().wrapped);
     }
 }

@@ -1,6 +1,7 @@
 // Mock 리뷰 탭 (review-inbox) for design review: the task board's report records plus a finished QA and design task,
 // one record from before the tab existed (only under 전체), a running and a waiting task (전체 only), a reviewed one,
-// a missing and a malformed report. `?review=empty` shows no records, `?report=off` the report setting turned off.
+// a missing and a malformed report. `?review=empty` shows no records, `?report=off` the report setting turned off,
+// `?routine=1` adds a finished routine run with a report (review-routine-runs).
 // Summaries are cut the same way Rust does (verdict fields only). Generic names only.
 import { mockProjectPath } from "./projects";
 import { mockTaskReport } from "./report";
@@ -54,8 +55,22 @@ const designReport = {
   references: [],
 };
 
-/** Reports for the two records only this mock has; the rest come from the task board's mock. */
+const routineReport = {
+  version: 2,
+  status: "done",
+  updatedAt: new Date(now - 7_200_000).toISOString(),
+  work: [{ step: "공고 목록 확인", result: "새 공고 2건", files: [] }],
+  blocked: [],
+  decisions: [],
+  criteria: [],
+  references: [],
+  attachments: [],
+};
+
+/** Reports for the records only this mock has; the rest come from the task board's mock. */
 export function mockReviewReport(id: string) {
+  if (id === "7a7a7a7a")
+    return { kind: "ready", delegated: { name: "아침 공고 확인", brief: null, prompt: "공고 사이트에서 새 글을 확인해 정리", taskType: null, permissionMode: "manual", folder: "notices", stored: true, routine: true }, report: routineReport };
   if (id === "5a5a5a5a")
     return { kind: "ready", delegated: { name: "qa-lint-sweep", brief: brief("'lint-sweep' 작업 결과를 실제로 실행해 검증", "완료 기준별 PASS/FAIL\n재현 절차"), prompt: null, taskType: "qa", permissionMode: "plan", folder: "dev_team", stored: true, routine: false }, report: qaReport };
   if (id === "4b4b4b4b")
@@ -69,6 +84,7 @@ export interface Rec {
   taskType: string | null;
   createdAt: number;
   running: "working" | "waiting" | null;
+  routine?: boolean;
 }
 
 const all: Rec[] = [
@@ -86,7 +102,9 @@ const all: Rec[] = [
 const many: Rec[] = Array.from({ length: 15 }, (_, i) => ({ bgId: `e${String(i).padStart(7, "0")}`, cwd: "/Users/me/Agents/dev_team", taskType: "dev", createdAt: now - 40 * 3_600_000 - i * 60_000, running: null }));
 // `?evidence=1`: the report-evidence samples (근거·첨부) join the list.
 const evidenceRecs = (): Rec[] => (param("evidence") ? EVIDENCE_RECORDS.map((r) => ({ bgId: r.bgId, cwd: "/Users/me/Agents/dev_team", taskType: r.taskType, createdAt: now - r.ago, running: null })) : []);
-export const recs = () => (empty() ? [] : param("review") === "many" ? [...all, ...many].sort((a, b) => b.createdAt - a.createdAt) : [...all, ...evidenceRecs()].sort((a, b) => b.createdAt - a.createdAt));
+const routineRecs = (): Rec[] => (param("routine") ? [{ bgId: "7a7a7a7a", cwd: "/Users/me/Agents/notices", taskType: null, createdAt: now - 7_300_000, running: null, routine: true }] : []);
+export const recs = () =>
+  empty() ? [] : param("review") === "many" ? [...all, ...many].sort((a, b) => b.createdAt - a.createdAt) : [...all, ...evidenceRecs(), ...routineRecs()].sort((a, b) => b.createdAt - a.createdAt);
 const reviewed = new Set(["aa11bb22"]);
 // task-lifecycle `?board=demo|nolive`: lint-sweep (live, worktree) is reviewed too and waits in 정리.
 const boardDemo = () => param("board") !== null;
@@ -148,6 +166,7 @@ function card(r: Rec) {
     report,
     deliveryAlert: (d as { deliveryAlert?: number | null } | null)?.deliveryAlert ?? null,
     wrapped: wrapped.has(r.bgId),
+    routine: r.routine ?? false,
   };
 }
 
