@@ -5,7 +5,6 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
-use std::time::{Duration, Instant};
 
 use regex::Regex;
 use serde::Serialize;
@@ -15,8 +14,6 @@ use crate::text::display_safe;
 
 pub const MAX_FILE_BYTES: u64 = 256 * 1024;
 const MAX_PROJECT_DIRS: usize = 42;
-const MAX_PLUGIN_ENTRIES: usize = 5000;
-const PLUGIN_BUDGET: Duration = Duration::from_millis(500);
 
 static NAME_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\A[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}\z").unwrap_or_else(|_| unreachable!()));
@@ -422,36 +419,17 @@ pub fn discover(roots: &Roots) -> Vec<AgentDef> {
     if let Some(dir) = real_dir_under(&roots.config_dir, &["agents"]) {
         scan_dir(&dir, Source::User, None, None, &mut out);
     }
-    if let Some(cache) = real_dir_under(&roots.config_dir, &["plugins", "cache"]) {
-        let start = Instant::now();
-        // Layout: cache/<marketplace>/<plugin>/<version>. Only the newest version of each plugin counts, and only the
-        // agent folders Claude Code reads (`agents/` at the plugin root plus plugin.json `agents` paths): a folder named
-        // `agents` deeper in the plugin (docs/agents/…) is documentation, not agent definitions.
-        let mut latest: std::collections::BTreeMap<(String, String), (std::time::SystemTime, PathBuf)> = Default::default();
-        let mut seen = 0usize;
-        let dirs = |p: &Path| -> Vec<std::fs::DirEntry> {
-            std::fs::read_dir(p).map(|r| r.filter_map(Result::ok).filter(|e| e.file_type().is_ok_and(|t| t.is_dir())).collect()).unwrap_or_default()
-        };
-        'scan: for m in dirs(&cache) {
-            for p in dirs(&m.path()) {
-                for v in dirs(&p.path()) {
-                    seen += 1;
-                    if seen > MAX_PLUGIN_ENTRIES || start.elapsed() > PLUGIN_BUDGET {
-                        break 'scan;
-                    }
-                    let when = v.metadata().and_then(|x| x.modified()).unwrap_or(std::time::UNIX_EPOCH);
-                    let key = (m.file_name().to_string_lossy().to_string(), p.file_name().to_string_lossy().to_string());
-                    if latest.get(&key).is_none_or(|(t, _)| when > *t) {
-                        latest.insert(key, (when, v.path()));
-                    }
-                }
-            }
+    // Plugins: the install folders Claude Code loads (installed_plugins.json, else the newest cached version), and in
+    // each only `agents/*.md` plus the plugin.json `agents` files. A folder named `agents` deeper in the plugin
+    // (docs/agents/…) is documentation, not agent definitions.
+    for (plugin, root) in crate::plugins::plugin_roots(&roots.config_dir) {
+        if !valid_name(&plugin) {
+            continue;
         }
-        for ((_, plugin), (_, root)) in latest {
-            if valid_name(&plugin) {
-                for dir in crate::plugins::plugin_agent_dirs(&root) {
-                    scan_dir(&dir, Source::Plugin, None, Some(&plugin), &mut out);
-                }
+        for f in crate::plugins::plugin_agent_files(&root) {
+            let Some(dir_meta) = f.parent().and_then(|d| std::fs::symlink_metadata(d).ok()) else { continue };
+            if let Some(d) = read_def(&f, &dir_meta, Source::Plugin, None, Some(&plugin)) {
+                out.push(d);
             }
         }
     }
@@ -968,28 +946,103 @@ mod tests {
         assert!(needs_permission_warning(OK, "본문만"));
     }
 
+    fn agent(name: &str) -> String {
+        format!("---\nname: {name}\ndescription: d\n---\n")
+    }
+
+    fn put(p: &Path, text: &str) {
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, text).unwrap();
+    }
+
+    fn plugin_agents(r: &Roots) -> Vec<String> {
+        let mut v: Vec<String> = discover(r).into_iter().filter(|d| d.source == Source::Plugin).map(|d| d.name).collect();
+        v.sort();
+        v
+    }
+
+    fn set_mtime(p: &Path, secs: u64) {
+        let t = std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs);
+        std::fs::File::open(p).unwrap().set_modified(t).unwrap();
+    }
+
     #[test]
     fn plugin_agents_come_only_from_the_folders_claude_code_reads() {
         // mattpocock-skills ships docs/agents/triage-labels.md (a doc, no frontmatter): it must not show as a broken agent.
         let tmp = tempfile::tempdir().unwrap();
         let (r, _proj) = roots(tmp.path());
-        let root = r.config_dir.join("plugins/cache/claude-plugins-official/kit/1.0.0");
-        for d in ["agents", "docs/agents", "extra/agents"] {
-            std::fs::create_dir_all(root.join(d)).unwrap();
-        }
-        std::fs::write(root.join("agents/reviewer.md"), OK).unwrap();
-        std::fs::write(root.join("docs/agents/triage-labels.md"), "# Triage Labels\n\nnot an agent\n").unwrap();
-        std::fs::write(root.join("extra/agents/helper.md"), "---\nname: helper\ndescription: listed in plugin.json\n---\n").unwrap();
-        let plugin_names = |r: &Roots| -> Vec<String> {
-            discover(r).into_iter().filter(|d| d.source == Source::Plugin).map(|d| d.name).collect()
-        };
-        assert_eq!(plugin_names(&r), ["kit:design-critic"], "root agents/ only; docs/agents and unlisted folders are skipped");
-        std::fs::create_dir_all(root.join(".claude-plugin")).unwrap();
-        std::fs::write(root.join(".claude-plugin/plugin.json"), r#"{"name":"kit","agents":["./extra/agents"]}"#).unwrap();
-        let mut names = plugin_names(&r);
-        names.sort();
-        assert_eq!(names, ["kit:design-critic", "kit:helper"], "plugin.json agents paths count too");
+        let root = r.config_dir.join("plugins/cache/mk/kit/1.0.0");
+        put(&root.join("agents/reviewer.md"), &agent("reviewer"));
+        put(&root.join("docs/agents/triage-labels.md"), "# Triage Labels\n\nnot an agent\n");
+        put(&root.join("extra/helper.md"), &agent("helper"));
+        put(&root.join("custom/agents/folder-listed.md"), &agent("folder-listed"));
+        put(&tmp.path().join("cfg/plugins/cache/mk/outside.md"), &agent("outside"));
+        put(&tmp.path().join("abs.md"), &agent("absolute"));
+        assert_eq!(plugin_agents(&r), ["kit:reviewer"], "root agents/ only; docs/agents and unlisted files are skipped");
+
+        let abs = tmp.path().join("abs.md").canonicalize().unwrap();
+        let manifest = format!(r#"{{"name":"kit","agents":["./extra/helper.md","./custom/agents","../outside.md","{}"]}}"#, abs.display());
+        put(&root.join(".claude-plugin/plugin.json"), &manifest);
+        assert_eq!(plugin_agents(&r), ["kit:helper", "kit:reviewer"], "manifest .md files count; folders, `..` and absolute paths do not");
         assert!(discover(&r).iter().all(|d| !(d.source == Source::Plugin && d.malformed)), "no doc file shows as a broken agent");
+    }
+
+    #[test]
+    fn docs_agents_only_plugin_has_no_agents() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (r, _proj) = roots(tmp.path());
+        put(&r.config_dir.join("plugins/cache/mk/docs-only/1.3.1/docs/agents/triage-labels.md"), "# Triage Labels\n");
+        assert!(plugin_agents(&r).is_empty());
+    }
+
+    #[test]
+    fn plugin_version_comes_from_the_install_record_then_newest_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (r, _proj) = roots(tmp.path());
+        let cache = r.config_dir.join("plugins/cache/mk");
+        // kit: the record says 1.3.1, though another version folder is newer (Claude Code loads 1.3.1).
+        put(&cache.join("kit/1.3.1/agents/recorded.md"), &agent("recorded"));
+        put(&cache.join("kit/49dd158d1076/agents/newer.md"), &agent("newer"));
+        set_mtime(&cache.join("kit/1.3.1"), 1_000);
+        set_mtime(&cache.join("kit/49dd158d1076"), 2_000);
+        // bare: no record, so the newest version folder counts.
+        put(&cache.join("bare/1.0.0/agents/old.md"), &agent("old"));
+        put(&cache.join("bare/2.0.0/agents/new.md"), &agent("new"));
+        set_mtime(&cache.join("bare/1.0.0"), 2_000);
+        set_mtime(&cache.join("bare/2.0.0"), 1_000);
+        // multi: two project installs pin different versions; both are read.
+        put(&cache.join("multi/1.0.0/agents/a.md"), &agent("a"));
+        put(&cache.join("multi/2.0.0/agents/b.md"), &agent("b"));
+        put(&cache.join("multi/3.0.0/agents/c.md"), &agent("c"));
+        let rec = |v: &str, p: &str| format!(r#"{{"scope":"project","installPath":"{}","version":"{v}"}}"#, cache.join(p).join(v).display());
+        let record = format!(
+            r#"{{"version":2,"plugins":{{"kit@mk":[{}],"multi@mk":[{},{}],"bare@other":[{}]}}}}"#,
+            rec("1.3.1", "kit"), rec("1.0.0", "multi"), rec("2.0.0", "multi"), rec("1.0.0", "bare")
+        );
+        put(&r.config_dir.join("plugins/installed_plugins.json"), &record);
+        assert_eq!(plugin_agents(&r), ["bare:old", "kit:recorded", "multi:a", "multi:b"], "a record of another marketplace does not count");
+
+        let foreign = format!(r#"{{"plugins":{{"bare@mk":[{{"installPath":"{}"}}]}}}}"#, cache.join("kit/1.3.1").display());
+        put(&r.config_dir.join("plugins/installed_plugins.json"), &foreign);
+        assert!(plugin_agents(&r).contains(&"bare:old".to_string()), "a record pointing at another plugin's folder is ignored");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plugin_version_folder_link_is_skipped() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (r, _proj) = roots(tmp.path());
+        put(&tmp.path().join("elsewhere/agents/linked.md"), &agent("linked"));
+        std::fs::create_dir_all(r.config_dir.join("plugins/cache/mk/kit")).unwrap();
+        std::os::unix::fs::symlink(tmp.path().join("elsewhere"), r.config_dir.join("plugins/cache/mk/kit/9.9.9")).unwrap();
+        assert!(plugin_agents(&r).is_empty(), "no record: the linked version folder is not a candidate");
+        let record = format!(r#"{{"plugins":{{"kit@mk":[{{"installPath":"{}"}}]}}}}"#, r.config_dir.join("plugins/cache/mk/kit/9.9.9").display());
+        put(&r.config_dir.join("plugins/installed_plugins.json"), &record);
+        assert!(plugin_agents(&r).is_empty(), "a record cannot point through a link either");
+        put(&r.config_dir.join("plugins/cache/mk/kit/1.0.0/agents/x.md"), &agent("x"));
+        std::os::unix::fs::symlink(tmp.path().join("elsewhere/agents/linked.md"), r.config_dir.join("plugins/cache/mk/kit/1.0.0/agents/link.md")).unwrap();
+        std::fs::remove_file(r.config_dir.join("plugins/installed_plugins.json")).unwrap();
+        assert_eq!(plugin_agents(&r), ["kit:x"], "a linked agent file is skipped");
     }
 
     #[test]

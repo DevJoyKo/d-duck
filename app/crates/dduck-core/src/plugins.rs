@@ -314,13 +314,105 @@ pub(crate) fn plugin_skills(root: &Path, manifest: &serde_json::Value, plugin: &
     }
 }
 
-/// A plugin's agent folders as Claude Code reads them: the default `agents/` plus every manifest `agents` path inside
-/// the install folder. Never any other folder that happens to be named `agents` (e.g. `docs/agents/`).
-pub(crate) fn plugin_agent_dirs(root: &Path) -> Vec<PathBuf> {
-    // manifest_paths keeps paths whose canonical form stays under the root, so compare against the canonical root.
+/// A plugin's agent files as Claude Code reads them: `*.md` in the default `agents/` folder plus every manifest `agents`
+/// entry, which names one `.md` file (Claude Code rejects a folder there: "must end with .md", so a folder entry is
+/// ignored). Never any other folder that happens to be named `agents` (e.g. `docs/agents/`). Each file is a regular
+/// file (not a link) whose canonical path stays inside the canonical install folder. The plugins tab and the agents
+/// tab both use this list.
+pub(crate) fn plugin_agent_files(root: &Path) -> Vec<PathBuf> {
     let Ok(root) = root.canonicalize() else { return Vec::new() };
+    let mut files = Vec::new();
+    let default = root.join("agents");
+    if real_dir(&default) {
+        if let Ok(entries) = std::fs::read_dir(&default) {
+            let mut found: Vec<PathBuf> = entries
+                .filter_map(Result::ok)
+                .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|x| x == "md") && file_exists(p))
+                .collect();
+            found.sort();
+            files.extend(found.into_iter().take(MAX_AGENTS));
+        }
+    }
     let manifest = read_manifest(&root);
-    dedupe([vec![root.join("agents")], manifest_paths(manifest.get("agents"), &root)].concat()).into_iter().filter(|d| real_dir(d)).collect()
+    let listed = manifest_paths(manifest.get("agents"), &root).into_iter().filter(|p| p.extension().is_some_and(|x| x == "md") && file_exists(p));
+    files.extend(listed.take(MAX_AGENTS));
+    dedupe(files)
+}
+
+/// Install folders recorded for a plugin id in `<config>/plugins/installed_plugins.json` (one per scope/project;
+/// project installs may pin different versions). Each must pass `checked_root` and sit in that plugin's own cache
+/// folder (`cache/<marketplace>/<plugin>/…`).
+fn recorded_roots(config_dir: &Path) -> HashMap<String, Vec<PathBuf>> {
+    let mut out: HashMap<String, Vec<PathBuf>> = HashMap::new();
+    let Ok(base) = config_dir.join("plugins").canonicalize() else { return out };
+    let Ok(cache) = config_dir.join("plugins").join("cache").canonicalize() else { return out };
+    let Some(recorded) = read_json_under(&base, Path::new("installed_plugins.json")) else { return out };
+    let Some(plugins) = recorded.get("plugins").and_then(|p| p.as_object()) else { return out };
+    for (id, entries) in plugins.iter().take(500) {
+        let Some((name, market)) = id.split_once('@').filter(|_| valid_id(id)) else { continue };
+        let own = cache.join(market).join(name);
+        let roots: Vec<PathBuf> = entries
+            .as_array()
+            .map(|a| a.as_slice())
+            .unwrap_or_default()
+            .iter()
+            .take(50)
+            .filter_map(|e| e.get("installPath")?.as_str())
+            .filter_map(|p| checked_root(config_dir, Path::new(p)))
+            .filter(|r| r.starts_with(&own) && r != &own)
+            .collect();
+        if !roots.is_empty() {
+            out.insert(id.clone(), dedupe(roots));
+        }
+    }
+    out
+}
+
+/// Version folders scanned per run, across all plugins.
+const MAX_VERSION_DIRS: usize = 5000;
+
+/// The install folders whose components count, as `(plugin name, canonical folder)`: the `installPath`s recorded in
+/// `installed_plugins.json` (what Claude Code loads), or, for a cached plugin with no usable record, its most recently
+/// modified version folder. Only real folders (no links) under a real `<config>/plugins/cache`.
+pub(crate) fn plugin_roots(config_dir: &Path) -> Vec<(String, PathBuf)> {
+    let cache = config_dir.join("plugins").join("cache");
+    if !real_dir(&config_dir.join("plugins")) || !real_dir(&cache) {
+        return Vec::new();
+    }
+    let recorded = recorded_roots(config_dir);
+    let dirs = |p: &Path| -> Vec<std::fs::DirEntry> {
+        let mut v: Vec<std::fs::DirEntry> = std::fs::read_dir(p).map(|r| r.filter_map(Result::ok).filter(|e| real_dir(&e.path())).collect()).unwrap_or_default();
+        v.sort_by_key(|e| e.file_name());
+        v
+    };
+    let mut out = Vec::new();
+    let mut seen = 0usize;
+    'scan: for m in dirs(&cache) {
+        for p in dirs(&m.path()) {
+            let (market, name) = (m.file_name().to_string_lossy().to_string(), p.file_name().to_string_lossy().to_string());
+            if let Some(roots) = recorded.get(&format!("{name}@{market}")) {
+                out.extend(roots.iter().map(|r| (name.clone(), r.clone())));
+                continue;
+            }
+            let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
+            for v in dirs(&p.path()) {
+                seen += 1;
+                if seen > MAX_VERSION_DIRS {
+                    break 'scan;
+                }
+                let when = std::fs::symlink_metadata(v.path()).and_then(|x| x.modified()).unwrap_or(std::time::UNIX_EPOCH);
+                if newest.as_ref().is_none_or(|(t, _)| when > *t) {
+                    newest = Some((when, v.path()));
+                }
+            }
+            if let Some(root) = newest.and_then(|(_, v)| v.canonicalize().ok()) {
+                out.push((name, root));
+            }
+        }
+    }
+    out
 }
 
 fn manifest_paths(v: Option<&serde_json::Value>, root: &Path) -> Vec<PathBuf> {
@@ -337,24 +429,17 @@ fn manifest_paths(v: Option<&serde_json::Value>, root: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-fn agents_in(dir: &Path, prefix: &str, out: &mut Vec<Item>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
-    for e in entries.filter_map(Result::ok).take(MAX_AGENTS) {
-        let path = e.path();
-        if path.extension().is_none_or(|x| x != "md") || e.file_name().to_string_lossy().starts_with('.') {
-            continue;
-        }
-        let Some(text) = read_head(&path) else { continue };
-        let fm = parse_frontmatter(&text);
-        let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-        let name = fm.as_ref().and_then(|f| f.get("name")).filter(|n| !n.is_empty()).map(str::to_string).unwrap_or(stem);
-        out.push(Item {
-            name: display_safe(&format!("{prefix}:{name}"), 100),
-            description: fm.as_ref().and_then(|f| f.get("description")).map(|d| display_safe(d, 300)),
-            uses: 0,
-            last_used: None,
-        });
-    }
+fn agent_item(path: &Path, prefix: &str) -> Option<Item> {
+    let text = read_head(path)?;
+    let fm = parse_frontmatter(&text);
+    let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let name = fm.as_ref().and_then(|f| f.get("name")).filter(|n| !n.is_empty()).map(str::to_string).unwrap_or(stem);
+    Some(Item {
+        name: display_safe(&format!("{prefix}:{name}"), 100),
+        description: fm.as_ref().and_then(|f| f.get("description")).map(|d| display_safe(d, 300)),
+        uses: 0,
+        last_used: None,
+    })
 }
 
 fn file_exists(p: &Path) -> bool {
@@ -386,11 +471,7 @@ pub fn components(config_dir: &Path, install: Option<&Path>, plugin: &str) -> Co
             commands_in(&dir, Some(plugin), SkillSource::Plugin, None, &mut commands);
         }
     }
-    for dir in dedupe([vec![root.join("agents")], manifest_paths(manifest.get("agents"), &root)].concat()) {
-        if real_dir(&dir) {
-            agents_in(&dir, plugin, &mut c.agents);
-        }
-    }
+    c.agents = plugin_agent_files(&root).iter().filter_map(|f| agent_item(f, plugin)).collect();
     let uniq = |v: Vec<Skill>| {
         let mut seen = HashSet::new();
         let mut items: Vec<Item> = v.into_iter().filter(|s| seen.insert(s.name.clone())).map(to_item).collect();
@@ -667,7 +748,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let cfg = tmp.path().join("cfg");
         let root = cfg.join("plugins/cache/mk/kit/1.0.0");
-        write(&root.join(".claude-plugin/plugin.json"), r#"{"name":"kit","commands":["./.claude/commands","./commands","../../escape"],"skills":"./skills","hooks":"./h.json"}"#);
+        write(&root.join(".claude-plugin/plugin.json"), r#"{"name":"kit","commands":["./.claude/commands","./commands","../../escape"],"skills":"./skills","hooks":"./h.json","agents":["./extra/helper.md","./custom/agents"]}"#);
         for s in ["alpha", "beta", "gamma"] {
             write(&root.join(format!("skills/{s}/SKILL.md")), &format!("---\nname: {s}\ndescription: {s} 설명\u{202E}\n---\nBODY_CANARY\n"));
         }
@@ -675,6 +756,9 @@ mod tests {
         write(&root.join("commands/ship.md"), "---\ndescription: 배포\n---\n");
         write(&root.join("commands/ship.toml"), "not md");
         write(&root.join("agents/reviewer.md"), "---\nname: code-reviewer\ndescription: 리뷰\n---\n");
+        write(&root.join("extra/helper.md"), "---\nname: helper\n---\n");
+        write(&root.join("custom/agents/in-folder.md"), "---\nname: in-folder\n---\n");
+        write(&root.join("docs/agents/triage-labels.md"), "# doc\n");
         write(&tmp.path().join("escape/x.md"), "---\ndescription: 밖\n---\n");
         #[cfg(unix)]
         {
@@ -685,7 +769,7 @@ mod tests {
         let names = |v: &[Item]| v.iter().map(|i| i.name.clone()).collect::<Vec<_>>();
         assert_eq!(names(&c.skills), ["kit:alpha", "kit:beta", "kit:gamma"], "links skipped");
         assert_eq!(names(&c.commands), ["kit:build", "kit:ship"], "manifest paths join defaults; escapes dropped");
-        assert_eq!(names(&c.agents), ["kit:code-reviewer"]);
+        assert_eq!(names(&c.agents), ["kit:code-reviewer", "kit:helper"], "manifest agents are .md files; a folder entry is ignored");
         assert!(c.hooks && !c.lsp && !c.unreadable);
         assert_eq!(c.skills[0].description.as_deref(), Some("alpha 설명"), "display_safe");
         assert!(!serde_json::to_string(&c).unwrap().contains("BODY_CANARY"));
@@ -724,6 +808,24 @@ mod tests {
         let mut from_tab: Vec<String> = catalog.iter().filter(|s| s.source == SkillSource::Plugin).map(|s| s.name.clone()).collect();
         from_tab.sort();
         assert_eq!(from_tab, want, "the skills tab reads the manifest too");
+    }
+
+    #[test]
+    fn skills_tab_reads_the_recorded_install_folder_not_the_newest() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = tmp.path().join("cfg");
+        let cache = cfg.join("plugins/cache/mk/kit");
+        write(&cache.join("1.3.1/skills/old/SKILL.md"), "---\nname: old\n---\n");
+        write(&cache.join("49dd158d1076/skills/new/SKILL.md"), "---\nname: new\n---\n");
+        let at = |p: &Path, s: u64| std::fs::File::open(p).unwrap().set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(s)).unwrap();
+        at(&cache.join("1.3.1"), 1_000);
+        at(&cache.join("49dd158d1076"), 2_000);
+        let plugin_skills = || {
+            crate::skills_catalog::discover(&cfg, &[]).into_iter().filter(|s| s.source == SkillSource::Plugin).map(|s| s.name).collect::<Vec<_>>()
+        };
+        assert_eq!(plugin_skills(), ["kit:new"], "no record: newest folder");
+        write(&cfg.join("plugins/installed_plugins.json"), &format!(r#"{{"plugins":{{"kit@mk":[{{"installPath":"{}"}}]}}}}"#, cache.join("1.3.1").display()));
+        assert_eq!(plugin_skills(), ["kit:old"], "the recorded install path wins");
     }
 
     #[cfg(unix)]
