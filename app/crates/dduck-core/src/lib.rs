@@ -59,6 +59,7 @@ pub mod mcp_list;
 pub mod memory;
 pub mod model_select;
 pub mod plugins;
+pub mod preferred;
 pub mod tracker;
 pub mod trust;
 

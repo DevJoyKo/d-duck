@@ -147,6 +147,7 @@ fn task_type_keys_and_team_config_payloads() {
         rules: d.rules.iter().map(|r| team_config::RuleInput { id: r.id.clone(), text: r.text.clone(), extra: String::new() }).collect(),
         types: d.types.iter().map(|t| t.def.clone()).collect(),
         refine: None,
+        preferred: Vec::new(),
     };
     input.types.iter_mut().find(|t| t.key == "learn").unwrap().effort = dduck_core::team::Effort::High;
     let mut ops = d.get("qa").unwrap().clone();
@@ -165,7 +166,7 @@ fn task_type_keys_and_team_config_payloads() {
 
     // TeamConfig payload keys (src/lib/api.ts TeamType / TeamRule).
     let v = serde_json::to_value(&d).unwrap();
-    assert_eq!(keys(&v), set(&["header", "rules", "types", "refine", "errors"]));
+    assert_eq!(keys(&v), set(&["header", "rules", "types", "refine", "preferred", "errors"]));
     assert_eq!(keys(&v["refine"]), set(&["guidance", "maxQuestions", "rounds"]));
     assert_eq!(keys(&v["rules"][0]), set(&["id", "text", "extra", "locked", "bundled", "defaultText", "changed", "defaultChanged"]));
     assert_eq!(
