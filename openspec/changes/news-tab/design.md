@@ -115,3 +115,12 @@ v17은 새 표 두 개만 만든다. 이전 버전 DB는 그대로 열린다. �
 - security M 쿼리 유출 → 쿼리·프래그먼트·인코딩된 구분자 거부(§1). M 30일 $12 보장 안 됨 → 비용 장부·합계 상한·consentVersion(§5·§6). M 예산 초과 가능 → 확인 창에 적고 1.5배 넘으면 매일 끔(§6).
 - security L seen 무한 → 있는 id만, 함께 정리(§5). L stderr → 고정 코드만·Scrub(§2). L 저장 글이 주입 → 상세 하단 안내 줄, 위험 명령 패턴 항목 버림(§4·§8). L 리다이렉트 → 원문 목록을 좁혀 처리(§1).
 
+
+## 테스트 리뷰 반영 (qa-verifier PASS·MEDIUM 1·LOW 5, design-critic HIGH 2·MEDIUM 5·LOW 3, brand PASS·MAJOR 3·MINOR 5)
+- critic H 비용 초과로 매일이 꺼져도 이유가 안 보임 → `Status.dailyOff`, 상태 줄 한 줄.
+- critic H·QA M 시간 초과·취소·실패 비용이 장부에 안 남음 → `charge`: CLI가 돌았는데 비용을 모르면 상한($0.40)으로 기록, 실패 결과 줄의 비용도 `Failed{costUsd}`로 유지.
+- critic M 매일 실행 시작이 안 보임 → 틱이 busy를 잡은 뒤 `news-updated`. M 실패 문구 두 번·빨강 두 곳(brand MAJOR 2) → 알림이 있으면 상태 줄은 중립, 취소는 회색 한 줄. M "새"의 세 뜻 → 헤더 "소식 n개", 상태 "추가 n개". M 상한 도달 시 지난 시각 → `daily.capped` 문구. M 시나리오 증명 부족 → 로그인 게이트·한 번에 하나·취소 뒤 상태 줄 테스트.
+- critic L 포커스 가두기 → 시트에서 Tab 순환. L 영어 문구 → "View source", "skipped (bad format)", "Fetch failed". L 구분점 간격 → 한 문자열.
+- QA L 틱에서 시도 기록 실패 시 실행 → 기록 못 하면 돌지 않음. L 수동 직후 매일 실행 → 모든 실행이 시도 시각을 남김. L 부동소수 경계 → 1센트 여유.
+- brand MAJOR 1 다크 썸네일이 밝음 → `--news-thumb-mix`(다크 24%). MAJOR 3 썸네일이 주인공 → 96×64로 줄임(왼쪽 위치는 사용자 요청이라 유지). MINOR 다크 오버레이 → `bg-scrim/45`. MINOR 라임 → 기타는 핑크. MINOR 시작선 → 상태 줄 px-3.
+- 남김: "베스트 프랙티스" 용어는 사용자가 정한 이름이라 유지. 빈 상태 오리는 기본 Claude 오리(소품 없음).

@@ -42,6 +42,8 @@ impl Drop for Busy {
 pub struct DailyView {
     enabled: bool,
     next_at_ms: Option<i64>,
+    /// The 30-day total reached the cap: the daily run rests.
+    capped: bool,
 }
 
 #[derive(Serialize)]
@@ -74,7 +76,11 @@ pub fn news_list(state: tauri::State<'_, AppState>) -> Res<NewsView> {
     Ok(NewsView {
         items: news::list(&conn, lang).map_err(err)?,
         status: news::status(&conn).map_err(err)?,
-        daily: DailyView { enabled: d.enabled, next_at_ms: news::next_daily_ms(d, news::last_try(&conn).map_err(err)?) },
+        daily: DailyView {
+            enabled: d.enabled,
+            next_at_ms: news::next_daily_ms(d, news::last_try(&conn).map_err(err)?),
+            capped: news::month_capped(&conn, chrono_now_ms()).map_err(err)?,
+        },
         other_lang: news::count_other_langs(&conn, lang).map_err(err)?,
         running: BUSY.load(O::SeqCst),
     })
@@ -86,19 +92,24 @@ fn run(app: &AppHandle, daily: bool) -> NewsRun {
     let state = app.state::<AppState>();
     let lang = i18n::current();
     CANCEL.store(false, O::SeqCst);
+    // Every run counts as a try, so a daily run never follows right after a button press.
+    if let Ok(conn) = state.conn() {
+        let _ = news::set_last_try(&conn, chrono_now_ms());
+    }
+    let mut cli_ran = false;
     let outcome = (|| -> Result<news::Parsed, NewsError> {
         let known = state.conn().ok().and_then(|c| news::known(&c, lang).ok()).unwrap_or_default();
-        let base = app_data_dir(app).map_err(|_| NewsError::Failed)?.join("news");
+        let base = app_data_dir(app).map_err(|_| NewsError::Failed { cost_usd: None })?.join("news");
         let cwd = base.join("cwd");
         let counters = base.join("guard");
-        std::fs::create_dir_all(&cwd).map_err(|_| NewsError::Failed)?;
-        std::fs::create_dir_all(&counters).map_err(|_| NewsError::Failed)?;
+        std::fs::create_dir_all(&cwd).map_err(|_| NewsError::Failed { cost_usd: None })?;
+        std::fs::create_dir_all(&counters).map_err(|_| NewsError::Failed { cost_usd: None })?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let _ = std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o700));
         }
-        let exe = std::env::current_exe().map_err(|_| NewsError::Failed)?;
+        let exe = std::env::current_exe().map_err(|_| NewsError::Failed { cost_usd: None })?;
         let hook = news::guard_command(&exe, &counters);
         // A hook that cannot deny would leave WebFetch open: refuse to start (fail closed).
         if !dduck_core::cloud_routines::guard_self_test(&hook, news::SELF_TEST_DENY, news::SELF_TEST_ALLOW) {
@@ -106,7 +117,8 @@ fn run(app: &AppHandle, daily: bool) -> NewsRun {
         }
         news::reset_counters(&counters);
         let client = state.client().map_err(|_| NewsError::Spawn)?;
-        let projects = state.config.read().map_err(|_| NewsError::Failed)?.path.join("projects");
+        let projects = state.config.read().map_err(|_| NewsError::Failed { cost_usd: None })?.path.join("projects");
+        cli_ran = true;
         let raw = client.insights_raw(&cwd, &news::args(&hook, &known, lang), Duration::from_secs(news::TIMEOUT_SECS), &|| CANCEL.load(O::SeqCst));
         // Parse first, then clean (D-072 order).
         let today = chrono::Local::now().date_naive();
@@ -116,7 +128,7 @@ fn run(app: &AppHandle, daily: bool) -> NewsRun {
         parsed
     })();
     let outcome = match outcome {
-        Err(NewsError::Failed) if login_cmds::logged_out_after_failure(app) => Err(NewsError::LoginRequired),
+        Err(NewsError::Failed { .. }) if login_cmds::logged_out_after_failure(app) => Err(NewsError::LoginRequired),
         o => o,
     };
     let now = chrono_now_ms();
@@ -126,16 +138,16 @@ fn run(app: &AppHandle, daily: bool) -> NewsRun {
             Ok(p) => p.cost_usd,
             Err(e) => e.cost_usd(),
         };
-        news::after_run(&conn, cost, now).map_err(err)?;
+        let daily_off = news::after_run(&conn, news::charge(cost, cli_ran && !matches!(outcome, Err(NewsError::Spawn))), now).map_err(err)?;
         Ok(match outcome {
             Ok(p) => {
                 let added = news::merge(&mut conn, lang, &p.items, now).map_err(err)?;
-                news::save_status(&conn, &news::Status { at_ms: now, ok: true, added, dropped: p.dropped, cost_usd: p.cost_usd, error: None, daily })
+                news::save_status(&conn, &news::Status { at_ms: now, ok: true, added, dropped: p.dropped, cost_usd: p.cost_usd, error: None, daily, daily_off })
                     .map_err(err)?;
                 NewsRun::Done { added, dropped: p.dropped, cost_usd: p.cost_usd }
             }
             Err(e) => {
-                news::save_status(&conn, &news::Status { at_ms: now, ok: false, cost_usd: e.cost_usd(), error: Some(e.code().into()), daily, ..Default::default() })
+                news::save_status(&conn, &news::Status { at_ms: now, ok: false, cost_usd: e.cost_usd(), error: Some(e.code().into()), daily, daily_off, ..Default::default() })
                     .map_err(err)?;
                 failed(e)
             }
@@ -143,7 +155,7 @@ fn run(app: &AppHandle, daily: bool) -> NewsRun {
     })();
     state.send_ingest(IngestMsg::Scrub);
     let _ = app.emit("news-updated", ());
-    result.unwrap_or_else(|_| failed(NewsError::Failed))
+    result.unwrap_or_else(|_| failed(NewsError::Failed { cost_usd: None }))
 }
 
 /// "가져오기": login gate, busy claimed, native confirmation with what is sent and the cost, then one run.
@@ -229,11 +241,13 @@ pub fn on_tick(app: &AppHandle) {
         return;
     }
     let Some(busy) = Busy::claim() else { return };
-    if let Ok(conn) = app.state::<AppState>().conn() {
-        if news::set_last_try(&conn, chrono_now_ms()).is_err() {
-            return;
-        }
+    // No try recorded means no run (it would retry every tick).
+    let recorded = app.state::<AppState>().conn().ok().is_some_and(|c| news::set_last_try(&c, chrono_now_ms()).is_ok());
+    if !recorded {
+        return;
     }
+    // An open News tab shows "가져오는 중" right away.
+    let _ = app.emit("news-updated", ());
     let app = app.clone();
     std::thread::spawn(move || {
         let _busy = busy;

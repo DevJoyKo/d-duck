@@ -59,7 +59,7 @@ describe("소식 tab", () => {
     expect(first.textContent).toContain("Vertex에서도 빠른 모드");
     expect(first.textContent).toContain("v2.1.322 · ");
     expect(first.textContent).toContain("새 소식");
-    expect(screen.getByText("Claude Code 새 기능 12개")).toBeTruthy();
+    expect(screen.getByText("소식 12개")).toBeTruthy();
     // No yellow on this page (yellow means "waiting for you").
     const classes = Array.from(document.querySelectorAll("main *")).map((e) => e.getAttribute("class") ?? "");
     expect(classes.filter((c) => /(?:bg|ring|text|border)-duck/.test(c))).toEqual([]);
@@ -96,7 +96,7 @@ describe("소식 tab", () => {
     await waitFor(() => expect(rows().length).toBe(13));
     expect(invoke).toHaveBeenCalledWith("news_fetch");
     expect(rows()[0]).toBe("2.1.323-diff-panel");
-    expect(document.querySelector("[data-news-status]")?.textContent).toMatch(/마지막 가져오기 .* · 새 소식 13개 · \$0\.17/);
+    expect(document.querySelector("[data-news-status]")?.textContent).toMatch(/마지막 가져오기 .* · 추가 13개 · \$0\.17/);
   });
 
   it("changes nothing when the confirmation is cancelled", async () => {
@@ -118,6 +118,27 @@ describe("소식 tab", () => {
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "예산 상한($0.40)에 닿아 멈췄어요 · 쓴 비용 $0.41");
     expect(rows().length).toBe(12);
     await waitFor(() => expect(document.querySelector("[data-news-status]")?.textContent).toMatch(/가져오지 못했어요 · 예산 상한/));
+    // One red place: the alert. The status line stays neutral while the alert is up.
+    expect(document.querySelector("[data-news-status] .text-danger")).toBeNull();
+  });
+
+  it("shows the login line instead of a confirmation when logged out", async () => {
+    const invoke = await boot();
+    await waitFor(() => expect(rows().length).toBe(12));
+    // The shell's login gate answers before any dialog (claude-login).
+    const real = (await vi.importActual<typeof import("../mock/core")>("../mock/core")).invoke;
+    invoke.mockImplementation((c: string, a?: Record<string, unknown>) => (c === "news_fetch" ? Promise.reject({ kind: "login_required" }) : real(c, a)));
+    fireEvent.click(screen.getByRole("button", { name: "가져오기" }));
+    expect(await screen.findAllByTestId("gate-line")).not.toHaveLength(0);
+    expect(rows().length).toBe(12);
+    invoke.mockImplementation(real);
+  });
+
+  it("refuses a second fetch while one is running", async () => {
+    await boot("?news=busy");
+    await waitFor(() => expect(rows().length).toBe(12));
+    fireEvent.click(screen.getByRole("button", { name: "가져오기" }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "이미 소식을 가져오는 중이에요");
   });
 
   it("can cancel a running fetch", async () => {
@@ -126,7 +147,8 @@ describe("소식 tab", () => {
     fireEvent.click(screen.getByRole("button", { name: "가져오기" }));
     fireEvent.click(await screen.findByRole("button", { name: "취소" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("news_cancel"));
-    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "취소했어요");
+    await waitFor(() => expect(document.querySelector("[data-news-status]")?.textContent).toMatch(/가져오기를 취소했어요$/));
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(rows().length).toBe(12);
   });
 

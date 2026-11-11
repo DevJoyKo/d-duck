@@ -282,3 +282,16 @@ body {
 :lang(ko) {
   word-break: keep-all;
 }
+
+/* News thumbnails (news-tab): full pastel on light, a quiet tint on dark so tiles never outshine the titles. */
+:root {
+  --news-thumb-mix: 100%;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --news-thumb-mix: 24%;
+  }
+}
+:root[data-theme="dark"] {
+  --news-thumb-mix: 24%;
+}

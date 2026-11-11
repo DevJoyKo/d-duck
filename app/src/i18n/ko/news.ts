@@ -1,7 +1,7 @@
 // News tab (news-tab, D-204). Claude's explainers are content and stay as written; only these labels are app text.
 export default {
   title: "소식",
-  summary: { other: "Claude Code 새 기능 {count}개" },
+  summary: { other: "소식 {count}개" },
   fetch: {
     button: "가져오기",
     running: "가져오는 중…",
@@ -10,16 +10,19 @@ export default {
   },
   status: {
     never: "아직 가져온 적이 없어요",
-    ok: { other: "마지막 가져오기 {when} · 새 소식 {count}개" },
+    ok: { other: "마지막 가져오기 {when} · 추가 {count}개" },
     cost: " · {cost}",
     dropped: { other: " · {count}개는 형식이 맞지 않아 뺐어요" },
     failed: "{when}에 가져오지 못했어요 · {reason}",
+    dailyOff: " · 비용이 커서 매일 가져오기를 껐어요",
+    cancelled: "{when}에 가져오기를 취소했어요",
     daily: " (매일)",
   },
   daily: {
     label: "매일 가져오기",
     note: "하루 한 번, 회당 약 $0.40까지",
     next: "다음 가져오기 {when}",
+    capped: "30일 비용 상한($12)에 닿아 쉬고 있어요",
     turnedOff: "매일 가져오기를 켜지 않았어요",
   },
   list: {

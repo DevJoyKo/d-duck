@@ -484,11 +484,12 @@ export interface NewsStatus {
   costUsd: number | null;
   error: NewsErrorKind | null;
   daily: boolean;
+  dailyOff?: boolean;
 }
 export interface NewsView {
   items: NewsItem[];
   status: NewsStatus | null;
-  daily: { enabled: boolean; nextAtMs: number | null };
+  daily: { enabled: boolean; nextAtMs: number | null; capped: boolean };
   otherLang: number;
   running: boolean;
 }

@@ -31,7 +31,7 @@ const CATEGORY_COLOR_INDEX: Record<NewsCategory, number> = {
   integration: 5, // teal
   ide: 8, // lilac
   security: 0, // coral
-  other: 2, // lime
+  other: 6, // pink (lime read too close to the duck's yellow)
 };
 
 export function categoryColor(c: NewsCategory): DuckColor {

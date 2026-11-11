@@ -43,10 +43,10 @@ function Thumb({ category, size = "row" }: { category: NewsCategory; size?: "row
   const t = useT();
   const c = categoryColor(category);
   const Icon = ICON[category] ?? Sparkles;
-  const box = size === "row" ? "h-20 w-[120px]" : "h-12 w-12";
+  const box = size === "row" ? "h-16 w-24" : "h-12 w-12";
   return (
-    <span aria-hidden className={`grid shrink-0 place-items-center rounded-lg ${box}`} style={{ background: c.body }} title={t(catKey(category))}>
-      <Icon size={size === "row" ? 26 : 20} strokeWidth={1.8} style={{ color: c.scarf }} />
+    <span aria-hidden className={`grid shrink-0 place-items-center rounded-lg ${box}`} style={{ background: `color-mix(in srgb, ${c.body} var(--news-thumb-mix), transparent)` }} title={t(catKey(category))}>
+      <Icon size={size === "row" ? 22 : 20} strokeWidth={1.8} style={{ color: c.scarf }} />
     </span>
   );
 }
@@ -56,11 +56,7 @@ function Meta({ item }: { item: NewsItem }) {
   const date = shortDate(item.date);
   return (
     <span className="text-xs text-ink-3">
-      {item.version ? t("news.list.meta", { version: item.version, date }) : date}
-      <span className="mx-1.5" aria-hidden>
-        ·
-      </span>
-      {t(catKey(item.category))}
+      {item.version ? t("news.list.meta", { version: item.version, date }) : date} · {t(catKey(item.category))}
     </span>
   );
 }
@@ -116,7 +112,23 @@ function Detail({ item, onClose }: { item: NewsItem; onClose: () => void }) {
   const [openError, setOpenError] = useState<string | null>(null);
   useEffect(() => {
     closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") return onClose();
+      // Keep Tab inside the sheet (aria-modal).
+      if (e.key !== "Tab") return;
+      const dialog = closeRef.current?.closest('[role="dialog"]');
+      const all = dialog ? Array.from(dialog.querySelectorAll<HTMLElement>("button, [href]")).filter((el) => !el.hasAttribute("disabled")) : [];
+      if (all.length === 0) return;
+      const first = all[0];
+      const last = all[all.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
@@ -127,7 +139,7 @@ function Detail({ item, onClose }: { item: NewsItem; onClose: () => void }) {
     </section>
   );
   return (
-    <div className="fixed inset-0 z-30 flex justify-end bg-ink/20" onClick={onClose}>
+    <div className="fixed inset-0 z-30 flex justify-end bg-scrim/45" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-label={t("news.detail.label", { title: item.title })} onClick={(e) => e.stopPropagation()} className="flex h-full w-[min(560px,92vw)] flex-col border-l border-line bg-sheet shadow-e3">
         <div className="flex items-start gap-3 border-b border-line px-6 py-4">
           <Thumb category={item.category} size="sheet" />
@@ -171,11 +183,12 @@ function Detail({ item, onClose }: { item: NewsItem; onClose: () => void }) {
 
 function failText(r: Extract<NewsRun, { kind: "failed" }>, t: ReturnType<typeof useT>): string {
   const spent = r.error.costUsd != null ? t("news.error.spent", { cost: usd(r.error.costUsd) }) : "";
-  if (r.error.kind === "cancelled") return t("news.error.cancelled");
+  if (r.error.kind === "cancelled") return "";
   return `${r.message}${spent}`;
 }
 
-function StatusLine({ view, running, onCancel }: { view: NewsView; running: boolean; onCancel: () => void }) {
+/** `quiet`: the failure is already in the alert below, so the line stays neutral (one red place). */
+function StatusLine({ view, running, onCancel, quiet }: { view: NewsView; running: boolean; onCancel: () => void; quiet: boolean }) {
   const t = useT();
   const s = view.status;
   let text: ReactNode;
@@ -188,17 +201,20 @@ function StatusLine({ view, running, onCancel }: { view: NewsView; running: bool
   } else if (!s) {
     text = t("news.status.never");
   } else if (s.ok) {
-    text = `${t("news.status.ok", { when: dateTime(s.atMs), count: s.added })}${s.costUsd != null ? t("news.status.cost", { cost: usd(s.costUsd) }) : ""}${s.dropped ? t("news.status.dropped", { count: s.dropped }) : ""}${s.daily ? t("news.status.daily") : ""}`;
+    text = `${t("news.status.ok", { when: dateTime(s.atMs), count: s.added })}${s.costUsd != null ? t("news.status.cost", { cost: usd(s.costUsd) }) : ""}${s.dropped ? t("news.status.dropped", { count: s.dropped }) : ""}${s.daily ? t("news.status.daily") : ""}${s.dailyOff ? t("news.status.dailyOff") : ""}`;
+  } else if (s.error === "cancelled") {
+    text = t("news.status.cancelled", { when: dateTime(s.atMs) });
   } else {
     text = (
-      <span className="text-danger">
-        {t("news.status.failed", { when: dateTime(s.atMs), reason: s.error === "cancelled" ? t("news.error.cancelled") : t(`news.reason.${s.error === "login_required" ? "loginRequired" : (s.error ?? "failed")}`) })}
+      <span className={quiet ? "" : "text-danger"}>
+        {t("news.status.failed", { when: dateTime(s.atMs), reason: t(`news.reason.${s.error === "login_required" ? "loginRequired" : (s.error ?? "failed")}`) })}
         {s.daily ? t("news.status.daily") : ""}
+        {s.dailyOff ? t("news.status.dailyOff") : ""}
       </span>
     );
   }
   return (
-    <p data-news-status className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-ink-3">
+    <p data-news-status className="flex min-w-0 px-3 flex-wrap items-center gap-2 text-xs text-ink-3">
       {text}
       {running && (
         <Button size="xs" variant="plain" onClick={onCancel}>
@@ -236,7 +252,7 @@ export function NewsPage() {
     },
     onSuccess: (r) => {
       if (r.kind === "failed" && isGateError(r.error)) setGate(isGateError(r.error));
-      else if (r.kind === "failed") setRunError(failText(r, t));
+      else if (r.kind === "failed") setRunError(failText(r, t) || null);
       void qc.invalidateQueries({ queryKey: ["news"] });
     },
     onError: (e) => (isGateError(e) ? setGate(isGateError(e)) : setRunError(messageOf(e))),
@@ -286,15 +302,15 @@ export function NewsPage() {
       <PageBody>
         {v && (
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-            <StatusLine view={v} running={running} onCancel={() => void api.newsCancel()} />
+            <StatusLine view={v} running={running} quiet={!!runError} onCancel={() => void api.newsCancel()} />
             <div className="ml-auto flex items-center gap-2">
               <Switch on={v.daily.enabled} label={t("news.daily.label")} disabled={daily.isPending} onClick={() => daily.mutate(!v.daily.enabled)} />
               <span className="text-[13px] text-ink">{t("news.daily.label")}</span>
-              <span className="text-xs text-ink-3">{v.daily.enabled && v.daily.nextAtMs ? t("news.daily.next", { when: dateTime(v.daily.nextAtMs) }) : t("news.daily.note")}</span>
+              <span className="text-xs text-ink-3">{!v.daily.enabled ? t("news.daily.note") : v.daily.capped ? t("news.daily.capped") : v.daily.nextAtMs ? t("news.daily.next", { when: dateTime(v.daily.nextAtMs) }) : t("news.daily.note")}</span>
             </div>
           </div>
         )}
-        {dailyNote && <p className="text-xs text-ink-3">{dailyNote}</p>}
+        {dailyNote && <p className="px-3 text-xs text-ink-3">{dailyNote}</p>}
         <GateLine force={gate} />
         {runError && (
           <p role="alert" className="rounded-lg border border-danger/40 bg-danger/5 px-3 py-2 text-[13px] text-danger">

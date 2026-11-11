@@ -1,7 +1,7 @@
 // Mock-mode news (news-tab, D-204). Design review only: Rust gets these from one guarded `claude -p` run and checks
 // every field (news.rs). Items come in the backend language, like the real app stores them per language.
 // `?news=` picks a case: empty, other (only the other language has items), fail (fetch hits the budget), decline
-// (the native confirmation is cancelled), daily (daily fetch on).
+// (the native confirmation is cancelled), daily (daily fetch on), busy (a daily run is already going).
 import { backendLang } from "./lang";
 
 /** Read on every reset, not at load: tests reuse this module across pages with different `?news=`. */
@@ -92,7 +92,7 @@ const seedLang = (): "ko" | "en" => (param === "other" ? (lang() === "ko" ? "en"
 type Row = { seed: Seed; lang: "ko" | "en"; firstSeenMs: number };
 let rows: Row[] = [];
 let seen = new Set<string>();
-let daily: { enabled: boolean; nextAtMs: number | null } = { enabled: false, nextAtMs: null };
+let daily: { enabled: boolean; nextAtMs: number | null; capped: boolean } = { enabled: false, nextAtMs: null, capped: false };
 let status: unknown = null;
 let cancel = false;
 
@@ -102,7 +102,7 @@ function reset() {
   rows = param === "empty" ? [] : SEEDS.map((seed) => ({ seed, lang: seedLang(), firstSeenMs: now - 3 * DAY }));
   // A few were opened already.
   seen = new Set(param === "empty" ? [] : ["2.1.312-desktop-pop-out", "2.1.305-webfetch-timeout", "2.1.296-restricted-flag", "2.1.292-model-picker-setting", "2.1.288-agent-feedback"].flatMap((id) => [`${id}:ko`, `${id}:en`]));
-  daily = { enabled: param === "daily", nextAtMs: param === "daily" ? now + 15 * 3_600_000 : null };
+  daily = { enabled: param === "daily", nextAtMs: param === "daily" ? now + 15 * 3_600_000 : null, capped: false };
   status = param === "empty" ? null : { atMs: now - 3 * DAY, ok: true, added: 12, dropped: 1, costUsd: 0.21, error: null, daily: false };
 }
 reset();
@@ -145,7 +145,7 @@ export const newsHandlers: Record<string, (a: Record<string, unknown>) => unknow
   },
   news_set_daily: (a) => {
     const on = a.enabled === true;
-    daily = { enabled: on, nextAtMs: on ? Date.now() + DAY : null };
+    daily = { enabled: on, nextAtMs: on ? Date.now() + DAY : null, capped: false };
     return on;
   },
   news_cancel: () => {
@@ -154,6 +154,7 @@ export const newsHandlers: Record<string, (a: Record<string, unknown>) => unknow
   news_open_source: () => undefined,
   news_fetch: async () => {
     if (param === "decline") return { kind: "declined" };
+    if (param === "busy") return { kind: "failed", error: { kind: "busy" }, message: lang() === "ko" ? "이미 소식을 가져오는 중이에요" : "Already fetching news" };
     cancel = false;
     for (let i = 0; i < 12 && !cancel; i++) await new Promise((r) => setTimeout(r, 50));
     const now = Date.now();

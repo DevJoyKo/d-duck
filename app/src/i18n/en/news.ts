@@ -3,7 +3,7 @@ import type { Shape } from "../types";
 
 export default {
   title: "News",
-  summary: { one: "{count} new Claude Code feature", other: "{count} new Claude Code features" },
+  summary: { one: "{count} item", other: "{count} items" },
   fetch: {
     button: "Fetch",
     running: "Fetching…",
@@ -12,16 +12,19 @@ export default {
   },
   status: {
     never: "Not fetched yet",
-    ok: { one: "Last fetched {when} · {count} new item", other: "Last fetched {when} · {count} new items" },
+    ok: { one: "Last fetched {when} · {count} added", other: "Last fetched {when} · {count} added" },
     cost: " · {cost}",
-    dropped: { one: " · {count} left out for a bad format", other: " · {count} left out for a bad format" },
-    failed: "Couldn't fetch at {when} · {reason}",
+    dropped: { one: " · {count} skipped (bad format)", other: " · {count} skipped (bad format)" },
+    failed: "Fetch failed {when} · {reason}",
+    dailyOff: " · Daily fetch turned off after a costly run",
+    cancelled: "Fetch cancelled {when}",
     daily: " (daily)",
   },
   daily: {
     label: "Fetch daily",
     note: "Once a day, up to about $0.40 a run",
     next: "Next fetch {when}",
+    capped: "Paused at the 30-day limit ($12)",
     turnedOff: "Daily fetch wasn't turned on",
   },
   list: {
@@ -46,7 +49,7 @@ export default {
     what: "What it is",
     when: "When to use it",
     best: "Best practice",
-    open: "Open source",
+    open: "View source",
     openFailed: "Couldn't open the source · {error}",
     note: "Claude summarized the official docs · Check the source",
   },

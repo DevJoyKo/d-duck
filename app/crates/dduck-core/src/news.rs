@@ -209,7 +209,7 @@ pub enum NewsError {
     Timeout,
     Cancelled,
     Spawn,
-    Failed,
+    Failed { cost_usd: Option<f64> },
     #[serde(rename = "login_required")]
     LoginRequired,
     Empty,
@@ -226,7 +226,7 @@ impl NewsError {
             NewsError::Timeout => "timeout",
             NewsError::Cancelled => "cancelled",
             NewsError::Spawn => "spawn",
-            NewsError::Failed => "failed",
+            NewsError::Failed { .. } => "failed",
             NewsError::LoginRequired => "login_required",
             NewsError::Empty => "empty",
             NewsError::Malformed { .. } => "malformed",
@@ -237,7 +237,7 @@ impl NewsError {
 
     pub fn cost_usd(&self) -> Option<f64> {
         match self {
-            NewsError::Budget { cost_usd } | NewsError::Turns { cost_usd } | NewsError::Malformed { cost_usd } => *cost_usd,
+            NewsError::Budget { cost_usd } | NewsError::Turns { cost_usd } | NewsError::Malformed { cost_usd } | NewsError::Failed { cost_usd } => *cost_usd,
             _ => None,
         }
     }
@@ -251,7 +251,7 @@ impl NewsError {
             NewsError::Timeout => F::NewsTimeout.now(),
             NewsError::Cancelled => crate::i18n::ReasonCode::Cancelled.now(),
             NewsError::Spawn => F::CliSpawn.now(),
-            NewsError::Failed => F::CliFailedRetry.now(),
+            NewsError::Failed { .. } => F::CliFailedRetry.now(),
             NewsError::LoginRequired => crate::auth_status::LOGIN_REQUIRED_TEXT.to_string(),
             NewsError::Empty => F::EmptyReply.now(),
             NewsError::Malformed { .. } => F::NewsMalformed.now(),
@@ -269,7 +269,7 @@ impl From<RunError> for NewsError {
             RunError::Timeout => NewsError::Timeout,
             RunError::Cancelled => NewsError::Cancelled,
             RunError::Spawn => NewsError::Spawn,
-            RunError::Failed => NewsError::Failed,
+            RunError::Failed => NewsError::Failed { cost_usd: None },
             RunError::LoginRequired => NewsError::LoginRequired,
             RunError::Empty => NewsError::Empty,
         }
@@ -346,7 +346,7 @@ pub fn parse_output(stdout: &[u8], today: NaiveDate) -> Result<Parsed, NewsError
         .rev()
         .filter_map(|l| serde_json::from_str::<serde_json::Value>(l.trim()).ok())
         .find(|v| v.get("type").and_then(|t| t.as_str()) == Some("result"))
-        .ok_or(NewsError::Failed)?;
+        .ok_or(NewsError::Failed { cost_usd: None })?;
     let cost_usd = v.get("total_cost_usd").and_then(serde_json::Value::as_f64);
     let subtype = v.get("subtype").and_then(|s| s.as_str()).unwrap_or("");
     if subtype.contains("budget") {
@@ -356,7 +356,8 @@ pub fn parse_output(stdout: &[u8], today: NaiveDate) -> Result<Parsed, NewsError
         return Err(NewsError::Turns { cost_usd });
     }
     if subtype != "success" || v.get("is_error").and_then(serde_json::Value::as_bool) == Some(true) {
-        return Err(NewsError::Failed);
+        // Spent money still counts toward the cap: keep the cost when the CLI reported one.
+        return Err(NewsError::Failed { cost_usd });
     }
     let body = v.get("result").and_then(|r| r.as_str()).unwrap_or("");
     if body.trim().is_empty() {
@@ -502,6 +503,9 @@ pub struct Status {
     /// The daily run, not a button press.
     #[serde(default)]
     pub daily: bool,
+    /// This run cost more than [`RUNAWAY_USD`] and turned the daily run off.
+    #[serde(default)]
+    pub daily_off: bool,
 }
 
 fn get_json<T: for<'de> Deserialize<'de>>(conn: &Connection, key: &str) -> Result<Option<T>, Error> {
@@ -568,6 +572,18 @@ pub fn record_cost(conn: &Connection, cost_usd: f64, now_ms: i64) -> Result<(), 
     put_json(conn, SETTING_COSTS, &v)
 }
 
+/// What a run is charged in the ledger: its reported cost, or the budget when the CLI ran but reported none
+/// (timeout, cancel, a failure without a result line), so the 30-day cap never undercounts. Nothing when it never ran.
+pub fn charge(cost_usd: Option<f64>, cli_ran: bool) -> Option<f64> {
+    cost_usd.or(cli_ran.then_some(BUDGET_USD))
+}
+
+/// The 30-day total reached the cap (the daily run rests until older runs age out).
+pub fn month_capped(conn: &Connection, now_ms: i64) -> Result<bool, Error> {
+    // A cent of slack so float sums at the edge don't flip.
+    Ok(month_cost(conn, now_ms)? >= MONTH_CAP_USD - 0.005)
+}
+
 pub fn month_cost(conn: &Connection, now_ms: i64) -> Result<f64, Error> {
     let v: Vec<Cost> = get_json(conn, SETTING_COSTS)?.unwrap_or_default();
     Ok(v.iter().filter(|c| now_ms - c.at_ms < 30 * DAY_MS).map(|c| c.cost_usd).sum())
@@ -582,7 +598,7 @@ pub fn next_daily_ms(d: Daily, last_try_ms: Option<i64>) -> Option<i64> {
 pub fn daily_due(conn: &Connection, now_ms: i64) -> Result<bool, Error> {
     let d = daily(conn)?;
     let Some(next) = next_daily_ms(d, last_try(conn)?) else { return Ok(false) };
-    Ok(now_ms >= next && month_cost(conn, now_ms)? < MONTH_CAP_USD)
+    Ok(now_ms >= next && !month_capped(conn, now_ms)?)
 }
 
 /// After a run: the cost goes to the ledger, and a runaway run turns the daily run off.
@@ -780,7 +796,7 @@ mod tests {
         assert_eq!(r(serde_json::json!({"type":"result","subtype":"success","result":"{\"news\":[]}"})), Err(NewsError::Malformed { cost_usd: None }));
         let huge = format!("{{\"items\":[],\"pad\":\"{}\"}}", "x".repeat(MAX_RESULT_BYTES));
         assert_eq!(r(serde_json::json!({"type":"result","subtype":"success","result":huge})), Err(NewsError::Malformed { cost_usd: None }));
-        assert_eq!(parse_output(b"garbage", today()), Err(NewsError::Failed));
+        assert_eq!(parse_output(b"garbage", today()), Err(NewsError::Failed { cost_usd: None }));
         assert_eq!(serde_json::to_string(&NewsError::Budget { cost_usd: Some(0.4) }).unwrap(), r#"{"kind":"budget","costUsd":0.4}"#);
         assert_eq!(serde_json::to_string(&NewsError::LoginRequired).unwrap(), r#"{"kind":"login_required"}"#);
     }
@@ -910,6 +926,15 @@ mod tests {
         let conn = crate::db::open_in_memory().unwrap();
         put_json(&conn, SETTING_DAILY, &Daily { enabled: true, consent_ms: NOW, consent_version: CONSENT_VERSION - 1 }).unwrap();
         assert!(!daily(&conn).unwrap().enabled);
+    }
+
+    #[test]
+    fn unknown_costs_are_charged_the_budget_when_the_cli_ran() {
+        assert_eq!(charge(Some(0.12), true), Some(0.12));
+        assert_eq!(charge(None, true), Some(BUDGET_USD));
+        assert_eq!(charge(None, false), None);
+        let failed = br#"{"type":"result","subtype":"error_during_execution","is_error":true,"total_cost_usd":0.2}"#;
+        assert_eq!(parse_output(failed, today()).unwrap_err().cost_usd(), Some(0.2));
     }
 
     #[test]
