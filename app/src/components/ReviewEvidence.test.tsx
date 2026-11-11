@@ -3,6 +3,15 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+/** "새 작업" stays disabled until get_status says the CLI is there; clicking it earlier does nothing (flaky on slow CI). */
+async function enabledButton(name: string) {
+  return waitFor(() => {
+    const b = screen.getAllByRole("button", { name }).find((x) => !(x as HTMLButtonElement).disabled);
+    expect(b).toBeTruthy();
+    return b!;
+  });
+}
+
 let reportSetting = true;
 vi.mock("@tauri-apps/api/core", async () => {
   const real = await vi.importActual<typeof import("../mock/core")>("../mock/core");
@@ -58,7 +67,7 @@ describe("근거 on cards and in the Composer", () => {
   it("QA with the report setting off: the report line asks for a report and stays checked", async () => {
     reportSetting = false;
     await boot("tasks");
-    fireEvent.click((await screen.findAllByRole("button", { name: "새 작업" }))[0]);
+    fireEvent.click(await enabledButton("새 작업"));
     const types = await screen.findByRole("radiogroup", { name: "작업 유형" });
     const box = () => screen.getByLabelText(/이번 작업 보고서 남기기/) as HTMLInputElement;
     // A dev task follows the setting (off).
