@@ -462,7 +462,7 @@ function RulesTab({ draft, defaults, onChange }: { draft: TeamConfig; defaults: 
           ))}
         </p>
       )}
-      <PreferredSection value={draft.preferred ?? []} onChange={(preferred) => onChange({ ...draft, preferred })} />
+      <PreferredSection value={draft.preferred ?? []} defaults={defaults.preferred ?? []} onChange={(preferred) => onChange({ ...draft, preferred })} />
       <RefineSection draft={draft} defaults={defaults} onChange={onChange} />
     </div>
   );

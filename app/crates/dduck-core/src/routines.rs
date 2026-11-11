@@ -800,7 +800,7 @@ mod tests {
             rules: crate::team_config::defaults().rules.iter().map(|r| crate::team_config::RuleInput { id: r.id.clone(), text: r.text.clone(), extra: String::new() }).collect(),
             types: crate::team_config::defaults().types.iter().map(|t| t.def.clone()).collect(),
             refine: None,
-            preferred: Vec::new(),
+            preferred: None,
         };
         input.rules.push(crate::team_config::RuleInput { id: "u-ko".into(), text: "커밋 메시지는 한국어로 쓴다".into(), extra: String::new() });
         crate::settings::set_team_config(&conn, &crate::team_config::diff(&input, &[]).unwrap()).unwrap();
@@ -829,18 +829,22 @@ mod tests {
         let kst = FixedOffset::east_opt(9 * 3600).unwrap();
         let (d, mut conn, _id) = setup();
         crate::delivery_guard::add(&conn, &d.path().canonicalize().unwrap(), None).unwrap();
-        assert!(!wants_preferred(&conn));
+        assert!(wants_preferred(&conn), "the bundled default (mattpocock-skills) is a list");
         let mut input = crate::team_config::TeamInput {
             rules: crate::team_config::defaults().rules.iter().map(|r| crate::team_config::RuleInput { id: r.id.clone(), text: r.text.clone(), extra: String::new() }).collect(),
             types: crate::team_config::defaults().types.iter().map(|t| t.def.clone()).collect(),
             refine: None,
-            preferred: vec![PreferredItem { kind: Kind::Skill, name: "tdd".into(), source: "user".into(), scope: None }],
+            preferred: Some(vec![PreferredItem { kind: Kind::Skill, name: "tdd".into(), source: "user".into(), scope: None, marketplace: None }]),
         };
-        input.preferred.push(PreferredItem { kind: Kind::Skill, name: "gone".into(), source: "user".into(), scope: None });
+        let mut cleared = input.clone();
+        cleared.preferred = Some(Vec::new());
+        crate::settings::set_team_config(&conn, &crate::team_config::diff(&cleared, &[]).unwrap()).unwrap();
+        assert!(!wants_preferred(&conn), "a cleared list reads no catalogs");
+        input.preferred.as_mut().unwrap().push(PreferredItem { kind: Kind::Skill, name: "gone".into(), source: "user".into(), scope: None, marketplace: None });
         crate::settings::set_team_config(&conn, &crate::team_config::diff(&input, &[]).unwrap()).unwrap();
         assert!(wants_preferred(&conn));
         let mut claims = tick(&mut conn, ms("2026-11-07T09:00:10+09:00"), &kst).unwrap();
-        let installed = [Available { kind: Kind::Skill, name: "tdd".into(), source: "user".into(), scope: None, description: Some("테스트 먼저".into()), members: vec![], writes: false, writing_members: vec![] }];
+        let installed = [Available { kind: Kind::Skill, name: "tdd".into(), source: "user".into(), scope: None, description: Some("테스트 먼저".into()), members: vec![], writes: false, writing_members: vec![], marketplace: None, enabled: true }];
         add_preferred(&mut claims[0].spec, &conn, &installed);
         let p = claims[0].spec.policy_text.clone().unwrap();
         assert_eq!(p.matches("작업을 시작하기 전에").count(), 1, "{p}");

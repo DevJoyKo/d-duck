@@ -53,7 +53,7 @@ The five groups below explain how these fit together.
 - **Trust-critical repos: keep it on your machine.** Turn on "Block remote push" and nothing leaves until you've reviewed it locally.
 - **Risky permission modes are blocked** for security, deploy, and QA tasks.
 
-Not every setting is a guardrail. Team rules and "Consider these first" (installed plugins, skills, and agents Claude should check before it starts) are added to the prompt as guidance. They steer the agent but are not enforced like deny rules or hooks.
+Not every setting is a guardrail. Team rules and "Consider these first" (installed plugins, skills, and agents Claude should check before it starts; by default the `mattpocock-skills` plugin, left out when it isn't installed) are added to the prompt as guidance. They steer the agent but are not enforced like deny rules or hooks.
 
 ### 2. Review with evidence, sized to your time
 
