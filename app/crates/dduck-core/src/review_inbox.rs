@@ -370,6 +370,8 @@ pub struct Inbox {
     pub has_any: bool,
     /// Finished D.Duck tasks without a report in this project (D-196): listed under 전체, never counted as 리뷰 전.
     pub no_report: usize,
+    /// A good `claude agents` poll has landed: without one nobody knows what has finished (no delete, no mark).
+    pub known: bool,
     /// Tasks with a report in this project that are still running ("모두 리뷰했어요 · 일하는 중 N개").
     pub running: usize,
     /// Matching items per role (all pages), so a group header's count is right before 더 보기.
@@ -513,7 +515,7 @@ pub fn build(rows: Vec<Row>, root: &Path, running: &HashMap<String, Running>, q:
             card(r, root, run)
         })
         .collect();
-    Ok(Inbox { report_setting: q.report_setting, total, pending_other: pending_all.saturating_sub(pending_here), has_any, no_report, running: running_here, groups, items })
+    Ok(Inbox { report_setting: q.report_setting, total, pending_other: pending_all.saturating_sub(pending_here), has_any, no_report, known: q.known, running: running_here, groups, items })
 }
 
 /// "리뷰했어요" from the 리뷰 탭: only a record that has a report and is not running (the shell passes the last
@@ -552,6 +554,145 @@ pub fn unmark(conn: &Connection, bg_id: &str) -> Result<bool, Error> {
         Some((Owner::Routine(run), true)) => conn.execute("UPDATE routine_runs SET reviewed_at = NULL, wrapped_at = NULL WHERE id = ?1", [run])?,
         _ => 0,
     } > 0)
+}
+
+// ---------- 삭제 (review-delete) ----------
+
+/// `delete` refused: still running (by the listing, an alias of it, or a routine run the scheduler counts running).
+pub const DELETE_RUNNING: &str = "running";
+/// `delete` refused: a usage-limit resume is planned.
+pub const DELETE_RESUME_PENDING: &str = "resume pending";
+/// `delete` refused: what would be deleted changed after the confirmation.
+pub const DELETE_CHANGED: &str = "changed";
+
+/// Everything one card's delete removes, read from the DB only: the `task_meta` record (with or without a report) and
+/// every routine run of that id with a report, so the card cannot come back from another row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeletePlan {
+    task: bool,
+    runs: Vec<i64>,
+    reports: Vec<String>,
+    /// For the confirmation: the task or routine name (cut by the dialog's `display_safe`).
+    pub name: Option<String>,
+    /// Only routine runs: their history rows stay.
+    pub routine: bool,
+    /// Started with a worktree: the confirmation says to clean it up first.
+    pub worktree: bool,
+}
+
+pub fn delete_plan(conn: &Connection, bg_id: &str) -> Result<Option<DeletePlan>, Error> {
+    use rusqlite::OptionalExtension;
+    if !crate::task_meta::valid_bg_id(bg_id) {
+        return Err(Error::Config("task id"));
+    }
+    let task: Option<(Option<String>, bool, Option<String>)> = conn
+        .query_row("SELECT name, worktree, report_id FROM task_meta WHERE bg_id = ?1", [bg_id], |r| Ok((r.get(0)?, r.get::<_, i64>(1)? != 0, r.get(2)?)))
+        .optional()?;
+    let mut stmt = conn.prepare(
+        "SELECT rr.id, rr.report_id, r.name FROM routine_runs rr JOIN routines r ON r.id = rr.routine_id
+         WHERE rr.bg_id = ?1 AND rr.report_id IS NOT NULL ORDER BY rr.id",
+    )?;
+    let runs: Vec<(i64, String, String)> = stmt.query_map([bg_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.filter_map(Result::ok).collect();
+    if task.is_none() && runs.is_empty() {
+        return Ok(None);
+    }
+    let mut reports: Vec<String> = task.as_ref().and_then(|t| t.2.clone()).into_iter().chain(runs.iter().map(|r| r.1.clone())).filter(|id| task_report::valid_id(id)).collect();
+    reports.sort();
+    reports.dedup();
+    let routine_name = runs.last().map(|r| r.2.clone());
+    Ok(Some(DeletePlan {
+        task: task.is_some(),
+        runs: runs.iter().map(|r| r.0).collect(),
+        reports,
+        name: task.as_ref().and_then(|t| t.0.clone()).filter(|n| !n.trim().is_empty()).or(routine_name),
+        routine: task.is_none(),
+        worktree: task.is_some_and(|t| t.1),
+    }))
+}
+
+/// The refusals shared by the 리뷰 tab's delete and 지난 작업's delete: no good listing yet, running (this id or any
+/// usage-limit alias of the same task), a routine run the scheduler still counts running, or a planned resume.
+pub fn delete_refusal(conn: &Connection, bg_id: &str, running: &HashMap<String, Running>, known: bool) -> Result<(), Error> {
+    if !crate::task_meta::valid_bg_id(bg_id) {
+        return Err(Error::Config("task id"));
+    }
+    if !known {
+        return Err(Error::Config(DELETE_RUNNING));
+    }
+    let mut stmt = conn.prepare(
+        "SELECT bg_id FROM task_meta WHERE bg_id = ?1
+            OR COALESCE(origin_bg_id, bg_id) = (SELECT COALESCE(origin_bg_id, bg_id) FROM task_meta WHERE bg_id = ?1)",
+    )?;
+    let mut ids: Vec<String> = stmt.query_map([bg_id], |r| r.get(0))?.filter_map(Result::ok).collect();
+    ids.push(bg_id.to_string());
+    for id in &ids {
+        if running.contains_key(id) {
+            return Err(Error::Config(DELETE_RUNNING));
+        }
+        if crate::task_lifecycle::resume_pending(conn, id)? {
+            return Err(Error::Config(DELETE_RESUME_PENDING));
+        }
+    }
+    let live: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM routine_runs WHERE bg_id = ?1 AND status IN ('starting', 'running', 'waiting'))",
+        [bg_id],
+        |r| r.get(0),
+    )?;
+    if live {
+        return Err(Error::Config(DELETE_RUNNING));
+    }
+    Ok(())
+}
+
+/// Deletes what `expected` (the plan shown in the confirmation) names, after re-checking the refusals and that the
+/// plan is still the same, in one immediate transaction. A session the CLI still lists (`listed_key`) is wrapped up
+/// so the board does not show it again as a session without a record. Report folders go after the commit, only
+/// those nothing points at any more, only through `task_report::remove_folder` (valid ids inside the root).
+/// Returns whether a task record was deleted (the caller then scrubs freed pages).
+pub fn delete(
+    conn: &mut Connection,
+    bg_id: &str,
+    expected: &DeletePlan,
+    running: &HashMap<String, Running>,
+    known: bool,
+    listed_key: Option<&str>,
+    reports_root: Option<&Path>,
+) -> Result<bool, Error> {
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    delete_refusal(&tx, bg_id, running, known)?;
+    let now = delete_plan(&tx, bg_id)?.ok_or(Error::Config(DELETE_CHANGED))?;
+    if &now != expected {
+        return Err(Error::Config(DELETE_CHANGED));
+    }
+    if now.task {
+        crate::task_meta::delete_record(&tx, bg_id)?;
+    }
+    for run in &now.runs {
+        tx.execute("UPDATE routine_runs SET report_id = NULL, reviewed_at = NULL, wrapped_at = NULL WHERE id = ?1", [run])?;
+    }
+    if let Some(key) = listed_key {
+        crate::task_lifecycle::add_wrapped_key(&tx, key)?;
+    }
+    tx.commit()?;
+    if let Some(root) = reports_root {
+        crate::task_meta::remove_unreferenced(conn, root, &now.reports);
+    }
+    Ok(now.task)
+}
+
+/// The native confirmation's text (no paths, the name through `display_safe`).
+pub fn delete_confirm_text(plan: &DeletePlan, lang: crate::i18n::Lang) -> String {
+    use crate::i18n::{Code, Params, msg, text};
+    let ask = match plan.name.as_deref() {
+        Some(n) => msg(lang, Code::DlgReviewDeleteAsk, &Params::new().text("name", n, 64)),
+        None => text(lang, Code::DlgReviewDeleteAskUnnamed).to_string(),
+    };
+    let mut lines = vec![ask, String::new(), text(lang, if plan.routine { Code::DlgReviewDeleteRoutine } else { Code::DlgReviewDeleteTask }).to_string()];
+    if plan.worktree {
+        lines.push(text(lang, Code::DlgReviewDeleteWorktree).to_string());
+    }
+    lines.push(text(lang, Code::DlgReviewDeleteKeep).to_string());
+    lines.join("\n")
 }
 
 #[cfg(test)]
@@ -970,5 +1111,150 @@ mod tests {
         rec(&only, "ee6cd22a", "/w/x", "research", None, now(), None, None);
         let v = build(rows(&only).unwrap(), &root, &HashMap::new(), &q(Filter::All)).unwrap();
         assert_eq!((v.has_any, v.no_report, v.items.len()), (false, 1, 1));
+    }
+
+    // ---------- review-delete ----------
+
+    fn plan(conn: &Connection, bg: &str) -> DeletePlan {
+        delete_plan(conn, bg).unwrap().unwrap()
+    }
+
+    #[test]
+    fn deleting_a_task_with_a_report_removes_the_record_and_its_folder_and_lowers_the_badge() {
+        let mut conn = crate::db::open_in_memory().unwrap();
+        let t = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(t.path()).unwrap().join(task_report::DIR_NAME);
+        let since = now() - 10_000;
+        rec(&conn, "aaaa0001", "/tmp", "dev", Some(&id(1)), now(), Some("지시"), None);
+        rec(&conn, "aaaa0002", "/tmp", "dev", Some(&id(2)), now() + 1, None, None);
+        conn.execute("UPDATE task_meta SET worktree = 1 WHERE bg_id = 'aaaa0001'", []).unwrap();
+        write_report(&root, &id(1), REPORT);
+        write_report(&root, &id(2), REPORT);
+        let none = HashMap::new();
+        assert_eq!(pending_count(&conn, &none, since).unwrap(), 2);
+        let p = plan(&conn, "aaaa0001");
+        assert!(p.worktree && !p.routine);
+        let text = delete_confirm_text(&p, crate::i18n::Lang::Ko);
+        assert!(text.contains("작업 이름") && text.contains("worktree") && text.contains("되돌릴 수 없어요") && !text.contains("/tmp"), "{text}");
+        assert!(delete(&mut conn, "aaaa0001", &p, &none, true, Some("sess-1"), Some(&root)).unwrap());
+        assert!(delete_plan(&conn, "aaaa0001").unwrap().is_none());
+        assert!(!root.join(id(1)).exists(), "its report folder is gone");
+        assert!(root.join(id(2)).exists(), "others stay");
+        assert_eq!(pending_count(&conn, &none, since).unwrap(), 1);
+        assert_eq!(crate::task_lifecycle::board(&conn, &[], since, 40).unwrap().review_wait.total, 1);
+        // The listed session is wrapped up, so the board does not show it again as a session without a record.
+        let s = AgentSession { key: "sess-1".into(), ..session("aaaa0001", SessionStatus::Done) };
+        assert_eq!(crate::task_lifecycle::lanes(&conn, &[s], since).unwrap().get("sess-1"), Some(&crate::task_lifecycle::Lane::Done));
+    }
+
+    #[test]
+    fn deleting_a_task_without_a_report_leaves_the_badge_alone() {
+        let mut conn = crate::db::open_in_memory().unwrap();
+        let since = now() - 10_000;
+        rec(&conn, "ee6cd22a", "/tmp", "research", None, now(), None, None);
+        rec(&conn, "aaaa0002", "/tmp", "dev", Some(&id(2)), now() + 1, None, None);
+        let none = HashMap::new();
+        let p = plan(&conn, "ee6cd22a");
+        assert!(delete(&mut conn, "ee6cd22a", &p, &none, true, None, None).unwrap());
+        assert_eq!(pending_count(&conn, &none, since).unwrap(), 1);
+        assert!(rows(&conn).unwrap().iter().all(|r| r.bg_id != "ee6cd22a"));
+    }
+
+    #[test]
+    fn deleting_a_routine_run_keeps_its_history_row_and_removes_only_its_report() {
+        let mut conn = crate::db::open_in_memory().unwrap();
+        let t = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(t.path()).unwrap().join(task_report::DIR_NAME);
+        let since = now() - 10_000;
+        routine(&conn, 1, "아침 공고 확인");
+        let r = run(&conn, 1, "bba9b3f7", "done", Some(&id(41)), now());
+        run(&conn, 1, "cca9b3f7", "done", Some(&id(42)), now() + 1);
+        write_report(&root, &id(41), REPORT);
+        write_report(&root, &id(42), REPORT);
+        let none = HashMap::new();
+        mark(&conn, "bba9b3f7", &none, true, now() + 5).unwrap();
+        let p = plan(&conn, "bba9b3f7");
+        assert!(p.routine && !p.worktree);
+        assert_eq!(p.name.as_deref(), Some("아침 공고 확인"));
+        assert!(delete_confirm_text(&p, crate::i18n::Lang::Ko).contains("루틴 실행 기록은 남아요"));
+        assert!(!delete(&mut conn, "bba9b3f7", &p, &none, true, None, Some(&root)).unwrap(), "no task record");
+        let row: (String, Option<String>, Option<i64>) = conn.query_row("SELECT status, report_id, reviewed_at FROM routine_runs WHERE id = ?1", [r], |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?))).unwrap();
+        assert_eq!(row, ("done".into(), None, None), "history row kept, link and review state cleared");
+        assert!(!root.join(id(41)).exists() && root.join(id(42)).exists());
+        assert!(rows(&conn).unwrap().iter().all(|x| x.bg_id != "bba9b3f7"));
+        assert_eq!(pending_count(&conn, &none, since).unwrap(), 1);
+    }
+
+    #[test]
+    fn delete_is_refused_while_running_resuming_or_unknown_and_when_the_plan_changed() {
+        let mut conn = crate::db::open_in_memory().unwrap();
+        rec(&conn, "aaaa0001", "/tmp", "dev", Some(&id(1)), now(), None, None);
+        let p = plan(&conn, "aaaa0001");
+        let none = HashMap::new();
+        let busy = running_map(&[session("aaaa0001", SessionStatus::Working)]);
+        let err = |r: Result<bool, Error>| match r {
+            Err(Error::Config(c)) => c,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(err(delete(&mut conn, "aaaa0001", &p, &busy, true, None, None)), DELETE_RUNNING);
+        assert_eq!(err(delete(&mut conn, "aaaa0001", &p, &none, false, None, None)), DELETE_RUNNING, "no good poll yet");
+        // A usage-limit alias of the same task is running.
+        conn.execute("INSERT INTO task_meta(bg_id, created_at, origin_bg_id) VALUES ('aaaa0009', 2, 'aaaa0001')", []).unwrap();
+        let alias = running_map(&[session("aaaa0009", SessionStatus::Working)]);
+        assert_eq!(err(delete(&mut conn, "aaaa0001", &p, &alias, true, None, None)), DELETE_RUNNING);
+        // A planned resume.
+        conn.execute(
+            "INSERT INTO limit_resumes(session_id, incident, resets_at, hit_ts, origin_bg_id, bg_id, due_at, state, created_at, updated_at)
+             VALUES ('s', 'i', 1, 1, 'aaaa0001', 'aaaa0001', 1, 'manual', 1, 1)",
+            [],
+        )
+        .unwrap();
+        assert_eq!(err(delete(&mut conn, "aaaa0001", &p, &none, true, None, None)), DELETE_RESUME_PENDING);
+        conn.execute("DELETE FROM limit_resumes", []).unwrap();
+        // Changed after the confirmation (a report attached meanwhile): nothing deleted.
+        conn.execute("UPDATE task_meta SET report_id = ?1 WHERE bg_id = 'aaaa0001'", [id(9)]).unwrap();
+        assert_eq!(err(delete(&mut conn, "aaaa0001", &p, &none, true, None, None)), DELETE_CHANGED);
+        assert!(delete_plan(&conn, "aaaa0001").unwrap().is_some());
+        // A routine run the scheduler still counts as starting.
+        routine(&conn, 1, "r");
+        run(&conn, 1, "bba9b3f7", "starting", Some(&id(41)), now());
+        let rp = plan(&conn, "bba9b3f7");
+        assert_eq!(err(delete(&mut conn, "bba9b3f7", &rp, &none, true, None, None)), DELETE_RUNNING);
+        assert!(delete_plan(&conn, "../x").is_err());
+    }
+
+    #[test]
+    fn delete_never_removes_a_folder_outside_the_reports_root_or_one_still_in_use() {
+        let mut conn = crate::db::open_in_memory().unwrap();
+        let t = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(t.path()).unwrap();
+        let root = base.join(task_report::DIR_NAME);
+        // Shared id: a usage-limit alias points at the same report.
+        rec(&conn, "aaaa0001", "/tmp", "dev", Some(&id(1)), now(), None, None);
+        rec(&conn, "aaaa0002", "/tmp", "dev", Some(&id(1)), now() + 1, None, None);
+        write_report(&root, &id(1), REPORT);
+        let none = HashMap::new();
+        let p = plan(&conn, "aaaa0001");
+        delete(&mut conn, "aaaa0001", &p, &none, true, None, Some(&root)).unwrap();
+        assert!(root.join(id(1)).exists(), "still pointed at");
+        // A bad stored id is not a folder name to delete.
+        let outside = base.join("keep");
+        std::fs::create_dir_all(&outside).unwrap();
+        conn.execute("INSERT INTO task_meta(bg_id, created_at, report_id) VALUES ('aaaa0003', 1, '../keep')", []).unwrap();
+        let p = plan(&conn, "aaaa0003");
+        delete(&mut conn, "aaaa0003", &p, &none, true, None, Some(&root)).unwrap();
+        assert!(outside.exists());
+        // A linked reports root is refused by `remove_folder`.
+        #[cfg(unix)]
+        {
+            let real = base.join("real");
+            write_report(&real, &id(5), REPORT);
+            let link = base.join("linked");
+            std::os::unix::fs::symlink(&real, &link).unwrap();
+            rec(&conn, "aaaa0005", "/tmp", "dev", Some(&id(5)), now(), None, None);
+            let p = plan(&conn, "aaaa0005");
+            delete(&mut conn, "aaaa0005", &p, &none, true, None, Some(&link)).unwrap();
+            assert!(real.join(id(5)).exists(), "a linked root is not followed");
+        }
     }
 }

@@ -23,7 +23,8 @@ beforeEach(async () => {
   vi.resetModules();
   ((await import("@tauri-apps/api/core")).invoke as unknown as Invoke).mockClear();
 });
-afterEach(() => {
+afterEach(async () => {
+  await ((await import("@tauri-apps/api/core")).invoke as unknown as Invoke)("mock_restore_deleted");
   cleanup();
   localStorage.clear();
   window.history.replaceState(null, "", "/");
@@ -187,6 +188,7 @@ describe("리뷰 tab", () => {
     fireEvent.click(within(card).getByRole("button", { name: "리뷰했어요" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("inbox_mark_reviewed", { id: "7a7a7a7a" }));
     await waitFor(() => expect(within(nav).getByLabelText("리뷰 전 5개")).toBeTruthy());
+    await invoke("unmark_reviewed", { id: "7a7a7a7a" });
   });
 
   it("D-196: a finished task without a report is in 전체 only, says 보고서 없음 and opens the task, not a report", async () => {
@@ -248,6 +250,65 @@ describe("리뷰 tab", () => {
     expect(await screen.findByText(/작업 보고서가 꺼져 있어요/)).toBeTruthy();
     fireEvent.click(screen.getByRole("radio", { name: "전체" }));
     await waitFor(() => expect(cards()).toEqual(["ee0c0d22"]));
+  });
+
+  it("review-delete: finished cards have 삭제, running ones and an unknown listing do not", async () => {
+    await boot();
+    await waitFor(() => expect(cards().length).toBe(5));
+    fireEvent.click(screen.getByRole("radio", { name: "전체" }));
+    await waitFor(() => expect(cards().length).toBe(10));
+    const del = (id: string) => within(document.querySelector(`[data-review-card="${id}"]`) as HTMLElement).queryByRole("button", { name: /삭제$/ });
+    for (const id of ["f3e5ff71", "ab12cd34"]) expect(del(id)).toBeNull();
+    for (const id of ["9988aabb", "aa11bb22", "ee0c0d22", "cc33dd44"]) expect(del(id)).toBeTruthy();
+    // Not the primary button and no yellow.
+    expect(del("9988aabb")?.className).not.toMatch(/bg-ink|bg-duck/);
+  });
+
+  it("review-delete: before a good poll there is no 삭제", async () => {
+    await boot("?poll=none");
+    fireEvent.click(await screen.findByRole("radio", { name: "전체" }));
+    await waitFor(() => expect(cards().length).toBeGreaterThan(0));
+    expect(document.querySelector("[data-delete]")).toBeNull();
+  });
+
+  it("review-delete: 삭제 goes through the shell, the card leaves, the badge drops and focus moves to the next card", async () => {
+    const invoke = await boot();
+    const nav = screen.getByRole("navigation");
+    expect(await within(nav).findByLabelText("리뷰 전 5개")).toBeTruthy();
+    await waitFor(() => expect(cards()[0]).toBe("9988aabb"));
+    const next = cards()[1];
+    fireEvent.click(within(document.querySelector('[data-review-card="9988aabb"]') as HTMLElement).getByRole("button", { name: /삭제$/ }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("inbox_delete", { id: "9988aabb" }));
+    await waitFor(() => expect(cards()).not.toContain("9988aabb"));
+    await waitFor(() => expect(within(nav).getByLabelText("리뷰 전 4개")).toBeTruthy());
+    await waitFor(() => expect(document.activeElement?.closest("[data-review-card]")?.getAttribute("data-review-card")).toBe(next));
+  });
+
+  it("review-delete: 취소 in the dialog changes nothing", async () => {
+    await boot("?confirm=cancel");
+    const nav = screen.getByRole("navigation");
+    expect(await within(nav).findByLabelText("리뷰 전 5개")).toBeTruthy();
+    await waitFor(() => expect(cards()).toContain("9988aabb"));
+    fireEvent.click(within(document.querySelector('[data-review-card="9988aabb"]') as HTMLElement).getByRole("button", { name: /삭제$/ }));
+    await new Promise((r) => setTimeout(r, 300));
+    expect(cards()).toContain("9988aabb");
+    expect(within(nav).getByLabelText("리뷰 전 5개")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("review-delete: a routine card and a card without a report can be deleted too", async () => {
+    const invoke = await boot("?routine=1");
+    const nav = screen.getByRole("navigation");
+    expect(await within(nav).findByLabelText("리뷰 전 6개")).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: "전체" }));
+    await waitFor(() => expect(cards()).toContain("7a7a7a7a"));
+    fireEvent.click(within(document.querySelector('[data-review-card="7a7a7a7a"]') as HTMLElement).getByRole("button", { name: /삭제$/ }));
+    await waitFor(() => expect(cards()).not.toContain("7a7a7a7a"));
+    await waitFor(() => expect(within(nav).getByLabelText("리뷰 전 5개")).toBeTruthy());
+    fireEvent.click(within(document.querySelector('[data-review-card="ee0c0d22"]') as HTMLElement).getByRole("button", { name: /삭제$/ }));
+    await waitFor(() => expect(cards()).not.toContain("ee0c0d22"));
+    expect(within(nav).getByLabelText("리뷰 전 5개")).toBeTruthy();
+    expect(invoke).toHaveBeenCalledWith("inbox_delete", { id: "ee0c0d22" });
   });
 
   it("a task card does not say 루틴", async () => {

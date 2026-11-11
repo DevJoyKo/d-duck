@@ -1513,6 +1513,10 @@ fn delete_task_record(app: AppHandle, state: State<'_, AppState>, id: String) ->
         return Err(Fail::BadTaskId.now());
     }
     let conn = state.conn()?;
+    // Same refusals as the 리뷰 tab's delete (review-delete): running (or an alias of it), resume planned, no listing.
+    let running = dduck_core::review_inbox::running_map(&state.agents.read().map_err(err)?);
+    let known = dduck_core::review_inbox::poll_known() && state.agents_error.read().map_err(err)?.is_none();
+    dduck_core::review_inbox::delete_refusal(&conn, &id, &running, known).map_err(delete_fail)?;
     // The report folder (evidence, attachments) goes right away with the record (report-evidence 2.5).
     let gone = task_meta::delete_record_and_report(&conn, &id, reports_root(&app).as_deref()).map_err(err)?;
     let _ = ingest::scrub(&conn); // the instruction must not linger in freed pages or the WAL
@@ -3454,6 +3458,60 @@ fn inbox_mark_reviewed(state: State<'_, AppState>, id: String) -> Res<()> {
     dduck_core::review_inbox::mark(&*state.conn()?, &id, &running, known, chrono_now_ms()).map_err(|_| Fail::NotReviewable.now())
 }
 
+fn delete_fail(e: dduck_core::Error) -> String {
+    use dduck_core::review_inbox as ri;
+    match e {
+        dduck_core::Error::Config(ri::DELETE_RUNNING) => Fail::DeleteRunning.now(),
+        dduck_core::Error::Config(ri::DELETE_RESUME_PENDING) => Fail::DeleteResumePending.now(),
+        dduck_core::Error::Config(ri::DELETE_CHANGED) => Fail::DeleteChanged.now(),
+        dduck_core::Error::Config("task id") => Fail::BadTaskId.now(),
+        _ => Fail::DeleteFailed.now(),
+    }
+}
+
+/// "삭제" from the 리뷰 탭 (review-delete): checks, a native confirmation naming what goes and what stays, then a fresh
+/// listing and one transaction that re-checks and deletes. `false` = cancelled. Only the id comes from the webview.
+#[tauri::command]
+async fn inbox_delete(app: AppHandle, id: String) -> Res<bool> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use dduck_core::review_inbox as ri;
+        let state = app.state::<AppState>();
+        if !task_meta::valid_bg_id(&id) {
+            return Err(Fail::BadTaskId.now());
+        }
+        let known = || -> Res<bool> { Ok(ri::poll_known() && state.agents_error.read().map_err(err)?.is_none()) };
+        let plan = {
+            let conn = state.conn()?;
+            let running = ri::running_map(&state.agents.read().map_err(err)?);
+            ri::delete_refusal(&conn, &id, &running, known()?).map_err(delete_fail)?;
+            ri::delete_plan(&conn, &id).map_err(delete_fail)?.ok_or_else(|| Fail::DeleteFailed.now())?
+        };
+        let _guard = state.confirm_lock.try_lock().map_err(|_| ReasonCode::ConfirmOpen.now())?;
+        let ok = app
+            .dialog()
+            .message(ri::delete_confirm_text(&plan, i18n::current()))
+            .title(tr(C::DlgReviewDeleteTitle))
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancelCustom(tr(C::BtnDelete), tr(C::BtnCancel)))
+            .blocking_show();
+        if !ok {
+            return Ok(false);
+        }
+        // The task may have restarted while the dialog was open: a fresh listing, not the last poll.
+        let fresh = state.client()?.list_agents().map_err(|_| Fail::DeleteRunning.now())?;
+        let running = ri::running_map(&fresh);
+        let listed_key = fresh.iter().find(|s| s.id.as_deref() == Some(id.as_str())).map(|s| s.key.clone());
+        let mut conn = state.conn()?;
+        let task = ri::delete(&mut conn, &id, &plan, &running, known()?, listed_key.as_deref(), reports_root(&app).as_deref()).map_err(delete_fail)?;
+        if task {
+            let _ = ingest::scrub(&conn); // the instruction must not linger in freed pages or the WAL
+        }
+        Ok(true)
+    })
+    .await
+    .map_err(err)?
+}
+
 /// "되돌리기": clears "리뷰했어요".
 #[tauri::command(async)]
 fn unmark_reviewed(state: State<'_, AppState>, id: String) -> Res<bool> {
@@ -3834,6 +3892,7 @@ pub fn run() {
             mark_reviewed,
             review_inbox,
             inbox_mark_reviewed,
+            inbox_delete,
             unmark_reviewed,
             agent_activity,
             agent_definition,

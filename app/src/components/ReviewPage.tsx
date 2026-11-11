@@ -34,6 +34,8 @@ const MAX_PAGES = Math.ceil(500 / PAGE_SIZE);
 // Warn text stays ink-2 (the warn token is too close to the duck's yellow in dark mode); only its icon is colored.
 const TONE: Record<CardView["tone"], string> = { plain: "text-ink-2", warn: "text-ink-2", danger: "text-danger" };
 
+/** review-delete: finished cards only, and only once a good poll says which have finished. */
+const canDelete = (i: InboxItem, known: boolean) => known && i.running === null;
 const canMark = (i: InboxItem) => i.report.kind !== "none" && !i.reviewed && i.running === null;
 
 /** A click on the card body opens the report, unless it ended a text selection, landed on a control, or is the
@@ -88,6 +90,7 @@ function Card({
   onOpen,
   onMark,
   onUnmark,
+  onDelete,
   busy,
   openRef,
 }: {
@@ -96,6 +99,8 @@ function Card({
   onOpen: () => void;
   onMark: () => void;
   onUnmark: () => void;
+  /** `null`: no delete on this card (running, or not known yet). */
+  onDelete: (() => void) | null;
   busy: boolean;
   openRef: (el: HTMLButtonElement | null) => void;
 }) {
@@ -221,6 +226,17 @@ function Card({
           <MarkButton primary={primary} onClick={onMark} disabled={busy} />
         ) : null}
           </>
+        )}
+        {onDelete && (
+          <button
+            onClick={onDelete}
+            disabled={busy}
+            className="inline-flex h-7 shrink-0 items-center rounded-md px-2 text-xs whitespace-nowrap text-danger hover:bg-danger/5 disabled:opacity-40"
+            aria-label={t("report.review.deleteLabel", { title })}
+            data-delete
+          >
+            {t("report.review.delete")}
+          </button>
         )}
       </div>
     </li>
@@ -365,6 +381,23 @@ export function ReviewPage({ agents, onNavigate }: { agents: AgentsPayload | und
       setBusy(null);
     }
   };
+  /** review-delete: the shell asks first (native dialog); `false` = cancelled, nothing changes. */
+  const deleteFromCard = async (item: InboxItem) => {
+    const i = flat.findIndex((x) => x.bgId === item.bgId);
+    setBusy(item.bgId);
+    setError(null);
+    try {
+      if (!(await api.inboxDelete(item.bgId))) return;
+      focusNext.current = flat[i + 1]?.bgId ?? flat[i - 1]?.bgId ?? "";
+      // The only card on a later page: show the page before it.
+      if (items.length === 1 && page > 1) setPage(clampPage(page - 1, (inbox?.total ?? 1) - 1));
+      await Promise.all([refresh(), qc.invalidateQueries({ queryKey: ["board-wrapup"] }), qc.invalidateQueries({ queryKey: ["task-records"] })]);
+    } catch (e) {
+      setError(failure(e));
+    } finally {
+      setBusy(null);
+    }
+  };
   const markFromCard = async (item: InboxItem) => {
     const i = flat.findIndex((x) => x.bgId === item.bgId);
     focusNext.current = filter === "pending" ? (flat[i + 1]?.bgId ?? flat[i - 1]?.bgId ?? "") : item.bgId;
@@ -466,6 +499,7 @@ export function ReviewPage({ agents, onNavigate }: { agents: AgentsPayload | und
                         onOpen={() => (item.report.kind === "none" ? openTask(item) : setOpen(item))}
                         onMark={() => void markFromCard(item)}
                         onUnmark={() => void unmark(item.bgId)}
+                        onDelete={canDelete(item, inbox.known ?? false) ? () => void deleteFromCard(item) : null}
                         openRef={(el) => {
                           if (el) refs.current.set(item.bgId, el);
                           else refs.current.delete(item.bgId);
