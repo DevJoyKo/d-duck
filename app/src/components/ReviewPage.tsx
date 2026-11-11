@@ -231,7 +231,8 @@ function Card({
           <button
             onClick={onDelete}
             disabled={busy}
-            className="inline-flex h-7 shrink-0 items-center rounded-md px-2 text-xs whitespace-nowrap text-danger hover:bg-danger/5 disabled:opacity-40"
+            // Quiet until pointed at: red on every card would drown the real alerts; the dialog carries the warning.
+            className="ml-2 inline-flex h-7 shrink-0 items-center rounded-md px-2 text-xs whitespace-nowrap text-ink-3 hover:bg-danger/5 hover:text-danger focus-visible:text-danger disabled:opacity-40"
             aria-label={t("report.review.deleteLabel", { title })}
             data-delete
           >
