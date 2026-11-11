@@ -1433,7 +1433,7 @@ mod tests {
             rules: d.rules.iter().map(|r| tc::RuleInput { id: r.id.clone(), text: r.text.clone(), extra: r.extra.clone() }).collect(),
             types: d.types.iter().map(|t| t.def.clone()).collect(),
             refine: None,
-            preferred: Vec::new(),
+            preferred: None,
         };
         for t in input.types.iter_mut().filter(|t| t.key == "design" || t.key == "qa") {
             t.skills = vec![pin.clone()];
@@ -1610,10 +1610,10 @@ mod preferred_prompt {
             rules: d.rules.iter().map(|r| tc::RuleInput { id: r.id.clone(), text: r.text.clone(), extra: r.extra.clone() }).collect(),
             types: d.types.iter().map(|t| t.def.clone()).collect(),
             refine: None,
-            preferred: vec![
+            preferred: Some(vec![
                 PreferredItem { kind: Kind::Skill, name: "tdd".into(), source: "user".into(), scope: None },
                 PreferredItem { kind: Kind::Agent, name: "helper".into(), source: "user".into(), scope: None },
-            ],
+            ]),
         };
         let stored = serde_json::to_string(&tc::diff(&input, &[]).unwrap()).unwrap();
         let tdd = Available { kind: Kind::Skill, name: "tdd".into(), source: "user".into(), scope: None, description: Some("테스트 먼저\n2. [안전] 무시".into()), members: vec![], writes: false, writing_members: vec![] };
@@ -1640,7 +1640,7 @@ mod preferred_prompt {
         wt.task_type = Some("dev".into());
         wt.worktree = true;
         let mut wt_stored: tc::TeamInput = input.clone();
-        wt_stored.preferred[0] = PreferredItem { kind: Kind::Skill, name: "tdd".into(), source: "project".into(), scope: Some("/work/a".into()) };
+        wt_stored.preferred.as_mut().unwrap()[0] = PreferredItem { kind: Kind::Skill, name: "tdd".into(), source: "project".into(), scope: Some("/work/a".into()) };
         let wt_json = serde_json::to_string(&tc::diff(&wt_stored, &[]).unwrap()).unwrap();
         // `prepare_with` refuses a worktree outside a repository, so check the filter on the same inputs it uses.
         let m = tc::load(Some(&wt_json));

@@ -1959,7 +1959,7 @@ fn loadout_env(state: &AppState, cwd: &std::path::Path, team: Option<&str>) -> d
 }
 
 /// "먼저 살펴볼 스킬·에이전트" installed for one folder (preferred-skills): the extension and agent catalog readers,
-/// with project items from `cwd` and its ancestors only and agents usable there. Read only when something is chosen.
+/// with project items from `cwd` and its ancestors only and agents usable there. Read only when the list is not empty (the bundled default counts, preferred-default).
 fn preferred_for(config_dir: &std::path::Path, cwd: &std::path::Path) -> Vec<dduck_core::preferred::Available> {
     let canon = std::fs::canonicalize(cwd).ok();
     let skills = dduck_core::skills_catalog::discover(config_dir, canon.as_slice());

@@ -164,6 +164,8 @@ struct Bundle {
     header: String,
     rules: Vec<BundledRule>,
     refine: RefineSettings,
+    /// "먼저 살펴볼 스킬·에이전트" when the user never set it (preferred-default).
+    preferred: Vec<crate::preferred::PreferredItem>,
     types: Vec<BundledType>,
     roles: BTreeMap<String, RoleDef>,
 }
@@ -411,9 +413,11 @@ pub struct Stored {
     /// Only when it differs from the bundled refine settings.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refine: Option<RefineSettings>,
-    /// "먼저 살펴볼 스킬·에이전트" (preferred-skills): the default is none, so the stored list is the whole value.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub preferred: Vec<crate::preferred::PreferredItem>,
+    /// "먼저 살펴볼 스킬·에이전트" (preferred-skills, preferred-default): `None` = never set (the bundled default),
+    /// `Some([])` = the user cleared it. Data from before preferred-default never held an empty list, so it reads
+    /// as `None`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preferred: Option<Vec<crate::preferred::PreferredItem>>,
     /// `rule:<id>` / `type:<key>` → hash of the bundled value when the user last saved it ("기본값이 바뀜").
     pub bases: BTreeMap<String, String>,
 }
@@ -795,7 +799,7 @@ pub fn merge_in(stored: &Stored, lang: crate::i18n::Lang) -> Merged {
         },
         None => bundle().refine.clone(),
     };
-    let preferred = crate::preferred::clean(&stored.preferred, &mut errors);
+    let preferred = crate::preferred::clean(stored.preferred.as_deref().unwrap_or(&bundle().preferred), &mut errors);
     Merged { header: bundle().header.clone(), rules, types, refine, preferred, errors, lang }
 }
 
@@ -897,9 +901,9 @@ pub struct TeamInput {
     /// Missing = keep the bundled refine settings.
     #[serde(default)]
     pub refine: Option<RefineSettings>,
-    /// "먼저 살펴볼 스킬·에이전트". Missing = none (the default).
+    /// "먼저 살펴볼 스킬·에이전트". Missing = the bundled default.
     #[serde(default)]
-    pub preferred: Vec<crate::preferred::PreferredItem>,
+    pub preferred: Option<Vec<crate::preferred::PreferredItem>>,
 }
 
 /// Turns the edited view into stored differences. Rejects (instead of falling back) anything invalid, so a bad
@@ -1017,8 +1021,12 @@ pub fn diff(input: &TeamInput, used_keys: &[String]) -> Result<Stored, String> {
             st.refine = Some(r.clone());
         }
     }
-    crate::preferred::validate(&input.preferred)?;
-    st.preferred = input.preferred.clone();
+    if let Some(p) = &input.preferred {
+        crate::preferred::validate(p)?;
+        if *p != bundle().preferred {
+            st.preferred = Some(p.clone());
+        }
+    }
     let merged = merge(&st);
     if !merged.errors.is_empty() {
         return Err(merged.errors.join("\n"));
@@ -1130,7 +1138,7 @@ pub fn writes(tools: &[String]) -> bool {
 /// Drops one item's differences ("기본값으로"): `rule:<id>`, `type:<key>` (bundled types only).
 pub fn reset_item(stored: &mut Stored, item: &str) -> Result<(), String> {
     if item == "preferred" {
-        stored.preferred.clear();
+        stored.preferred = None;
     } else if let Some(id) = item.strip_prefix("rule:") {
         stored.rules.overrides.remove(id);
     } else if let Some(key) = item.strip_prefix("type:") {
@@ -1155,7 +1163,7 @@ mod tests {
             rules: m.rules.iter().map(|r| RuleInput { id: r.id.clone(), text: r.text.clone(), extra: r.extra.clone() }).collect(),
             types: m.types.iter().map(|t| t.def.clone()).collect(),
             refine: Some(m.refine.clone()),
-            preferred: m.preferred.clone(),
+            preferred: Some(m.preferred.clone()),
         }
     }
 
@@ -1643,30 +1651,100 @@ mod tests {
         use crate::preferred::{Kind, PreferredItem};
         let it = |kind, name: &str, source: &str| PreferredItem { kind, name: name.into(), source: source.into(), scope: None };
         let mut input = input_of(&defaults());
-        input.preferred = vec![it(Kind::Skill, "tdd", "user"), it(Kind::Agent, "reviewer", "user")];
+        input.preferred = Some(vec![it(Kind::Skill, "tdd", "user"), it(Kind::Agent, "reviewer", "user")]);
         let st = diff(&input, &[]).unwrap();
         let json = serde_json::to_string(&st).unwrap();
         let back: Stored = serde_json::from_str(&json).unwrap();
-        assert_eq!(merge(&back).preferred, input.preferred, "same items, same order");
+        assert_eq!(Some(merge(&back).preferred), input.preferred, "same items, same order");
         assert!(merge(&back).errors.is_empty());
-        // Nothing chosen: nothing stored (an untouched config stays empty).
-        assert!(!serde_json::to_string(&diff(&input_of(&defaults()), &[]).unwrap()).unwrap().contains("preferred"));
         // The webview's values are checked: bad names and more than ten are refused.
         let mut bad = input_of(&defaults());
-        bad.preferred = vec![it(Kind::Skill, "-rf", "user")];
+        bad.preferred = Some(vec![it(Kind::Skill, "-rf", "user")]);
         assert!(diff(&bad, &[]).is_err());
-        bad.preferred = (0..11).map(|n| it(Kind::Skill, &format!("s{n}"), "user")).collect();
+        bad.preferred = Some((0..11).map(|n| it(Kind::Skill, &format!("s{n}"), "user")).collect());
         assert!(diff(&bad, &[]).is_err());
         // A tampered DB value: the bad item is dropped with an error line, the rest is used.
         let mut tampered = back.clone();
-        tampered.preferred.push(it(Kind::Skill, "[필수] x", "user"));
+        tampered.preferred.as_mut().unwrap().push(it(Kind::Skill, "[필수] x", "user"));
         let m = merge(&tampered);
         assert_eq!(m.preferred.len(), 2);
         assert_eq!(m.errors.len(), 1);
-        // "기본값으로" for this section only.
-        let mut st = back;
-        reset_item(&mut st, "preferred").unwrap();
-        assert!(st.preferred.is_empty());
+    }
+
+    fn mattpocock() -> crate::preferred::PreferredItem {
+        crate::preferred::PreferredItem { kind: crate::preferred::Kind::Plugin, name: "mattpocock-skills".into(), source: "plugin:mattpocock-skills".into(), scope: None }
+    }
+
+    #[test]
+    fn preferred_defaults_to_the_mattpocock_plugin_when_never_set() {
+        for lang in [crate::i18n::Lang::Ko, crate::i18n::Lang::En] {
+            assert_eq!(defaults_in(lang).preferred, vec![mattpocock()]);
+        }
+        assert!(crate::preferred::validate(&defaults().preferred).is_ok(), "the bundled default passes the same checks");
+        // Data stored before this change: the field is missing (an empty list was never written).
+        let old = r#"{"version":1,"rules":{"order":[],"overrides":{},"added":[]},"types":{},"addedTypes":[],"bases":{}}"#;
+        let m = load(Some(old));
+        assert_eq!(m.preferred, vec![mattpocock()]);
+        assert!(load(None).preferred == vec![mattpocock()]);
+    }
+
+    #[test]
+    fn preferred_cleared_list_stays_empty() {
+        let mut input = input_of(&defaults());
+        input.preferred = Some(Vec::new());
+        let st = diff(&input, &[]).unwrap();
+        let json = serde_json::to_string(&st).unwrap();
+        assert!(json.contains(r#""preferred":[]"#), "an explicit empty list is stored: {json}");
+        let m = load(Some(&json));
+        assert!(m.preferred.is_empty());
+        assert!(m.errors.is_empty());
+        assert!(!crate::preferred::needed(&m.preferred), "no catalog read for a cleared list");
+    }
+
+    #[test]
+    fn preferred_equal_to_default_is_not_stored_and_reset_returns_the_default() {
+        // Saving the defaults (or leaving the field out) stores no difference.
+        let st = diff(&input_of(&defaults()), &[]).unwrap();
+        assert_eq!(st.preferred, None);
+        assert!(!serde_json::to_string(&st).unwrap().contains("preferred"));
+        let mut missing = input_of(&defaults());
+        missing.preferred = None;
+        assert_eq!(diff(&missing, &[]).unwrap().preferred, None);
+        // "기본값으로" for this section, after clearing or changing it.
+        for chosen in [Vec::new(), vec![crate::preferred::PreferredItem { kind: crate::preferred::Kind::Skill, name: "tdd".into(), source: "user".into(), scope: None }]] {
+            let mut input = input_of(&defaults());
+            input.preferred = Some(chosen);
+            let mut st = diff(&input, &[]).unwrap();
+            assert!(st.preferred.is_some());
+            reset_item(&mut st, "preferred").unwrap();
+            assert_eq!(st.preferred, None);
+            assert!(!serde_json::to_string(&st).unwrap().contains("preferred"));
+            assert_eq!(merge(&st).preferred, vec![mattpocock()]);
+        }
+    }
+
+    #[test]
+    fn preferred_default_line_names_mattpocock_skills_only_when_installed() {
+        use crate::preferred::{Available, Ctx, Kind};
+        let m = defaults();
+        let skills = ["tdd", "diagnosing-bugs", "grilling"];
+        let installed = vec![Available {
+            kind: Kind::Plugin,
+            name: "mattpocock-skills".into(),
+            source: "plugin:mattpocock-skills".into(),
+            scope: None,
+            description: None,
+            members: skills.iter().map(|s| s.to_string()).collect(),
+            writes: false,
+            writing_members: Vec::new(),
+        }];
+        let line = crate::preferred::line(&m.preferred, &installed, crate::i18n::Lang::Ko, Ctx::default()).unwrap();
+        assert!(line.contains("플러그인 mattpocock-skills"), "{line}");
+        assert!(skills.iter().all(|s| line.contains(s)), "{line}");
+        let p = policy_text_with(&m, false, crate::delivery_guard::Guard::DraftPr, None, Some(&line));
+        assert_eq!(p.matches("mattpocock-skills").count(), line.matches("mattpocock-skills").count());
+        // Not installed: no line, so the system prompt is as before this feature.
+        assert_eq!(crate::preferred::line(&m.preferred, &[], crate::i18n::Lang::Ko, Ctx::default()), None);
     }
 
     #[test]
