@@ -560,6 +560,8 @@ pub fn unmark(conn: &Connection, bg_id: &str) -> Result<bool, Error> {
 
 /// `delete` refused: still running (by the listing, an alias of it, or a routine run the scheduler counts running).
 pub const DELETE_RUNNING: &str = "running";
+/// `delete` refused: no good listing yet, so nobody knows whether it still runs.
+pub const DELETE_UNKNOWN: &str = "unknown";
 /// `delete` refused: a usage-limit resume is planned.
 pub const DELETE_RESUME_PENDING: &str = "resume pending";
 /// `delete` refused: what would be deleted changed after the confirmation.
@@ -576,6 +578,8 @@ pub struct DeletePlan {
     pub name: Option<String>,
     /// Only routine runs: their history rows stay.
     pub routine: bool,
+    /// A task record and routine reports of the same id: the confirmation names both.
+    pub both: bool,
     /// Started with a worktree: the confirmation says to clean it up first.
     pub worktree: bool,
 }
@@ -606,6 +610,7 @@ pub fn delete_plan(conn: &Connection, bg_id: &str) -> Result<Option<DeletePlan>,
         reports,
         name: task.as_ref().and_then(|t| t.0.clone()).filter(|n| !n.trim().is_empty()).or(routine_name),
         routine: task.is_none(),
+        both: task.is_some() && !runs.is_empty(),
         worktree: task.is_some_and(|t| t.1),
     }))
 }
@@ -617,7 +622,7 @@ pub fn delete_refusal(conn: &Connection, bg_id: &str, running: &HashMap<String, 
         return Err(Error::Config("task id"));
     }
     if !known {
-        return Err(Error::Config(DELETE_RUNNING));
+        return Err(Error::Config(DELETE_UNKNOWN));
     }
     let mut stmt = conn.prepare(
         "SELECT bg_id FROM task_meta WHERE bg_id = ?1
@@ -687,12 +692,25 @@ pub fn delete_confirm_text(plan: &DeletePlan, lang: crate::i18n::Lang) -> String
         Some(n) => msg(lang, Code::DlgReviewDeleteAsk, &Params::new().text("name", n, 64)),
         None => text(lang, Code::DlgReviewDeleteAskUnnamed).to_string(),
     };
-    let mut lines = vec![ask, String::new(), text(lang, if plan.routine { Code::DlgReviewDeleteRoutine } else { Code::DlgReviewDeleteTask }).to_string()];
+    let mut lines = vec![ask, String::new()];
+    if !plan.routine {
+        lines.push(text(lang, Code::DlgReviewDeleteTask).to_string());
+    }
+    if plan.routine || plan.both {
+        lines.push(text(lang, Code::DlgReviewDeleteRoutine).to_string());
+    }
+    lines.push(text(lang, Code::DlgReviewDeleteNoUndo).to_string());
+    lines.push(text(lang, Code::DlgReviewDeleteKeep).to_string());
     if plan.worktree {
         lines.push(text(lang, Code::DlgReviewDeleteWorktree).to_string());
     }
-    lines.push(text(lang, Code::DlgReviewDeleteKeep).to_string());
     lines.join("\n")
+}
+
+/// The confirmation's title: a task record, or only a routine run's report.
+pub fn delete_confirm_title(plan: &DeletePlan, lang: crate::i18n::Lang) -> String {
+    use crate::i18n::{Code, text};
+    text(lang, if plan.routine { Code::DlgReviewDeleteRoutineTitle } else { Code::DlgReviewDeleteTitle }).to_string()
 }
 
 #[cfg(test)]
@@ -1135,7 +1153,9 @@ mod tests {
         let p = plan(&conn, "aaaa0001");
         assert!(p.worktree && !p.routine);
         let text = delete_confirm_text(&p, crate::i18n::Lang::Ko);
-        assert!(text.contains("작업 이름") && text.contains("worktree") && text.contains("되돌릴 수 없어요") && !text.contains("/tmp"), "{text}");
+        assert!(text.contains("작업 이름") && text.contains("worktree를 지워 주세요") && text.contains("되돌릴 수 없어요") && !text.contains("/tmp"), "{text}");
+        assert!(text.lines().all(|l| l.chars().count() <= 80), "one item per line: {text}");
+        assert_eq!(delete_confirm_title(&p, crate::i18n::Lang::Ko), "작업 기록 지우기");
         assert!(delete(&mut conn, "aaaa0001", &p, &none, true, Some("sess-1"), Some(&root)).unwrap());
         assert!(delete_plan(&conn, "aaaa0001").unwrap().is_none());
         assert!(!root.join(id(1)).exists(), "its report folder is gone");
@@ -1177,6 +1197,7 @@ mod tests {
         assert!(p.routine && !p.worktree);
         assert_eq!(p.name.as_deref(), Some("아침 공고 확인"));
         assert!(delete_confirm_text(&p, crate::i18n::Lang::Ko).contains("루틴 실행 기록은 남아요"));
+        assert_eq!(delete_confirm_title(&p, crate::i18n::Lang::Ko), "루틴 보고서 지우기");
         assert!(!delete(&mut conn, "bba9b3f7", &p, &none, true, None, Some(&root)).unwrap(), "no task record");
         let row: (String, Option<String>, Option<i64>) = conn.query_row("SELECT status, report_id, reviewed_at FROM routine_runs WHERE id = ?1", [r], |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?))).unwrap();
         assert_eq!(row, ("done".into(), None, None), "history row kept, link and review state cleared");
@@ -1197,7 +1218,7 @@ mod tests {
             other => panic!("{other:?}"),
         };
         assert_eq!(err(delete(&mut conn, "aaaa0001", &p, &busy, true, None, None)), DELETE_RUNNING);
-        assert_eq!(err(delete(&mut conn, "aaaa0001", &p, &none, false, None, None)), DELETE_RUNNING, "no good poll yet");
+        assert_eq!(err(delete(&mut conn, "aaaa0001", &p, &none, false, None, None)), DELETE_UNKNOWN, "no good poll yet");
         // A usage-limit alias of the same task is running.
         conn.execute("INSERT INTO task_meta(bg_id, created_at, origin_bg_id) VALUES ('aaaa0009', 2, 'aaaa0001')", []).unwrap();
         let alias = running_map(&[session("aaaa0009", SessionStatus::Working)]);
@@ -1256,5 +1277,19 @@ mod tests {
             delete(&mut conn, "aaaa0005", &p, &none, true, None, Some(&link)).unwrap();
             assert!(real.join(id(5)).exists(), "a linked root is not followed");
         }
+    }
+
+    #[test]
+    fn a_record_and_routine_reports_of_one_id_are_both_named_and_both_deleted() {
+        let mut conn = crate::db::open_in_memory().unwrap();
+        routine(&conn, 1, "루틴");
+        rec(&conn, "aaaa0002", "/tmp", "dev", None, now(), None, None);
+        run(&conn, 1, "aaaa0002", "done", Some(&id(3)), now() + 1);
+        let p = plan(&conn, "aaaa0002");
+        assert!(p.both && !p.routine);
+        let text = delete_confirm_text(&p, crate::i18n::Lang::Ko);
+        assert!(text.contains("작업 기록과 보고서") && text.contains("루틴 실행 기록은 남아요"), "{text}");
+        delete(&mut conn, "aaaa0002", &p, &HashMap::new(), true, None, None).unwrap();
+        assert!(delete_plan(&conn, "aaaa0002").unwrap().is_none(), "nothing left to bring the card back");
     }
 }

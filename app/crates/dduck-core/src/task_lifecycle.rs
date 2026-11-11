@@ -109,7 +109,7 @@ fn wrapped_keys(conn: &Connection) -> Result<Vec<String>, Error> {
 
 /// Marks a listed session without a D.Duck record as wrapped up (review-delete: a deleted record's session must not
 /// come back on the board as "리뷰 없음").
-pub(crate) fn add_wrapped_key(conn: &Connection, key: &str) -> Result<(), Error> {
+pub fn add_wrapped_key(conn: &Connection, key: &str) -> Result<(), Error> {
     if !valid_key(key) {
         return Err(Error::Config("task id"));
     }

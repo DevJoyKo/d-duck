@@ -252,36 +252,53 @@ describe("리뷰 tab", () => {
     await waitFor(() => expect(cards()).toEqual(["ee0c0d22"]));
   });
 
-  it("review-delete: finished cards have 삭제, running ones and an unknown listing do not", async () => {
+  it("review-delete: finished cards have 지우기, running ones and an unknown listing do not", async () => {
     await boot();
     await waitFor(() => expect(cards().length).toBe(5));
     fireEvent.click(screen.getByRole("radio", { name: "전체" }));
     await waitFor(() => expect(cards().length).toBe(10));
-    const del = (id: string) => within(document.querySelector(`[data-review-card="${id}"]`) as HTMLElement).queryByRole("button", { name: /삭제$/ });
+    const del = (id: string) => within(document.querySelector(`[data-review-card="${id}"]`) as HTMLElement).queryByRole("button", { name: /지우기$/ });
     for (const id of ["f3e5ff71", "ab12cd34"]) expect(del(id)).toBeNull();
     for (const id of ["9988aabb", "aa11bb22", "ee0c0d22", "cc33dd44"]) expect(del(id)).toBeTruthy();
-    // Not the primary button and no yellow.
+    // Not the primary button, no yellow, and quiet (not red) until pointed at.
     expect(del("9988aabb")?.className).not.toMatch(/bg-ink|bg-duck/);
+    expect(del("9988aabb")?.className).toMatch(/(^| )text-ink-3( |$)/);
   });
 
-  it("review-delete: before a good poll there is no 삭제", async () => {
+  it("review-delete: before a good poll there is no 지우기", async () => {
     await boot("?poll=none");
     fireEvent.click(await screen.findByRole("radio", { name: "전체" }));
     await waitFor(() => expect(cards().length).toBeGreaterThan(0));
     expect(document.querySelector("[data-delete]")).toBeNull();
   });
 
-  it("review-delete: 삭제 goes through the shell, the card leaves, the badge drops and focus moves to the next card", async () => {
+  it("review-delete: 지우기 goes through the shell, the card leaves, the badge drops and focus moves to the next card", async () => {
     const invoke = await boot();
     const nav = screen.getByRole("navigation");
     expect(await within(nav).findByLabelText("리뷰 전 5개")).toBeTruthy();
     await waitFor(() => expect(cards()[0]).toBe("9988aabb"));
     const next = cards()[1];
-    fireEvent.click(within(document.querySelector('[data-review-card="9988aabb"]') as HTMLElement).getByRole("button", { name: /삭제$/ }));
+    fireEvent.click(within(document.querySelector('[data-review-card="9988aabb"]') as HTMLElement).getByRole("button", { name: /지우기$/ }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("inbox_delete", { id: "9988aabb" }));
     await waitFor(() => expect(cards()).not.toContain("9988aabb"));
     await waitFor(() => expect(within(nav).getByLabelText("리뷰 전 4개")).toBeTruthy());
     await waitFor(() => expect(document.activeElement?.closest("[data-review-card]")?.getAttribute("data-review-card")).toBe(next));
+    // On the next card's open button, not on its delete.
+    expect(document.activeElement?.hasAttribute("data-open-report") || document.activeElement?.hasAttribute("data-open-task")).toBe(true);
+  });
+
+  it("review-delete: a refusal shows on the error line and keeps the card", async () => {
+    const invoke = await boot();
+    await waitFor(() => expect(cards()).toContain("9988aabb"));
+    const real = invoke.getMockImplementation() as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+    invoke.mockImplementation((c: string, a?: Record<string, unknown>) => (c === "inbox_delete" ? Promise.reject("실행 중이라 지울 수 없어요") : real(c, a)));
+    try {
+      fireEvent.click(within(document.querySelector('[data-review-card="9988aabb"]') as HTMLElement).getByRole("button", { name: /지우기$/ }));
+      expect((await screen.findByRole("alert")).textContent).toContain("실행 중이라 지울 수 없어요");
+      expect(cards()).toContain("9988aabb");
+    } finally {
+      invoke.mockImplementation(real);
+    }
   });
 
   it("review-delete: 취소 in the dialog changes nothing", async () => {
@@ -289,7 +306,7 @@ describe("리뷰 tab", () => {
     const nav = screen.getByRole("navigation");
     expect(await within(nav).findByLabelText("리뷰 전 5개")).toBeTruthy();
     await waitFor(() => expect(cards()).toContain("9988aabb"));
-    fireEvent.click(within(document.querySelector('[data-review-card="9988aabb"]') as HTMLElement).getByRole("button", { name: /삭제$/ }));
+    fireEvent.click(within(document.querySelector('[data-review-card="9988aabb"]') as HTMLElement).getByRole("button", { name: /지우기$/ }));
     await new Promise((r) => setTimeout(r, 300));
     expect(cards()).toContain("9988aabb");
     expect(within(nav).getByLabelText("리뷰 전 5개")).toBeTruthy();
@@ -302,10 +319,10 @@ describe("리뷰 tab", () => {
     expect(await within(nav).findByLabelText("리뷰 전 6개")).toBeTruthy();
     fireEvent.click(screen.getByRole("radio", { name: "전체" }));
     await waitFor(() => expect(cards()).toContain("7a7a7a7a"));
-    fireEvent.click(within(document.querySelector('[data-review-card="7a7a7a7a"]') as HTMLElement).getByRole("button", { name: /삭제$/ }));
+    fireEvent.click(within(document.querySelector('[data-review-card="7a7a7a7a"]') as HTMLElement).getByRole("button", { name: /지우기$/ }));
     await waitFor(() => expect(cards()).not.toContain("7a7a7a7a"));
     await waitFor(() => expect(within(nav).getByLabelText("리뷰 전 5개")).toBeTruthy());
-    fireEvent.click(within(document.querySelector('[data-review-card="ee0c0d22"]') as HTMLElement).getByRole("button", { name: /삭제$/ }));
+    fireEvent.click(within(document.querySelector('[data-review-card="ee0c0d22"]') as HTMLElement).getByRole("button", { name: /지우기$/ }));
     await waitFor(() => expect(cards()).not.toContain("ee0c0d22"));
     expect(within(nav).getByLabelText("리뷰 전 5개")).toBeTruthy();
     expect(invoke).toHaveBeenCalledWith("inbox_delete", { id: "ee0c0d22" });

@@ -231,7 +231,7 @@ export default {
     noReport: "No report",
     noName: "A task with no name left",
     delete: "Delete",
-    deleteLabel: "{title}: delete",
+    deleteLabel: "Delete {title}",
     openTask: "View task",
     openTaskLabel: "{title}: view task",
     ended: { done: "Finished", failed: "Failed", stopped: "Stopped", unknown: "Ended" },
