@@ -48,15 +48,15 @@ describe("PreferredSection", () => {
     expect(last).toEqual([{ kind: "plugin", name: "kit", source: "plugin:kit" }]);
     const list = screen.getByRole("list", { name: "먼저 살펴볼 스킬·에이전트" });
     expect(within(list).getByText("kit")).toBeTruthy();
-    expect(within(list).getByText("항목 2개")).toBeTruthy();
+    expect(within(list).getByText("스킬·에이전트 2개")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "kit 빼기" }));
     expect(last).toEqual([]);
   });
 
   it("marks a chosen item that is not installed", async () => {
     show([{ kind: "agent", name: "old-helper", source: "user" }, { kind: "skill", name: "tdd", source: "user" }]);
-    expect(await screen.findByText("설치되지 않음")).toBeTruthy();
-    expect(screen.getAllByText("설치되지 않음")).toHaveLength(1);
+    expect(await screen.findByText("설치되지 않아 빠져요")).toBeTruthy();
+    expect(screen.getAllByText("설치되지 않아 빠져요")).toHaveLength(1);
     expect(screen.getByText("테스트 먼저")).toBeTruthy();
   });
 
