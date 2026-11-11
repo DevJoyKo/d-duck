@@ -1776,7 +1776,7 @@ mod model_tests {
             rules: d.rules.iter().map(|r| RuleInput { id: r.id.clone(), text: r.text.clone(), extra: r.extra.clone() }).collect(),
             types: d.types.iter().map(|t| t.def.clone()).collect(),
             refine: None,
-            preferred: Vec::new(),
+            preferred: None,
         }
     }
 

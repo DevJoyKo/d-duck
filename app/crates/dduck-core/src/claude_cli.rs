@@ -1793,7 +1793,7 @@ mod model_args {
             rules: d.rules.iter().map(|r| tc::RuleInput { id: r.id.clone(), text: r.text.clone(), extra: r.extra.clone() }).collect(),
             types: d.types.iter().map(|t| t.def.clone()).collect(),
             refine: None,
-            preferred: Vec::new(),
+            preferred: None,
         };
         input.types.iter_mut().find(|t| t.key == key).unwrap().model = Some(model.into());
         serde_json::to_string(&tc::diff(&input, &[]).unwrap()).unwrap()
