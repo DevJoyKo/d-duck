@@ -3,7 +3,7 @@ import { ChevronRight, Lock } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { api, type Plugin, type PluginItem, type PluginOutcome, failure, shown } from "../lib/api";
 import { type Note, noteFor } from "../lib/pluginNotes";
-import { useBulk } from "../lib/pluginBulk";
+import { bulkStore, useBulk } from "../lib/pluginBulk";
 import { PluginBulkCheck, useBulkLine } from "./PluginBulk";
 import { ConnectorIcon } from "../lib/connectorIcons";
 import { dateTime } from "../lib/format";
@@ -286,7 +286,10 @@ export function PluginRow({ p, actions, expanded, onExpand, badges, items }: { p
             </span>
           </span>
         </button>
-        <UpdateCell p={p} pending={busy && update.isPending} busy={busyId !== undefined || frozen} onUpdate={() => update.mutate(p, after(p, "update"))} />
+        <UpdateCell p={p} pending={busy && update.isPending} busy={busyId !== undefined || frozen} onUpdate={() => {
+          bulkStore.clearRow(p.id);
+          update.mutate(p, after(p, "update"));
+        }} />
         <div className="flex w-14 shrink-0 flex-col items-center gap-0.5">
           <span className="flex items-center gap-1">
             {p.locked && <Lock size={11} className="text-ink-3" aria-hidden />}
@@ -294,7 +297,10 @@ export function PluginRow({ p, actions, expanded, onExpand, badges, items }: { p
               label={t(p.enabled ? "extensions.plugins.row.turnOff" : "extensions.plugins.row.turnOn", { name: p.name })}
               checked={busy && toggle.isPending ? toggle.variables.on : p.enabled}
               disabled={!!p.locked || busyId !== undefined || frozen}
-              onChange={(v) => toggle.mutate({ p, on: v }, after(p, "toggle", v))}
+              onChange={(v) => {
+                bulkStore.clearRow(p.id);
+                toggle.mutate({ p, on: v }, after(p, "toggle", v));
+              }}
             />
           </span>
           <span className="text-[11px] text-ink-3">{p.enabled ? t("extensions.plugins.row.on") : t("extensions.plugins.row.off")}</span>
@@ -308,7 +314,7 @@ export function PluginRow({ p, actions, expanded, onExpand, badges, items }: { p
             </p>
           )}
           {line ? (
-            <p className={line.tone === "ok" ? "text-ok" : line.tone === "error" ? "text-danger" : line.tone === "warn" ? "text-ink" : "text-ink-3"}>{line.text}</p>
+            <p title={line.title} className={line.tone === "ok" ? "text-ok" : line.tone === "error" ? "text-danger" : line.tone === "warn" ? "text-ink" : "text-ink-3"}>{line.text}</p>
           ) : n && (
             <p role={n.tone === "error" ? "alert" : "status"} className={n.tone === "ok" ? "text-ok" : n.tone === "error" ? "text-danger" : "text-ink"}>
               {shown(n.text)}

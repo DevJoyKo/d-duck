@@ -158,7 +158,13 @@ export default {
       waiting: "Waiting",
       running: "Updating…",
       stopped: "Stopped · Didn't run",
-      failed: "Failed · {reason}",
+      outcome: {
+        needsApproval: "Needs approval, so it didn't run · Update it in a terminal",
+        unchanged: "Nothing changed · It may already be up to date",
+        failed: "Failed · Check with claude plugin in a terminal",
+        timeout: "Failed · It didn't finish in time",
+        locked: "Failed · Set by managed settings",
+      },
       skip: {
         badId: "Skipped · The name isn't valid",
         notInstalled: "Skipped · Not installed",

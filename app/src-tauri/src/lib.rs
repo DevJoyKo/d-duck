@@ -1493,9 +1493,13 @@ async fn update_plugins(app: AppHandle, ids: Vec<String>) -> Res<dduck_core::plu
             return Ok(BulkResult { confirmed: false, items: vec![] });
         }
         let stop = || state.plugin_stop.load(Ordering::SeqCst);
+        // Rows skipped by the plan are reported first, so the screen never shows them as waiting.
+        for item in &plan.skipped {
+            let _ = app.emit("plugin-update-progress", item);
+        }
         let mut check = |t: &bulk::Target| match installed_plugins(&state) {
-            Ok(now) => bulk::recheck(t, &now, &dduck_core::plugins::local_updates(&config, &now)),
-            Err(_) => Some(bulk::Skip::Changed),
+            Ok(now) => bulk::recheck(t, &now, &dduck_core::plugins::local_updates(&config, &now)).map(|reason| bulk::Status::Skipped { reason }),
+            Err(_) => Some(bulk::Status::Finished { outcome: Outcome::Failed }),
         };
         let mut update = |t: &bulk::Target| update_one(&state, &t.plugin).unwrap_or(Outcome::Failed);
         let mut report = |item: &bulk::Item| {

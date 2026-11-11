@@ -17,5 +17,5 @@
 ## 4. 검증·리뷰
 
 - [x] 4.1 설계 리뷰(design-critic + security-privacy-reviewer) 반영 — design.md "설계 리뷰 반영"
-- [x] 4.2 전체 검사(npm ci, core test, clippy, tsc, vitest, lint), mock 스크린샷(라이트 1440·다크 900) — core 571·vitest 592·clippy·tsc·lint
-- [ ] 4.3 테스트 리뷰(qa-verifier + design-critic + brand-reviewer) 반영 — design.md "테스트 리뷰 반영"
+- [x] 4.2 전체 검사(npm ci, core test, clippy, tsc, vitest, lint), mock 스크린샷(라이트 1440·다크 900) — core 571·vitest 596·clippy·tsc·lint
+- [x] 4.3 테스트 리뷰(qa-verifier + design-critic + brand-reviewer) 반영 — design.md "테스트 리뷰 반영"

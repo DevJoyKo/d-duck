@@ -96,8 +96,8 @@ describe("확장 tab: update several plugins", () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("update_plugins", { ids: ["cloudflare@cloudflare", "frontend-design@claude-plugins-official", "expo@claude-plugins-official"] }));
     expect(await screen.findByText("1개 업데이트, 1개 실패, 1개 승인 필요", {}, { timeout: 3000 })).toBeTruthy();
     expect(within(row("cloudflare")).getByText("업데이트했어요. Claude Code를 다시 시작하면 적용돼요.")).toBeTruthy();
-    expect(within(row("frontend-design")).getByText(/^실패 · Claude CLI가 실패했어요/)).toBeTruthy();
-    expect(within(row("expo")).getByText(/승인이 필요해 실행하지 않았어요/)).toBeTruthy();
+    expect(within(row("frontend-design")).getByText("실패했어요 · 터미널에서 claude plugin으로 확인해 주세요")).toBeTruthy();
+    expect(within(row("expo")).getByText("승인이 필요해 실행하지 않았어요 · 터미널에서 업데이트해 주세요")).toBeTruthy();
     // The list was read again: cloudflare is on 1.0.3 and no longer offered.
     await waitFor(() => expect(box("cloudflare")).toBeNull());
     expect(invoke.mock.calls.filter(([c]) => c === "plugin_list").length).toBeGreaterThan(1);
@@ -122,17 +122,17 @@ describe("확장 tab: update several plugins", () => {
       return { confirmed: true, items: [first, ...rest] } as PluginBulkResult;
     });
     fireEvent.click(screen.getByRole("button", { name: "모두 업데이트 (3)" }));
-    expect(await within(row("cloudflare")).findByText("업데이트 중…")).toBeTruthy();
-    expect(within(row("expo")).getByText("대기")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toBe("업데이트 중 1/3");
+    expect(await within(row("cloudflare")).findByText("업데이트하는 중이에요")).toBeTruthy();
+    expect(within(row("expo")).getByText("기다리는 중이에요")).toBeTruthy();
+    expect(document.querySelector("[data-bulk-status]")!.textContent).toBe("업데이트 중 1/3");
     expect((screen.getByRole("switch", { name: "cloudflare 끄기" }) as HTMLButtonElement).disabled).toBe(true);
     expect(box("notes-kit")!.disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "멈추기" }));
-    expect((screen.getByRole("button", { name: "멈추는 중…" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "멈추는 중…" }).getAttribute("aria-disabled")).toBe("true");
     expect(invoke).toHaveBeenCalledWith("stop_plugin_updates");
     release();
     expect(await screen.findByText("1개 업데이트, 2개 멈춤")).toBeTruthy();
-    expect(within(row("expo")).getByText("멈춤 · 실행하지 않았어요")).toBeTruthy();
+    expect(within(row("expo")).getByText("멈췄어요 · 실행하지 않았어요")).toBeTruthy();
     expect((screen.getByRole("switch", { name: "notes-kit 끄기" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
@@ -144,8 +144,8 @@ describe("확장 tab: update several plugins", () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("update_plugins", { ids: ["notes-kit@personal"] }));
     await waitFor(() => expect(box("notes-kit")!.disabled).toBe(false));
     expect(box("notes-kit")!.checked).toBe(true);
-    expect(screen.queryByRole("status")).toBeNull();
-    expect(screen.queryByText("대기")).toBeNull();
+    expect(document.querySelector("[data-bulk-status]")!.textContent).toBe("");
+    expect(screen.queryByText("기다리는 중이에요")).toBeNull();
   });
 
   it("a plugin skipped because it changed says so; a refused batch shows the error", async () => {
@@ -160,5 +160,57 @@ describe("확장 tab: update several plugins", () => {
     invoke.mockImplementation((c, a) => (c === "update_plugins" ? Promise.reject("다른 플러그인 작업이 진행 중이에요") : real(c, a)));
     fireEvent.click(screen.getByRole("button", { name: "선택한 것 업데이트 (1)" }));
     expect((await screen.findByRole("alert")).textContent).toContain("다른 플러그인 작업이 진행 중이에요");
+  });
+
+  it("keeps the progress after leaving the tab and coming back", async () => {
+    const invoke = await boot();
+    const { emit } = (await import("@tauri-apps/api/event")) as unknown as typeof import("../mock/event");
+    let release: () => void = () => {};
+    invoke.mockImplementation(async (c, a) => {
+      if (c !== "update_plugins") return real(c, a);
+      emit("plugin-update-progress", { id: "cloudflare@cloudflare", status: { kind: "running" } });
+      await new Promise<void>((r) => (release = r));
+      return { confirmed: true, items: [{ id: "cloudflare@cloudflare", status: { kind: "finished", outcome: { kind: "done" } } }] };
+    });
+    fireEvent.click(box("cloudflare")!);
+    fireEvent.click(screen.getByRole("button", { name: "선택한 것 업데이트 (1)" }));
+    expect(await within(row("cloudflare")).findByText("업데이트하는 중이에요")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^MCP/ }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "cloudflare 구성 요소 펼치기" })).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: /^확장/ }));
+    expect(await within(await screen.findByRole("button", { name: "cloudflare 구성 요소 펼치기" }).then((b) => b.closest("li") as HTMLElement)).findByText("업데이트하는 중이에요")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "멈추기" })).toBeTruthy();
+    release();
+    expect(await screen.findByText("1개 업데이트")).toBeTruthy();
+  });
+
+  it("the bar stays when a search hides every plugin", async () => {
+    await boot();
+    fireEvent.change(screen.getByPlaceholderText(/검색/), { target: { value: "zzz-no-such-thing" } });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "cloudflare 구성 요소 펼치기" })).toBeNull());
+    expect(screen.getByRole("button", { name: "모두 업데이트 (3)" })).toBeTruthy();
+  });
+
+  it("a single update after a batch replaces the old batch line", async () => {
+    const invoke = await boot();
+    invoke.mockImplementation((c, a) =>
+      c === "update_plugins" ? Promise.resolve({ confirmed: true, items: [{ id: "notes-kit@personal", status: { kind: "finished", outcome: { kind: "failed" } } }] }) : real(c, a),
+    );
+    fireEvent.click(box("notes-kit")!);
+    fireEvent.click(screen.getByRole("button", { name: "선택한 것 업데이트 (1)" }));
+    expect(await within(row("notes-kit")).findByText(/^실패했어요/)).toBeTruthy();
+    fireEvent.click(within(row("notes-kit")).getByRole("button", { name: "업데이트 시도" }));
+    expect(await within(row("notes-kit")).findByText("바뀐 것이 없어요. 이미 최신일 수 있어요.")).toBeTruthy();
+    expect(within(row("notes-kit")).queryByText(/^실패했어요/)).toBeNull();
+  });
+});
+
+describe("fifteen at a time", async () => {
+  const { PluginBulkBar } = await import("./PluginBulk");
+  it("모두 counts at most fifteen and says so", () => {
+    const many = Array.from({ length: 18 }, (_, i) => ({ id: `p${i}@m`, name: `p${i}`, scope: "user", locked: null, update: { state: "available", latest: "2", marketplaceUpdated: null } }) as unknown as Plugin);
+    render(<PluginBulkBar plugins={many} busy={false} onSettled={() => {}} />);
+    expect(screen.getByRole("button", { name: "모두 업데이트 (15)" })).toBeTruthy();
+    expect(screen.getByText("한 번에 15개까지 해요")).toBeTruthy();
   });
 });
