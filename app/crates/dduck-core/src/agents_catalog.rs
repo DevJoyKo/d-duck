@@ -867,6 +867,56 @@ pub fn with_loadout(content: &str, skills: &[String], tools: &[String], disallow
     Ok(out)
 }
 
+/// The raw `model:` value of a definition (trimmed), `None` when there is no such line.
+pub fn model_raw(content: &str) -> Option<String> {
+    parse_frontmatter(content).as_ref().and_then(|f| f.get("model")).map(|v| v.trim().to_string())
+}
+
+/// "기본 모델" of a file agent (model-select design 3): inserts, changes or removes only the `model:` line. BOM and
+/// line endings are kept; inserting then removing gives the original bytes back. Duplicate or multi-line `model`
+/// keys are refused, and an unchanged value (an existing `inherit` included) leaves the file as it is.
+pub fn with_model(content: &str, model: Option<&str>) -> Result<String, SaveError> {
+    let cur = model_raw(content);
+    let cur_value = cur.as_deref().filter(|v| !v.is_empty() && *v != "inherit");
+    if cur_value == model || (cur.as_deref() == Some("inherit") && model.is_none()) {
+        return Ok(content.to_string());
+    }
+    if let Some(m) = model {
+        if !crate::model_select::valid_choice(m) {
+            return Err(SaveError::Invalid(crate::i18n::Fail::ModelFileFormat.str()));
+        }
+    }
+    let mut fm = RawFm::parse(content).ok_or(SaveError::Invalid(crate::i18n::Fail::ModelNoFront.str()))?;
+    let lines = fm.texts();
+    let key_of = |l: &str| KEY_LINE_RE.captures(l).and_then(|c| c.get(1)).map(|m| m.as_str().to_string());
+    let idx: Vec<usize> = lines.iter().enumerate().filter(|(_, l)| key_of(l).as_deref() == Some("model")).map(|(i, _)| i).collect();
+    if idx.len() > 1 {
+        return Err(SaveError::Invalid(crate::i18n::Fail::ModelLineBad.str()));
+    }
+    if let Some(&i) = idx.first() {
+        let value = KEY_LINE_RE.captures(&lines[i]).and_then(|c| c.get(2)).map_or("", |m| m.as_str()).trim().to_string();
+        if value.is_empty() || lines.get(i + 1).is_some_and(|n| n.starts_with([' ', '\t', '-'])) {
+            return Err(SaveError::Invalid(crate::i18n::Fail::ModelLineBad.str()));
+        }
+    }
+    match (idx.first(), model) {
+        (Some(&i), Some(m)) => fm.set(i, format!("model: {m}")),
+        (Some(&i), None) => {
+            fm.lines.remove(i);
+        }
+        (None, Some(m)) => {
+            let after = lines.iter().rposition(|x| matches!(key_of(x).as_deref(), Some("tools" | "description" | "name"))).map_or(lines.len(), |i| i + 1);
+            fm.insert(after, format!("model: {m}"));
+        }
+        (None, None) => {}
+    }
+    let out = fm.render();
+    if parse_frontmatter(&out).is_none() || model_raw(&out).as_deref() != model {
+        return Err(SaveError::Invalid(crate::i18n::Fail::ModelLineBad.str()));
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -1067,5 +1117,20 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&file).unwrap(), new);
         let leftovers = std::fs::read_dir(file.parent().unwrap()).unwrap().count();
         assert_eq!(leftovers, 1, "no temp files left");
+    }
+
+    #[test]
+    fn model_line_edit_keeps_every_other_byte() {
+        let crlf = "\u{feff}---\r\nname: design-critic\r\ndescription: d\r\ntools: Read\r\n---\r\nbody\r\n";
+        let with = with_model(crlf, Some("opus")).unwrap();
+        assert_eq!(with, "\u{feff}---\r\nname: design-critic\r\ndescription: d\r\ntools: Read\r\nmodel: opus\r\n---\r\nbody\r\n");
+        assert_eq!(with_model(&with, None).unwrap(), crlf, "insert then remove gives the original bytes");
+        assert_eq!(model_raw(&with_model(&with, Some("claude-opus-4-6[1m]")).unwrap()).as_deref(), Some("claude-opus-4-6[1m]"));
+        let inherit = "---\nname: a\nmodel: inherit\n---\n";
+        assert_eq!(with_model(inherit, None).unwrap(), inherit, "inherit stays when unchanged");
+        assert!(with_model("---\nname: a\nmodel: opus\nmodel: haiku\n---\n", Some("sonnet")).is_err(), "duplicate key");
+        assert!(with_model("---\nname: a\nmodel:\n  - opus\n---\n", Some("sonnet")).is_err(), "multi-line value");
+        assert!(with_model("---\nname: a\n---\n", Some("opus x")).is_err());
+        assert!(with_model("no frontmatter", Some("opus")).is_err());
     }
 }

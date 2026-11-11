@@ -127,6 +127,9 @@ pub struct RoleDef {
     pub skills: Option<Vec<String>>,
     #[serde(default, rename = "disallowedTools", skip_serializing_if = "Option::is_none")]
     pub disallowed_tools: Option<Vec<String>>,
+    /// The role's model (model-select design 4): always the same value as `--model` when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -265,6 +268,9 @@ pub struct TypeDef {
     /// "기본 장비" MCP servers: only these may be used. Empty = every server (or none, for a role with a tool list).
     #[serde(default)]
     pub mcp_allow: Vec<String>,
+    /// Default model of the type (model-select). `None` = the CLI default. Checked with `model_select::valid_choice`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 fn bundled_type(bt: &BundledType) -> TypeDef {
@@ -292,6 +298,7 @@ fn bundled_type_in(b: &Bundle, bt: &BundledType) -> TypeDef {
         refine_focus: bt.refine_focus.clone(),
         skills: Vec::new(),
         mcp_allow: Vec::new(),
+        model: None,
     }
 }
 
@@ -382,6 +389,9 @@ pub struct TypePatch {
     pub skills: Option<Vec<crate::loadout::SkillPin>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mcp_allow: Option<Vec<String>>,
+    /// `""` = back to no model (the bundled value).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 impl TypePatch {
@@ -529,6 +539,9 @@ pub fn validate_type(t: &TypeDef, bundled: Option<&TypeDef>) -> Result<(), Strin
     if t.label.trim().is_empty() || t.label.chars().count() > MAX_LABEL_CHARS || !clean_line(&t.label) {
         return Err(crate::tr_fmt!(crate::i18n::Fail::TypeLabel, a0 = t.key, MAX_LABEL_CHARS = MAX_LABEL_CHARS));
     }
+    if t.model.as_deref().is_some_and(|m| !crate::model_select::valid_choice(m)) {
+        return Err(crate::tr_fmt!(crate::i18n::Fail::TypeModelBad, name = name));
+    }
     if let Some(a) = &t.agent {
         if !crate::agents_catalog::valid_name(a) {
             return Err(crate::tr_fmt!(crate::i18n::Fail::TypeAgentName, name = name));
@@ -637,6 +650,9 @@ fn apply(p: &TypePatch, t: &mut TypeDef) {
     }
     if let Some(v) = &p.mcp_allow {
         t.mcp_allow = v.clone();
+    }
+    if let Some(v) = &p.model {
+        t.model = (!v.is_empty()).then(|| v.clone());
     }
     drop_loadout_for_agent(t);
 }
@@ -949,6 +965,7 @@ pub fn diff(input: &TeamInput, used_keys: &[String]) -> Result<Stored, String> {
                     refine_focus: (want.refine_focus != b.refine_focus).then(|| want.refine_focus.clone()),
                     skills: (want.skills != b.skills).then(|| want.skills.clone()),
                     mcp_allow: (want.mcp_allow != b.mcp_allow).then(|| want.mcp_allow.clone()),
+                    model: (want.model != b.model).then(|| want.model.clone().unwrap_or_default()),
                 };
                 if !p.is_empty() {
                     st.types.insert(b.key.clone(), p);
@@ -1597,4 +1614,53 @@ mod tests {
         }
     }
 
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod model_tests {
+    use super::*;
+
+    fn input(d: &Merged) -> TeamInput {
+        TeamInput {
+            rules: d.rules.iter().map(|r| RuleInput { id: r.id.clone(), text: r.text.clone(), extra: r.extra.clone() }).collect(),
+            types: d.types.iter().map(|t| t.def.clone()).collect(),
+            refine: None,
+        }
+    }
+
+    #[test]
+    fn type_model_round_trips_as_a_difference() {
+        let d = defaults();
+        assert!(d.types.iter().all(|t| t.def.model.is_none()), "bundled types have no model");
+        let mut i = input(&d);
+        i.types.iter_mut().find(|t| t.key == "review").unwrap().model = Some("sonnet".into());
+        let st = diff(&i, &[]).unwrap();
+        assert_eq!(st.types["review"], TypePatch { model: Some("sonnet".into()), ..Default::default() });
+        let m = merge(&st);
+        assert_eq!(m.get("review").unwrap().model.as_deref(), Some("sonnet"));
+        // Back to the default: no difference left.
+        let mut back = input(&m);
+        back.types.iter_mut().find(|t| t.key == "review").unwrap().model = None;
+        assert!(!diff(&back, &[]).unwrap().types.contains_key("review"));
+        // Older stored values without `model` still read.
+        let old: Stored = serde_json::from_str(r#"{"version":1,"types":{"dev":{"effort":"max"}}}"#).unwrap();
+        assert_eq!(merge(&old).get("dev").unwrap().model, None);
+        assert!(risky_changes(&d, &m).is_empty(), "a model is not a risky change");
+        let mut r = st.clone();
+        reset_item(&mut r, "type:review").unwrap();
+        assert_eq!(merge(&r).get("review").unwrap().model, None);
+    }
+
+    #[test]
+    fn type_model_is_validated() {
+        let d = defaults();
+        for bad in ["opus x", "inherit", "default", "-p", "null"] {
+            let mut i = input(&d);
+            i.types.iter_mut().find(|t| t.key == "dev").unwrap().model = Some(bad.into());
+            assert!(diff(&i, &[]).is_err(), "{bad}");
+        }
+        let hacked: Stored = serde_json::from_str(r#"{"version":1,"types":{"dev":{"model":"opus x"}}}"#).unwrap();
+        assert!(!merge(&hacked).errors.is_empty() || merge(&hacked).get("dev").unwrap().model.is_none(), "a hand-edited value never merges in as-is");
+    }
 }

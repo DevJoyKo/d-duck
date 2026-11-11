@@ -31,12 +31,16 @@ pub const ENV_NAMES: [&str; 7] = [
 
 pub const FAMILIES: [&str; 4] = ["opus", "sonnet", "haiku", "fable"];
 
-pub const BAD_FORMAT: crate::i18n::Fail = crate::i18n::Fail::ModelNameFormat;
-pub const BAD_STORED: crate::i18n::Fail = crate::i18n::Fail::ModelStoredBad;
-pub const LOCKED: crate::i18n::Fail = crate::i18n::Fail::ModelAgentFixed;
-pub const BLOCKED_MANAGED: crate::i18n::Fail = crate::i18n::Fail::ModelManagedBlock;
-pub const BLOCKED_SETTINGS: crate::i18n::Fail = crate::i18n::Fail::ModelNotAllowed;
-pub const BLOCKED_UNKNOWN: crate::i18n::Fail = crate::i18n::Fail::ModelAllowUnknown;
+use crate::i18n::ReasonCode as RC;
+
+pub const BAD_FORMAT: RC = RC::ModelNameFormat;
+pub const BAD_STORED: RC = RC::ModelStoredBad;
+pub const LOCKED: RC = RC::ModelAgentFixed;
+pub const BLOCKED_MANAGED: RC = RC::ModelManagedBlock;
+pub const BLOCKED_SETTINGS: RC = RC::ModelNotAllowed;
+pub const BLOCKED_UNKNOWN: RC = RC::ModelAllowUnknown;
+pub const NO_FALLBACK: RC = RC::ModelNoFallback;
+pub const AGENT_UNSUPPORTED: RC = RC::ModelAgentUnsupported;
 
 static MODEL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[a-z0-9][a-z0-9._:@-]{0,99}(\[1m\])?$").unwrap_or_else(|_| unreachable!("tested")));
 static HELP_ALIAS_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"'([a-z][a-z0-9-]{0,30}(\[1m\])?)'").unwrap_or_else(|_| unreachable!("tested")));
@@ -282,12 +286,12 @@ pub fn allowed(list: &Allowlist, value: &str) -> (Allow, Option<&'static str>) {
 }
 
 /// `Ok` or the one-line reason for a refused start, resume or save.
-pub fn check_allowed(list: &Allowlist, value: &str) -> Result<(), &'static str> {
+pub fn check_allowed(list: &Allowlist, value: &str) -> Result<(), RC> {
     match (allowed(list, value).0, list.kind) {
         (Allow::Yes, _) => Ok(()),
-        (Allow::Unknown, _) | (_, AllowKind::Unknown) => Err(BLOCKED_UNKNOWN.str()),
-        (Allow::No, AllowKind::Managed) => Err(BLOCKED_MANAGED.str()),
-        (Allow::No, _) => Err(BLOCKED_SETTINGS.str()),
+        (Allow::Unknown, _) | (_, AllowKind::Unknown) => Err(BLOCKED_UNKNOWN),
+        (Allow::No, AllowKind::Managed) => Err(BLOCKED_MANAGED),
+        (Allow::No, _) => Err(BLOCKED_SETTINGS),
     }
 }
 
@@ -325,6 +329,9 @@ pub struct ModelItem {
     /// Output price per million tokens from the app's table, for the id this item stands for.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub price: Option<f64>,
+    /// Set only for a stored value that is no longer supported: what a start would use instead (design 11).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replacement: Option<Replacement>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -360,6 +367,8 @@ pub struct OptionsEnv {
     pub process_env: Vec<(String, String)>,
     /// Models seen in the last 30 days, newest first.
     pub recent: Vec<String>,
+    /// Models seen in the last 7 days: what counts as still supported (design 11).
+    pub recent_week: Vec<String>,
     /// Newest main-conversation model of a session D.Duck did not start with a model.
     pub recent_main: Option<String>,
     /// Values already stored somewhere (types, agents) or typed in.
@@ -407,7 +416,7 @@ pub fn options(env: &OptionsEnv, prices: &PriceTable) -> ModelOptions {
                     i.sources.push(src);
                 }
             }
-            None => items.push(ModelItem { value: v.to_string(), sources: vec![src], resolved: None, allow: Allow::Yes, blocked_by: None, note: None, price: None }),
+            None => items.push(ModelItem { value: v.to_string(), sources: vec![src], resolved: None, allow: Allow::Yes, blocked_by: None, note: None, price: None, replacement: None }),
         }
     };
     for a in env.cli.iter().flatten() {
@@ -453,6 +462,16 @@ pub fn options(env: &OptionsEnv, prices: &PriceTable) -> ModelOptions {
         i.price = prices.output_of(id);
     }
     let current_default = current_default(env, &items, prices);
+    let known = Known::from_env(env, prices);
+    let ctx = FallbackCtx { known: &known, list: &list, default_value: current_default.value.as_deref() };
+    for i in items.iter_mut().filter(|i| i.sources == [Source::Custom] && i.allow == Allow::Yes) {
+        if !supported(&i.value, &known) {
+            i.replacement = Some(match fallback(&i.value, &ctx) {
+                Ok(r) => r,
+                Err(_) => Replacement::None,
+            });
+        }
+    }
     ModelOptions { items, current_default, cli_read: env.cli.is_some(), dropped, allowlist: list.kind }
 }
 
@@ -477,10 +496,21 @@ const THIRTY_DAYS_MS: i64 = 30 * 24 * 60 * 60 * 1000;
 
 /// Models used in the last 30 days, newest first, at most 12 (`<synthetic>` and malformed values left out).
 pub fn recent_models(conn: &Connection, now_ms: i64) -> rusqlite::Result<Vec<String>> {
+    recent_within(conn, now_ms, THIRTY_DAYS_MS)
+}
+
+const SEVEN_DAYS_MS: i64 = 7 * 24 * 60 * 60 * 1000;
+
+/// Models used in the last 7 days: the "still supported" evidence (design 11).
+pub fn recent_week_models(conn: &Connection, now_ms: i64) -> rusqlite::Result<Vec<String>> {
+    recent_within(conn, now_ms, SEVEN_DAYS_MS)
+}
+
+fn recent_within(conn: &Connection, now_ms: i64, window_ms: i64) -> rusqlite::Result<Vec<String>> {
     let mut st = conn.prepare(
         "SELECT model, MAX(ts) AS last FROM api_calls WHERE ts >= ?1 AND model != '<synthetic>' GROUP BY model ORDER BY last DESC LIMIT 40",
     )?;
-    let rows = st.query_map(params![now_ms - THIRTY_DAYS_MS], |r| r.get::<_, String>(0))?;
+    let rows = st.query_map(params![now_ms - window_ms], |r| r.get::<_, String>(0))?;
     let mut out = Vec::new();
     for m in rows.flatten() {
         if valid_model(&m) && out.len() < 12 {
@@ -545,18 +575,18 @@ pub enum Runner<'a> {
     FileAgent(Option<&'a str>),
 }
 
-fn stored_ok(v: Option<&str>) -> Result<Option<String>, &'static str> {
+fn stored_ok(v: Option<&str>) -> Result<Option<String>, RC> {
     match v {
-        Some(v) if !valid_choice(v) => Err(BAD_STORED.str()),
+        Some(v) if !valid_choice(v) => Err(BAD_STORED),
         other => Ok(other.map(str::to_string)),
     }
 }
 
 /// task > agent file > type > CLI (design 4). Inline roles get the same value in the role JSON and `--model`; a file
 /// agent with no task value gets no `--model` when its file sets one.
-pub fn resolve(task: Option<&str>, runner: Runner<'_>, type_default: Option<&str>) -> Result<ModelPin, &'static str> {
+pub fn resolve(task: Option<&str>, runner: Runner<'_>, type_default: Option<&str>) -> Result<ModelPin, RC> {
     if task.is_some_and(|t| !valid_choice(t)) {
-        return Err(BAD_FORMAT.str());
+        return Err(BAD_FORMAT);
     }
     let type_default = stored_ok(type_default)?;
     match runner {
@@ -571,7 +601,7 @@ pub fn resolve(task: Option<&str>, runner: Runner<'_>, type_default: Option<&str
         Runner::FileAgent(file) => {
             let file = file.filter(|f| valid_choice(f));
             match (task, file, type_default) {
-                (Some(_), Some(_), _) if !FILE_AGENT_MODEL_OVERRIDE_VERIFIED => Err(LOCKED.str()),
+                (Some(_), Some(_), _) if !FILE_AGENT_MODEL_OVERRIDE_VERIFIED => Err(LOCKED),
                 (Some(t), _, _) => Ok(ModelPin { layer: Layer::Task, arg: Some(t.to_string()), role: None }),
                 (None, Some(_), _) => Ok(ModelPin { layer: Layer::Agent, arg: None, role: None }),
                 (None, None, Some(d)) => Ok(ModelPin { layer: Layer::Type, arg: Some(d), role: None }),
@@ -583,13 +613,13 @@ pub fn resolve(task: Option<&str>, runner: Runner<'_>, type_default: Option<&str
 
 /// A stored pin, re-checked right before the arguments are built. The lock is checked again only for task-layer
 /// pins on a file agent whose file now sets a model.
-pub fn check_pin(pin: &ModelPin, runner: Runner<'_>) -> Result<(), &'static str> {
+pub fn check_pin(pin: &ModelPin, runner: Runner<'_>) -> Result<(), RC> {
     stored_ok(pin.arg.as_deref())?;
     stored_ok(pin.role.as_deref())?;
     if pin.layer == Layer::Task && !FILE_AGENT_MODEL_OVERRIDE_VERIFIED {
         if let Runner::FileAgent(Some(f)) = runner {
             if valid_choice(f) {
-                return Err(LOCKED.str());
+                return Err(LOCKED);
             }
         }
     }
@@ -638,6 +668,180 @@ pub fn first_main_model(conn: &Connection, session_id: &str) -> rusqlite::Result
     let mut st = conn.prepare("SELECT model FROM api_calls WHERE session_id = ?1 AND agent_id IS NULL AND model != '<synthetic>' ORDER BY ts ASC LIMIT 1")?;
     let mut rows = st.query_map([session_id], |r| r.get::<_, String>(0))?;
     Ok(rows.next().and_then(Result::ok))
+}
+
+
+// ---------- unsupported models: automatic fallback (design 11, D-197) ----------
+
+/// Documented aliases that name no single family but that the CLI accepts (model-config docs).
+pub const DOC_ALIASES: [&str; 2] = ["best", "opusplan"];
+
+/// A start the CLI refused because of its model is not retried until spike 1.2 measures what a failed `--bg` leaves
+/// behind and how the refusal reads; until then the failure only gets one hint line (design 11).
+pub const CLI_REJECT_RETRY_MEASURED: bool = false;
+
+/// What counts as "still supported", as plain data (design 11). `availableModels` entries are not evidence.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Known {
+    pub cli: Vec<String>,
+    /// `model`, `modelOverrides` keys and the named env values of every settings scope and the app environment.
+    pub settings: Vec<String>,
+    /// Models seen in the last 7 days.
+    pub recent: Vec<String>,
+    /// Price table prefixes.
+    pub priced: Vec<String>,
+}
+
+impl Known {
+    pub fn from_env(env: &OptionsEnv, prices: &PriceTable) -> Self {
+        let mut settings: Vec<String> = Vec::new();
+        for k in env.scopes() {
+            settings.extend(k.model.iter().cloned());
+            settings.extend(k.overrides.iter().cloned());
+            settings.extend(k.env.iter().map(|(_, v)| v.clone()));
+        }
+        settings.extend(env.process_env.iter().map(|(_, v)| v.clone()));
+        Known {
+            cli: env.cli.clone().unwrap_or_default(),
+            settings: settings.into_iter().filter(|v| valid_model(v)).collect(),
+            recent: env.recent_week.clone(),
+            priced: prices.models.iter().map(|m| m.prefix.clone()).collect(),
+        }
+    }
+}
+
+fn dated(rest: &str) -> bool {
+    rest.len() == 9 && rest.starts_with('-') && rest[1..].bytes().all(|b| b.is_ascii_digit())
+}
+
+/// Whether the CLI can still be expected to take `value` (design 11).
+pub fn supported(value: &str, k: &Known) -> bool {
+    if family_of_alias(value).is_some() || DOC_ALIASES.contains(&value) {
+        return true;
+    }
+    if k.cli.iter().chain(&k.settings).any(|c| c == value) {
+        return true;
+    }
+    let key = normalize_id(value);
+    if k.recent.iter().any(|r| r == value || normalize_id(r) == key) {
+        return true;
+    }
+    k.priced.iter().any(|p| key == *p || key.strip_prefix(p.as_str()).is_some_and(dated))
+}
+
+/// The family a value belongs to: an alias, `opusplan`, or a `claude-…` id with exactly one family word in it.
+pub fn family_of(value: &str) -> Option<&'static str> {
+    if let Some(f) = family_of_alias(value) {
+        return Some(f);
+    }
+    if value == "opusplan" {
+        return Some("opus");
+    }
+    let key = normalize_id(value);
+    if !key.starts_with("claude-") {
+        return None;
+    }
+    let found: Vec<&'static str> = FAMILIES.iter().copied().filter(|f| key.split('-').any(|w| w == *f)).collect();
+    (found.len() == 1).then(|| found[0])
+}
+
+fn rank(family: &str) -> usize {
+    ["haiku", "sonnet", "opus", "fable"].iter().position(|f| *f == family).unwrap_or(usize::MAX)
+}
+
+/// What an unsupported value is replaced with. `None` = nothing allowed and not pricier (the start is refused).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum Replacement {
+    Alias { to: String },
+    Default,
+    None,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FallbackCtx<'a> {
+    pub known: &'a Known,
+    pub list: &'a Allowlist,
+    /// What the CLI uses with no `--model` (`current_default`), if known.
+    pub default_value: Option<&'a str>,
+}
+
+/// Replacement for an unsupported value. The requested value must pass the allowlist first: a blocked value is
+/// refused with its reason and never replaced (design 11).
+pub fn fallback(requested: &str, ctx: &FallbackCtx<'_>) -> Result<Replacement, RC> {
+    check_allowed(ctx.list, requested)?;
+    let Some(fam) = family_of(requested) else { return Ok(Replacement::Default) };
+    // An alias the allowlist narrows to listed versions could land on the gone version again: not a target.
+    if allowed(ctx.list, fam) == (Allow::Yes, None) {
+        return Ok(Replacement::Alias { to: fam.to_string() });
+    }
+    let default_family = ctx.default_value.and_then(family_of);
+    match default_family {
+        Some(d) if rank(d) <= rank(fam) => Ok(Replacement::Default),
+        _ => Err(NO_FALLBACK),
+    }
+}
+
+/// One model value after the support check: what to pass and, when it was replaced, what was asked for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fixed {
+    pub value: Option<String>,
+    pub requested: Option<String>,
+}
+
+/// Allowlist check, then the fallback for an unsupported value. `None` stays `None`.
+pub fn fix(value: Option<&str>, ctx: &FallbackCtx<'_>) -> Result<Fixed, RC> {
+    let Some(v) = value else { return Ok(Fixed { value: None, requested: None }) };
+    check_allowed(ctx.list, v)?;
+    if supported(v, ctx.known) {
+        return Ok(Fixed { value: Some(v.to_string()), requested: None });
+    }
+    let to = match fallback(v, ctx)? {
+        Replacement::Alias { to } => Some(to),
+        _ => None,
+    };
+    Ok(Fixed { value: to, requested: Some(v.to_string()) })
+}
+
+/// The pin a start or resume really passes, with the value asked for when something was replaced. Inline roles keep
+/// the role `model` equal to `--model`. A file agent whose own `model:` is unsupported is refused until spike 1.1
+/// shows that `--model` wins over `--agent` (design 11).
+pub fn apply_fallback(pin: &ModelPin, runner: Runner<'_>, ctx: &FallbackCtx<'_>) -> Result<(ModelPin, Option<String>), RC> {
+    let arg = fix(pin.arg.as_deref(), ctx)?;
+    match runner {
+        Runner::Inline => {
+            let role = if pin.role == pin.arg { arg.clone() } else { fix(pin.role.as_deref(), ctx)? };
+            let requested = arg.requested.clone().or(role.requested.clone());
+            Ok((ModelPin { layer: pin.layer, arg: arg.value, role: role.value }, requested))
+        }
+        Runner::FileAgent(file) => {
+            let file = file.filter(|f| valid_choice(f));
+            if let (None, Some(f)) = (&pin.arg, file) {
+                check_allowed(ctx.list, f)?;
+                if !supported(f, ctx.known) {
+                    if !FILE_AGENT_MODEL_OVERRIDE_VERIFIED {
+                        return Err(AGENT_UNSUPPORTED);
+                    }
+                    let to = match fallback(f, ctx)? {
+                        Replacement::Alias { to } => to,
+                        _ => ctx.default_value.filter(|d| valid_choice(d)).map(str::to_string).ok_or(NO_FALLBACK)?,
+                    };
+                    return Ok((ModelPin { layer: pin.layer, arg: Some(to), role: None }, Some(f.to_string())));
+                }
+            }
+            Ok((ModelPin { layer: pin.layer, arg: arg.value, role: None }, arg.requested))
+        }
+    }
+}
+
+const REJECT_WORDS: [&str; 10] = ["not found", "not_found", "invalid model", "unknown model", "not available", "not supported", "unsupported", "does not exist", "retired", "deprecated"];
+const POLICY_WORDS: [&str; 6] = ["availablemodels", "policy", "organization", "managed", "permission", "access"];
+
+/// Whether a failed `claude --bg` reads like a refusal of `value` (unmeasured wording, spike 1.2). Policy wording
+/// never counts. The text is only looked at here, never kept.
+pub fn rejects_model(stderr_tail: &str, value: &str) -> bool {
+    let t = stderr_tail.to_ascii_lowercase();
+    !value.is_empty() && t.contains(&value.to_ascii_lowercase()) && t.contains("model") && REJECT_WORDS.iter().any(|w| t.contains(w)) && !POLICY_WORDS.iter().any(|w| t.contains(w))
 }
 
 /// Unique values, order kept, for `OptionsEnv::custom`.
@@ -759,11 +963,11 @@ mod tests {
             assert_eq!(allowed(&l, v).0, want, "{v}");
         }
         assert_eq!(allowed(&l, "opus"), (Allow::Yes, Some("관리 설정 범위의 버전으로 바뀌어요")), "family narrowed to an allowed version");
-        assert_eq!(check_allowed(&l, "haiku"), Err(BLOCKED_SETTINGS.str()));
+        assert_eq!(check_allowed(&l, "haiku"), Err(BLOCKED_SETTINGS));
         let m = allowlist(&managed(r#"{"availableModels":["sonnet","haiku"]}"#), &[&user]);
         assert_eq!(m.kind, AllowKind::Managed, "managed list alone");
-        assert_eq!(check_allowed(&m, "claude-opus-5-5"), Err(BLOCKED_MANAGED.str()));
-        assert_eq!(check_allowed(&m, "claude-opus-4-6"), Err(BLOCKED_MANAGED.str()), "user list cannot widen it");
+        assert_eq!(check_allowed(&m, "claude-opus-5-5"), Err(BLOCKED_MANAGED));
+        assert_eq!(check_allowed(&m, "claude-opus-4-6"), Err(BLOCKED_MANAGED), "user list cannot widen it");
         let empty = allowlist(&managed(r#"{"availableModels":[]}"#), &[]);
         assert_eq!(allowed(&empty, "sonnet").0, Allow::No);
         assert_eq!(allowlist(&none, &[&keys(r#"{"availableModelsMatch":"regex","availableModels":["sonnet"]}"#)]).kind, AllowKind::Unknown);
@@ -771,7 +975,7 @@ mod tests {
         assert_eq!(allowlist(&none, &[&keys(r#"{"model":"x"}"#)]).kind, AllowKind::None);
         let broken = ManagedRead { keys: Vec::new(), unreadable: true };
         let u = allowlist(&broken, &[]);
-        assert_eq!(check_allowed(&u, "sonnet"), Err(BLOCKED_UNKNOWN.str()));
+        assert_eq!(check_allowed(&u, "sonnet"), Err(BLOCKED_UNKNOWN));
     }
 
     #[test]
@@ -807,16 +1011,16 @@ mod tests {
         // File agents: the file wins over the type, and a task value on top is locked until spike 1.1.
         assert_eq!(resolve(None, Runner::FileAgent(Some("opus")), Some("haiku")), Ok(ModelPin { layer: Layer::Agent, arg: None, role: None }));
         assert_eq!(resolve(None, Runner::FileAgent(None), Some("haiku")), Ok(ModelPin { layer: Layer::Type, arg: Some("haiku".into()), role: None }));
-        assert_eq!(resolve(Some("sonnet"), Runner::FileAgent(Some("opus")), None), Err(LOCKED.str()));
+        assert_eq!(resolve(Some("sonnet"), Runner::FileAgent(Some("opus")), None), Err(LOCKED));
         assert_eq!(resolve(Some("sonnet"), Runner::FileAgent(None), None), Ok(ModelPin { layer: Layer::Task, arg: Some("sonnet".into()), role: None }));
         assert_eq!(resolve(Some("sonnet"), Runner::FileAgent(Some("inherit")), None).map(|p| p.layer), Ok(Layer::Task), "inherit = no model");
         // Stored values are re-checked.
-        assert_eq!(resolve(None, Runner::Inline, Some("opus x")), Err(BAD_STORED.str()));
-        assert_eq!(resolve(Some("-p"), Runner::Inline, None), Err(BAD_FORMAT.str()));
+        assert_eq!(resolve(None, Runner::Inline, Some("opus x")), Err(BAD_STORED));
+        assert_eq!(resolve(Some("-p"), Runner::Inline, None), Err(BAD_FORMAT));
         let pin = ModelPin { layer: Layer::Type, arg: Some("sonnet".into()), role: Some("sonnet".into()) };
         assert_eq!(check_pin(&pin, Runner::FileAgent(Some("opus"))), Ok(()), "only task pins hit the lock");
-        assert_eq!(check_pin(&ModelPin { layer: Layer::Task, ..pin.clone() }, Runner::FileAgent(Some("opus"))), Err(LOCKED.str()));
-        assert_eq!(check_pin(&ModelPin { layer: Layer::Task, arg: Some("opus x".into()), role: None }, Runner::Inline), Err(BAD_STORED.str()));
+        assert_eq!(check_pin(&ModelPin { layer: Layer::Task, ..pin.clone() }, Runner::FileAgent(Some("opus"))), Err(LOCKED));
+        assert_eq!(check_pin(&ModelPin { layer: Layer::Task, arg: Some("opus x".into()), role: None }, Runner::Inline), Err(BAD_STORED));
         assert_eq!(Layer::parse("agent"), Some(Layer::Agent));
     }
 
@@ -838,5 +1042,103 @@ mod tests {
         assert_eq!(same_model("opusplan", "claude-opus-5-5"), None);
         assert_eq!(same_model("opus", "<synthetic>"), None);
         assert_eq!(mismatch_line(None, Some("x")), None);
+    }
+
+    fn known() -> Known {
+        Known::from_env(&OptionsEnv { cli: parse_help(HELP_2_1_319), recent_week: vec!["claude-sonnet-5-5".into()], ..Default::default() }, &PriceTable::bundled())
+    }
+
+    #[test]
+    fn support_table() {
+        let k = known();
+        for ok in ["opus", "haiku", "sonnet[1m]", "best", "opusplan", "fable", "claude-sonnet-5-5", "claude-haiku-4-5-20251001", "claude-opus-4-6[1m]", "us.anthropic.claude-opus-4-8", "claude-sonnet-4-6@20250929"] {
+            assert!(supported(ok, &k), "{ok}");
+        }
+        for gone in ["claude-opus-3-9", "claude-opus-5-9", "acme-large-2", "claude-haiku-4-5-2025", "claude-haiku-3-1"] {
+            assert!(!supported(gone, &k), "{gone}");
+        }
+        // Settings values count, availableModels entries do not (design review BLOCKER).
+        let env = OptionsEnv { user: Some(keys(r#"{"model":"acme-large-2","availableModels":["claude-haiku-3-1"]}"#)), ..Default::default() };
+        let k2 = Known::from_env(&env, &PriceTable::bundled());
+        assert!(supported("acme-large-2", &k2));
+        assert!(!supported("claude-haiku-3-1", &k2));
+    }
+
+    #[test]
+    fn family_words() {
+        for (v, f) in [("opus[1m]", Some("opus")), ("opusplan", Some("opus")), ("claude-opus-3-9", Some("opus")), ("claude-3-5-sonnet-20241022", Some("sonnet")), ("us.anthropic.claude-haiku-3-1-v1:0", Some("haiku")), ("acme-large-2", None), ("best", None), ("claude-opus-sonnet-1", None)] {
+            assert_eq!(family_of(v), f, "{v}");
+        }
+    }
+
+    #[test]
+    fn fallback_rules() {
+        let k = known();
+        let none = Allowlist::none();
+        let ctx = FallbackCtx { known: &k, list: &none, default_value: Some("opus") };
+        // Same family alias, without [1m].
+        assert_eq!(fix(Some("claude-opus-3-9[1m]"), &ctx), Ok(Fixed { value: Some("opus".into()), requested: Some("claude-opus-3-9[1m]".into()) }));
+        // Unknown family: the default.
+        assert_eq!(fix(Some("acme-large-2"), &ctx), Ok(Fixed { value: None, requested: Some("acme-large-2".into()) }));
+        // Supported values stay.
+        assert_eq!(fix(Some("claude-haiku-4-5-20251001"), &ctx), Ok(Fixed { value: Some("claude-haiku-4-5-20251001".into()), requested: None }));
+        assert_eq!(fix(None, &ctx), Ok(Fixed { value: None, requested: None }));
+        // Policy-blocked values are refused, never replaced.
+        let managed = allowlist(&ManagedRead { keys: vec![keys(r#"{"availableModels":["sonnet"]}"#)], unreadable: false }, &[]);
+        let mctx = FallbackCtx { list: &managed, ..ctx };
+        assert_eq!(fix(Some("claude-opus-3-9"), &mctx), Err(BLOCKED_MANAGED));
+        let unknown = Allowlist { kind: AllowKind::Unknown, list: Vec::new() };
+        assert_eq!(fix(Some("claude-opus-3-9"), &FallbackCtx { list: &unknown, ..ctx }), Err(BLOCKED_UNKNOWN));
+        // A narrowed alias is no target, and the default may not be a pricier family.
+        let user = allowlist(&ManagedRead::default(), &[&keys(r#"{"availableModels":["claude-haiku-3-1","opus"]}"#)]);
+        let uctx = FallbackCtx { list: &user, ..ctx };
+        assert_eq!(fix(Some("claude-haiku-3-1"), &uctx), Err(NO_FALLBACK));
+        assert_eq!(fallback("claude-haiku-3-1", &FallbackCtx { default_value: None, ..uctx }), Err(NO_FALLBACK), "unknown default family");
+        let cheap = allowlist(&ManagedRead::default(), &[&keys(r#"{"availableModels":["claude-opus-3-9","claude-opus-4-6","haiku"]}"#)]);
+        assert_eq!(fallback("claude-opus-3-9", &FallbackCtx { list: &cheap, default_value: Some("haiku"), ..ctx }), Ok(Replacement::Default), "a cheaper default is fine");
+    }
+
+    #[test]
+    fn fallback_by_layer() {
+        let k = known();
+        let none = Allowlist::none();
+        let ctx = FallbackCtx { known: &k, list: &none, default_value: Some("sonnet") };
+        let inline = ModelPin { layer: Layer::Type, arg: Some("claude-opus-3-9".into()), role: Some("claude-opus-3-9".into()) };
+        assert_eq!(apply_fallback(&inline, Runner::Inline, &ctx), Ok((ModelPin { layer: Layer::Type, arg: Some("opus".into()), role: Some("opus".into()) }, Some("claude-opus-3-9".into()))));
+        let to_default = ModelPin { layer: Layer::Task, arg: Some("acme-large-2".into()), role: Some("acme-large-2".into()) };
+        assert_eq!(apply_fallback(&to_default, Runner::Inline, &ctx).unwrap().0, ModelPin { layer: Layer::Task, arg: None, role: None });
+        // File agent: a task/type value on top is replaced in --model only.
+        let on_file = ModelPin { layer: Layer::Type, arg: Some("claude-sonnet-3-9".into()), role: None };
+        assert_eq!(apply_fallback(&on_file, Runner::FileAgent(None), &ctx).unwrap().0.arg.as_deref(), Some("sonnet"));
+        // The file's own model: refused until spike 1.1.
+        let agent = ModelPin { layer: Layer::Agent, arg: None, role: None };
+        assert_eq!(apply_fallback(&agent, Runner::FileAgent(Some("claude-sonnet-3-9")), &ctx), Err(AGENT_UNSUPPORTED));
+        assert_eq!(apply_fallback(&agent, Runner::FileAgent(Some("opus")), &ctx), Ok((agent.clone(), None)));
+        let blocked = allowlist(&ManagedRead { keys: vec![keys(r#"{"availableModels":["sonnet"]}"#)], unreadable: false }, &[]);
+        assert_eq!(apply_fallback(&agent, Runner::FileAgent(Some("opus")), &FallbackCtx { list: &blocked, ..ctx }), Err(BLOCKED_MANAGED));
+    }
+
+    #[test]
+    fn cli_rejection_words() {
+        assert!(rejects_model("Error: model claude-opus-3-9 not found", "claude-opus-3-9"));
+        assert!(rejects_model("API Error: 404 {\"type\":\"not_found_error\",\"message\":\"model: claude-opus-3-9\"}", "claude-opus-3-9"));
+        assert!(!rejects_model("Error: model claude-opus-3-9 is not available for your organization", "claude-opus-3-9"), "policy wording");
+        assert!(!rejects_model("Error: model blocked by availableModels", "opus"));
+        assert!(!rejects_model("Workspace not trusted", "opus"));
+        assert!(!rejects_model("model sonnet not found", "opus"), "another model");
+        assert!(!CLI_REJECT_RETRY_MEASURED);
+    }
+
+    #[test]
+    fn options_mark_stored_unsupported_values() {
+        let env = OptionsEnv { cli: parse_help(HELP_2_1_319), custom: vec!["claude-opus-3-9".into(), "acme-large-2".into(), "claude-opus-5-5".into()], ..Default::default() };
+        let o = options(&env, &PriceTable::bundled());
+        let r = |v: &str| o.items.iter().find(|i| i.value == v).unwrap().replacement.clone();
+        assert_eq!(r("claude-opus-3-9"), Some(Replacement::Alias { to: "opus".into() }));
+        assert_eq!(r("acme-large-2"), Some(Replacement::Default));
+        assert_eq!(r("claude-opus-5-5"), None);
+        assert_eq!(r("opus"), None);
+        let json = serde_json::to_string(&o).unwrap();
+        assert!(json.contains(r#""replacement":{"kind":"alias","to":"opus"}"#), "{json}");
     }
 }
