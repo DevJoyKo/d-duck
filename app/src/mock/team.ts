@@ -38,7 +38,8 @@ const defaults = () => {
     reportShape: (["research", "architecture", "comms", "learn"].includes(t.key) ? "free" : "criteria") as "free" | "criteria",
   })),
   refine: { ...bundle.refine },
-  preferred: [] as { kind: string; name: string; source: string; scope?: string }[],
+  // The bundled default (preferred-default): the mattpocock-skills plugin.
+  preferred: [{ kind: "plugin", name: "mattpocock-skills", source: "plugin:mattpocock-skills" }] as { kind: string; name: string; source: string; scope?: string }[],
   errors: [] as string[],
   };
 };
@@ -73,12 +74,7 @@ config.types = config.types.map((t) =>
       : t,
 );
 
-// "먼저 살펴볼 스킬·에이전트" sample: one plugin, one skill and an agent whose file is gone ("설치되지 않음").
-config.preferred = [
-  { kind: "plugin", name: "writing-kit", source: "plugin:writing-kit" },
-  { kind: "skill", name: "frontend-design", source: "user" },
-  { kind: "agent", name: "old-helper", source: "user" },
-];
+// "먼저 살펴볼 스킬·에이전트" stays at the bundled default; mattpocock-skills is not in the options, so it shows "설치되지 않아 빠져요".
 const opt = (kind: string, name: string, source: string, description: string | null, members: string[] = [], scope: string | null = null) => ({ kind, name, source, scope, description, members });
 const preferredOptions = [
   opt("plugin", "writing-kit", "plugin:writing-kit", null, ["grill-me", "plan", "tdd", "write-a-prd"]),
@@ -106,11 +102,11 @@ export const teamHandlers: Record<string, (a: Record<string, unknown>) => unknow
       }),
       types: input.types.map((t) => ({ ...t, changed: JSON.stringify(t) !== JSON.stringify(d.types.find((x) => x.key === t.key)) })),
       refine: input.refine ?? d.refine,
-      preferred: input.preferred ?? [],
+      preferred: input.preferred ?? d.preferred,
     };
   },
   reset_team_config: (a) => {
-    if (a.item === "preferred") config.preferred = [];
+    if (a.item === "preferred") config.preferred = defaults().preferred;
     else config = defaults();
   },
   preferred_options: () => structuredClone(preferredOptions),

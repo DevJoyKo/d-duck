@@ -279,6 +279,7 @@ export default {
     retry: "다시 시도",
     noMatch: "맞는 항목이 없어요",
     clear: "목록 비우기",
+    toDefault: "목록 기본값으로",
   },
   types: {
     tab: "작업 유형",

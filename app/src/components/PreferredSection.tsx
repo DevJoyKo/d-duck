@@ -1,17 +1,19 @@
 // "먼저 살펴볼 스킬·에이전트" in the team rules tab (preferred-skills, D-198): pick installed plugins, skills and agents.
 // Prompt guidance only; the backend checks every item again and puts only installed ones into the start line.
-import { Plus, Trash2, X } from "lucide-react";
+// `defaults` is the bundled list (preferred-default: the mattpocock-skills plugin); an empty list is a choice of its own.
+import { Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { useT } from "../i18n/react";
 import { addable, folderName, installedOf, itemKey, KINDS, MAX_PREFERRED, toItem, usePreferredOptions, type PreferredItem } from "../lib/preferred";
 import { Button, fieldClass } from "./ui";
 
-export function PreferredSection({ value, onChange }: { value: PreferredItem[]; onChange: (v: PreferredItem[]) => void }) {
+export function PreferredSection({ value, defaults, onChange }: { value: PreferredItem[]; defaults: PreferredItem[]; onChange: (v: PreferredItem[]) => void }) {
   const tr = useT();
   const opts = usePreferredOptions();
   const [query, setQuery] = useState("");
   const [pick, setPick] = useState("");
   const full = value.length >= MAX_PREFERRED;
+  const isDefault = JSON.stringify(value.map(itemKey)) === JSON.stringify(defaults.map(itemKey));
   const choices = addable(opts.data ?? [], value, query);
   const chosen = choices.find((o) => itemKey(o) === pick);
   const add = () => {
@@ -89,10 +91,19 @@ export function PreferredSection({ value, onChange }: { value: PreferredItem[]; 
         <span className="tabular-nums">{tr("agents.preferred.count", { n: value.length, max: MAX_PREFERRED })}</span>
         {full && <span role="status">{tr("agents.preferred.max", { max: MAX_PREFERRED })}</span>}
         <span>{tr("agents.preferred.projectNote")}</span>
-        {value.length > 0 && (
-          <button type="button" className="ml-auto flex items-center gap-1 rounded px-1.5 py-1 text-ink-3 hover:bg-paper hover:text-ink" onClick={() => onChange([])}>
-            <Trash2 size={12} aria-hidden /> {tr("agents.preferred.clear")}
-          </button>
+        {(!isDefault || value.length > 0) && (
+          <span className="ml-auto flex items-center gap-1">
+            {!isDefault && (
+              <button type="button" className="flex items-center gap-1 rounded px-1.5 py-1 text-ink-3 hover:bg-paper hover:text-ink" onClick={() => onChange(defaults.map((d) => ({ ...d })))}>
+                <RotateCcw size={12} aria-hidden /> {tr("agents.preferred.toDefault")}
+              </button>
+            )}
+            {value.length > 0 && (
+              <button type="button" className="flex items-center gap-1 rounded px-1.5 py-1 text-ink-3 hover:bg-paper hover:text-ink" onClick={() => onChange([])}>
+                <Trash2 size={12} aria-hidden /> {tr("agents.preferred.clear")}
+              </button>
+            )}
+          </span>
         )}
       </div>
     </fieldset>

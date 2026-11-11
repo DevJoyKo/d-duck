@@ -12,12 +12,14 @@ const OPTIONS = [
 ];
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => OPTIONS) }));
 
+const DEFAULT: PreferredItem[] = [{ kind: "plugin", name: "mattpocock-skills", source: "plugin:mattpocock-skills" }];
 let last: PreferredItem[] | null = null;
-function Harness({ start }: { start: PreferredItem[] }) {
+function Harness({ start, defaults = DEFAULT }: { start: PreferredItem[]; defaults?: PreferredItem[] }) {
   const [v, setV] = useState(start);
   return (
     <PreferredSection
       value={v}
+      defaults={defaults}
       onChange={(n) => {
         last = n;
         setV(n);
@@ -25,10 +27,10 @@ function Harness({ start }: { start: PreferredItem[] }) {
     />
   );
 }
-const show = (start: PreferredItem[]) =>
+const show = (start: PreferredItem[], defaults?: PreferredItem[]) =>
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <Harness start={start} />
+      <Harness start={start} defaults={defaults} />
     </QueryClientProvider>,
   );
 
@@ -67,6 +69,26 @@ describe("PreferredSection", () => {
     expect((pick as HTMLSelectElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "추가" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("10개까지 고를 수 있어요")).toBeTruthy();
+  });
+
+  it("shows the default plugin and says it is left out when not installed", async () => {
+    show(DEFAULT);
+    const list = screen.getByRole("list", { name: "먼저 살펴볼 스킬·에이전트" });
+    expect(within(list).getByText("mattpocock-skills")).toBeTruthy();
+    expect(within(list).getByText("플러그인")).toBeTruthy();
+    expect(await within(list).findByText("설치되지 않아 빠져요")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "목록 기본값으로" }), "no reset while it is the default").toBeNull();
+  });
+
+  it("goes back to the default after the list was cleared", async () => {
+    show(DEFAULT);
+    fireEvent.click(screen.getByRole("button", { name: "목록 비우기" }));
+    expect(last).toEqual([]);
+    expect(screen.getByText("아직 고른 항목이 없어요.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "목록 기본값으로" }));
+    expect(last).toEqual(DEFAULT);
+    expect(screen.getByText("mattpocock-skills")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "목록 기본값으로" })).toBeNull();
   });
 
   it("says it is guidance, not an enforced guardrail", () => {

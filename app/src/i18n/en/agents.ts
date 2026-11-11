@@ -279,6 +279,7 @@ export default {
     retry: "Try again",
     noMatch: "No matching items",
     clear: "Clear list",
+    toDefault: "Reset list to default",
   },
   types: {
     tab: "Task types",
