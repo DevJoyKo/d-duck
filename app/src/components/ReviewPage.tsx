@@ -34,7 +34,7 @@ const MAX_PAGES = Math.ceil(500 / PAGE_SIZE);
 // Warn text stays ink-2 (the warn token is too close to the duck's yellow in dark mode); only its icon is colored.
 const TONE: Record<CardView["tone"], string> = { plain: "text-ink-2", warn: "text-ink-2", danger: "text-danger" };
 
-const canMark = (i: InboxItem) => !i.reviewed && i.running === null;
+const canMark = (i: InboxItem) => i.report.kind !== "none" && !i.reviewed && i.running === null;
 
 /** A click on the card body opens the report, unless it ended a text selection, landed on a control, or is the
  *  second or third click of a word or line selection (report-copy-save: the card text can be dragged and copied). */
@@ -100,6 +100,8 @@ function Card({
   openRef: (el: HTMLButtonElement | null) => void;
 }) {
   const v = cardView(item);
+  // D-196: a task without a report has no report sheet; the card opens the task instead (onOpen is that action).
+  const noReport = item.report.kind === "none";
   const body = useDelayedOpen(onOpen);
   // A card without a goal leads with its start time, so several of them can be told apart.
   const title = item.goal ? v.goal : `${dateTime(item.createdAt)} · ${v.goal}`;
@@ -125,6 +127,11 @@ function Card({
             {v.tone === "warn" && <AlertTriangle size={12} strokeWidth={2.2} className="shrink-0 translate-y-[1px] text-warn" aria-hidden />}
             {v.line}
           </span>
+          {noReport && (
+            <span className="shrink-0 rounded-full border border-line px-2 py-px text-[11px] text-ink-2" data-no-report data-no-select>
+              {t("report.review.noReport")}
+            </span>
+          )}
           <span className="min-w-0 truncate text-[11px] text-ink-3">{when}</span>
         </span>
         {v.preview.length > 0 && (
@@ -179,6 +186,18 @@ function Card({
         )}
       </article>
       <div className="flex shrink-0 items-center gap-2 pt-0.5">
+        {noReport ? (
+          <button
+            ref={openRef}
+            onClick={onOpen}
+            className="inline-flex h-7 shrink-0 items-center rounded-md px-2 text-xs whitespace-nowrap text-ink-2 hover:bg-paper hover:text-ink"
+            aria-label={t("report.review.openTaskLabel", { title })}
+            data-open-task
+          >
+            {t("report.review.openTask")}
+          </button>
+        ) : (
+          <>
         <button
           ref={openRef}
           onClick={onOpen}
@@ -201,6 +220,8 @@ function Card({
         ) : v.markable ? (
           <MarkButton primary={primary} onClick={onMark} disabled={busy} />
         ) : null}
+          </>
+        )}
       </div>
     </li>
   );
@@ -359,7 +380,18 @@ export function ReviewPage({ agents, onNavigate }: { agents: AgentsPayload | und
   };
 
   const reportOff = !!inbox && !inbox.reportSetting;
-  const offAndEmpty = reportOff && !inbox?.hasAny;
+  // Tasks without a report (D-196) keep the filters, so 전체 can still list them with the setting off.
+  const offAndEmpty = reportOff && !inbox?.hasAny && !inbox?.noReport;
+  // "작업 보기" (D-196): the board's session drawer while the CLI lists the task, else its 지난 작업 row.
+  const openTask = (item: InboxItem) => {
+    const s = agents?.sessions.find((x) => x.id === item.bgId);
+    if (s) {
+      window.dispatchEvent(new CustomEvent("dduck-open-task", { detail: s.key }));
+      return;
+    }
+    history.replaceState(null, "", `${window.location.pathname}${window.location.search}#record=${encodeURIComponent(item.bgId)}`);
+    onNavigate("tasks");
+  };
   const undoLine = (lead: string) => (
     <span role="status" className="mr-auto text-xs text-ink-2">
       {lead} ·{" "}
@@ -406,7 +438,7 @@ export function ReviewPage({ agents, onNavigate }: { agents: AgentsPayload | und
           <Resting line={t("report.review.offEmpty")}>
             <Button onClick={() => onNavigate("settings")}>{t("report.review.openSettings")}</Button>
           </Resting>
-        ) : !inbox.hasAny ? (
+        ) : !inbox.hasAny && items.length === 0 ? (
           <Resting line={t("report.review.noReports")} />
         ) : items.length === 0 ? (
           <Resting line={inbox.running > 0 ? t("report.review.allReviewedRunning", { count: inbox.running }) : t("report.review.allReviewed")} />
@@ -431,7 +463,7 @@ export function ReviewPage({ agents, onNavigate }: { agents: AgentsPayload | und
                         item={item}
                         primary={item.bgId === primaryId}
                         busy={busy === item.bgId}
-                        onOpen={() => setOpen(item)}
+                        onOpen={() => (item.report.kind === "none" ? openTask(item) : setOpen(item))}
                         onMark={() => void markFromCard(item)}
                         onUnmark={() => void unmark(item.bgId)}
                         openRef={(el) => {

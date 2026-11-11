@@ -709,7 +709,8 @@ export interface InboxCriterion {
   verified?: VerifiedKinds;
   testsFailed?: number;
 }
-export type InboxReport = { kind: "ready"; summary: InboxSummary } | { kind: "missing" } | { kind: "invalid"; code: ReportErrorCode };
+/** `none`: a finished D.Duck task started without a report (D-196), listed under 전체 only. */
+export type InboxReport = { kind: "ready"; summary: InboxSummary } | { kind: "missing" } | { kind: "invalid"; code: ReportErrorCode } | { kind: "none" };
 export interface InboxItem {
   bgId: string;
   taskType: string | null;
@@ -729,12 +730,16 @@ export interface InboxItem {
   wrapped?: boolean;
   /** A routine run with a report (review-routine-runs): the card says "루틴". */
   routine?: boolean;
+  /** How the task last ended while listed; shown on a card without a report. */
+  ended?: "done" | "failed" | "stopped" | "unknown" | null;
 }
 export interface Inbox {
   reportSetting: boolean;
   total: number;
   pendingOther: number;
   hasAny: boolean;
+  /** Finished D.Duck tasks without a report in this scope (D-196), listed under 전체 only. */
+  noReport?: number;
   /** Still running tasks with a report in this project. */
   running: number;
   groups: InboxGroupTotal[];

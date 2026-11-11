@@ -157,10 +157,20 @@ function Card({ s, selected, onSelect, tag, onDraft, label, expanded, children }
 }
 
 /** "지난 작업": what was started from D.Duck, even after `claude agents` forgot it (D-069). */
+/** `#record=<bg id>` from the 리뷰 tab's "작업 보기" on a task the CLI no longer lists (D-196). */
+function recordFromHash(): string | null {
+  const m = /^#record=([0-9A-Za-z_-]{1,64})$/.exec(window.location.hash);
+  return m ? m[1] : null;
+}
+
 function History({ live, onDraft }: { live: Set<string>; onDraft: (d: Draft) => void }) {
   const t = useT();
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
+  const [focus] = useState(recordFromHash);
+  const [open, setOpen] = useState(focus !== null);
+  useEffect(() => {
+    if (focus) history.replaceState(null, "", window.location.pathname + window.location.search);
+  }, [focus]);
   const [filter, setFilter] = useState("");
   const [shown, setShown] = useState(20);
   const records = useQuery({ queryKey: ["task-records"], queryFn: api.taskRecords, enabled: open });
@@ -168,6 +178,8 @@ function History({ live, onDraft }: { live: Set<string>; onDraft: (d: Draft) => 
     const f = filter.trim().toLowerCase();
     return !f || (r.name ?? "").toLowerCase().includes(f) || (r.cwd ?? "").toLowerCase().includes(f);
   });
+  // The record asked for may sit past the first 20: show up to it.
+  const upTo = Math.max(shown, rows.findIndex((r) => r.bgId === focus) + 1);
   return (
     <section aria-label={t("tasks.history.title")} className="pt-2">
       <button onClick={() => setOpen(!open)} aria-expanded={open} className="flex items-center gap-2 text-[13px] font-semibold">
@@ -181,13 +193,13 @@ function History({ live, onDraft }: { live: Set<string>; onDraft: (d: Draft) => 
             <p className="text-xs text-ink-3">{records.isPending ? t("tasks.loading") : t("tasks.history.empty")}</p>
           ) : (
             <ul className="divide-y divide-line rounded-xl bg-sheet shadow-e1">
-              {rows.slice(0, shown).map((r) => (
-                <HistoryRow key={r.bgId} r={r} onDraft={onDraft} onDeleted={() => qc.invalidateQueries({ queryKey: ["task-records"] })} />
+              {rows.slice(0, upTo).map((r) => (
+                <HistoryRow key={r.bgId} r={r} focus={r.bgId === focus} onDraft={onDraft} onDeleted={() => qc.invalidateQueries({ queryKey: ["task-records"] })} />
               ))}
             </ul>
           )}
-          {rows.length > shown && (
-            <Button onClick={() => setShown(shown + 20)}>{t("tasks.history.more", { count: rows.length - shown })}</Button>
+          {rows.length > upTo && (
+            <Button onClick={() => setShown(upTo + 20)}>{t("tasks.history.more", { count: rows.length - upTo })}</Button>
           )}
         </div>
       )}
@@ -195,16 +207,23 @@ function History({ live, onDraft }: { live: Set<string>; onDraft: (d: Draft) => 
   );
 }
 
-function HistoryRow({ r, onDraft, onDeleted }: { r: TaskRecord; onDraft: (d: Draft) => void; onDeleted: () => void }) {
+function HistoryRow({ r, focus = false, onDraft, onDeleted }: { r: TaskRecord; focus?: boolean; onDraft: (d: Draft) => void; onDeleted: () => void }) {
   const t = useT();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(focus);
+  const rowRef = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    if (!focus) return;
+    // After the board above has laid out, so the row really ends up in view.
+    const id = window.setTimeout(() => rowRef.current?.scrollIntoView?.({ block: "center" }), 150);
+    return () => window.clearTimeout(id);
+  }, [focus]);
   const [confirm, setConfirm] = useState(false);
   const [report, setReport] = useState(false);
   const detail = useQuery({ queryKey: ["task-record", r.bgId], queryFn: () => api.taskRecord(r.bgId), enabled: expanded, gcTime: 0 });
   const del = useMutation({ mutationFn: () => api.deleteTaskRecord(r.bgId), onSuccess: onDeleted });
   const typeLabel = taskTypeLabel(r.taskType, useTeamConfig().data?.config.types);
   return (
-    <li className="px-4 py-3">
+    <li ref={rowRef} className="px-4 py-3" data-record-row={r.bgId}>
       <div className="flex items-center gap-3">
         <button onClick={() => setExpanded(!expanded)} aria-expanded={expanded} className="min-w-0 flex-1 text-left">
           <p className="truncate text-[13px] font-medium">

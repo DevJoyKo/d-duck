@@ -67,7 +67,8 @@ describe("리뷰 tab", () => {
     await boot();
     await waitFor(() => expect(cards().length).toBe(5));
     fireEvent.click(screen.getByRole("radio", { name: "전체" }));
-    await waitFor(() => expect(cards().length).toBe(9));
+    // 9 with a report + the finished task without one (D-196).
+    await waitFor(() => expect(cards().length).toBe(10));
     const card = (id: string) => document.querySelector(`[data-review-card="${id}"]`) as HTMLElement;
     expect(card("f3e5ff71").textContent).toContain("답을 기다려요");
     expect(card("ab12cd34").textContent).toContain("일하는 중이에요");
@@ -188,6 +189,32 @@ describe("리뷰 tab", () => {
     await waitFor(() => expect(within(nav).getByLabelText("리뷰 전 5개")).toBeTruthy());
   });
 
+  it("D-196: a finished task without a report is in 전체 only, says 보고서 없음 and opens the task, not a report", async () => {
+    const invoke = await boot();
+    const nav = screen.getByRole("navigation");
+    expect(await within(nav).findByLabelText("리뷰 전 5개")).toBeTruthy();
+    await waitFor(() => expect(cards().length).toBe(5));
+    expect(cards()).not.toContain("ee0c0d22");
+    fireEvent.click(screen.getByRole("radio", { name: "전체" }));
+    await waitFor(() => expect(cards()).toContain("ee0c0d22"));
+    // The badge does not move.
+    expect(within(nav).getByLabelText("리뷰 전 5개")).toBeTruthy();
+    const card = document.querySelector('[data-review-card="ee0c0d22"]') as HTMLElement;
+    expect(card.closest("[data-review-group]")?.getAttribute("data-review-group")).toBe("research");
+    expect(card.querySelector("[data-card-title]")?.textContent).toBe("market-research");
+    expect(card.querySelector("[data-no-report]")?.textContent).toBe("보고서 없음");
+    expect(card.textContent).toContain("끝냈어요");
+    expect(card.textContent).toMatch(/dev_team · /);
+    expect(within(card).queryByRole("button", { name: "리뷰했어요" })).toBeNull();
+    expect(within(card).queryByRole("button", { name: /보고서 열기/ })).toBeNull();
+    // Not listed by the CLI any more: 작업 보기 lands on its 지난 작업 row, expanded.
+    fireEvent.click(within(card).getByRole("button", { name: /작업 보기/ }));
+    await waitFor(() => expect(document.querySelector('[data-record-row="ee0c0d22"]')).toBeTruthy());
+    expect(invoke).not.toHaveBeenCalledWith("task_report", { id: "ee0c0d22" });
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("task_record", { id: "ee0c0d22" }));
+    expect(window.location.hash).toBe("");
+  });
+
   it("a task card does not say 루틴", async () => {
     await boot();
     await waitFor(() => expect(cards()).toContain("9988aabb"));
@@ -231,7 +258,8 @@ describe("리뷰 tab", () => {
     const invoke = await boot();
     await waitFor(() => expect(cards().length).toBe(5));
     fireEvent.click(screen.getByRole("radio", { name: "전체" }));
-    await waitFor(() => expect(cards().length).toBe(9));
+    // 9 with a report + the finished task without one (D-196).
+    await waitFor(() => expect(cards().length).toBe(10));
     fireEvent.click(within(document.querySelector('[data-review-card="9988aabb"]') as HTMLElement).getByRole("button", { name: /보고서 열기/ }));
     const dialog = await screen.findByRole("dialog");
     const listCalls = () => invoke.mock.calls.filter(([c]) => c === "review_inbox").length;
