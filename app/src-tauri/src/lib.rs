@@ -1878,7 +1878,32 @@ fn loadout_env(state: &AppState, cwd: &std::path::Path, team: Option<&str>) -> d
     let scan = if names.is_empty() { loadout::SkillScan::default() } else { loadout::scan_skills(&cfg.path, canon.as_slice(), Some(&names)) };
     let file = dduck_core::mcp_config::user_file(&home_dir(), cfg.explicit.then_some(cfg.path.as_path()));
     let list = dduck_core::mcp_config::list(&file, canon.as_deref());
-    loadout::Env { skills: scan.options, unreadable_skills: scan.unreadable, mcp_unreadable: !list.unreadable.is_empty(), mcp_servers: list.servers.into_iter().map(|s| s.name).collect() }
+    let preferred = if dduck_core::preferred::needed(&dduck_core::team_config::load(team).preferred) { preferred_for(&cfg.path, cwd) } else { Vec::new() };
+    loadout::Env { skills: scan.options, unreadable_skills: scan.unreadable, mcp_unreadable: !list.unreadable.is_empty(), mcp_servers: list.servers.into_iter().map(|s| s.name).collect(), preferred }
+}
+
+/// "먼저 살펴볼 스킬·에이전트" installed for one folder (preferred-skills): the extension and agent catalog readers,
+/// with project items from `cwd` and its ancestors only and agents usable there. Read only when something is chosen.
+fn preferred_for(config_dir: &std::path::Path, cwd: &std::path::Path) -> Vec<dduck_core::preferred::Available> {
+    let canon = std::fs::canonicalize(cwd).ok();
+    let skills = dduck_core::skills_catalog::discover(config_dir, canon.as_slice());
+    let roots = agents_catalog::Roots { config_dir: config_dir.to_path_buf(), project_dirs: Vec::new() };
+    let agents = agents_catalog::discover_for(&roots, canon.as_deref());
+    dduck_core::preferred::available(&skills, &agents, true)
+}
+
+/// Choices for "먼저 살펴볼 스킬·에이전트": user, plugin and project items of the folders the tabs use. No file paths.
+#[tauri::command]
+async fn preferred_options(app: AppHandle) -> Res<Vec<dduck_core::preferred::Available>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let roots = catalog_roots(&state)?;
+        let skills = dduck_core::skills_catalog::discover(&roots.config_dir, &roots.project_dirs);
+        let agents = agents_catalog::discover(&roots);
+        Ok(dduck_core::preferred::available(&skills, &agents, false))
+    })
+    .await
+    .map_err(err)?
 }
 
 #[derive(serde::Serialize)]
@@ -3466,6 +3491,15 @@ fn start_claim(app: &AppHandle, claim: routines::Claim) {
     std::thread::spawn(move || {
         let state = app.state::<AppState>();
         let mut spec = claim.spec;
+        // "먼저 살펴볼 스킬·에이전트" for the run's folder (preferred-skills), only when something is chosen.
+        if let Ok(conn) = state.conn() {
+            if routines::wants_preferred(&conn) {
+                if let Ok(dir) = state.config.read().map(|c| c.path.clone()) {
+                    let installed = preferred_for(&dir, &spec.cwd);
+                    routines::add_preferred(&mut spec, &conn, &installed);
+                }
+            }
+        }
         // Logged out: this occurrence is recorded as `login_required`, not held (routines are per occurrence).
         let gate = login_cmds::gate_cli(&app, dduck_core::auth_status::Need::Model).map_err(|e| cli_error_kind(&e));
         let report_id = if gate.is_ok() { attach_report(&app, &mut spec, None) } else { None };
@@ -3806,6 +3840,7 @@ pub fn run() {
             team_config,
             save_team_config,
             reset_team_config,
+            preferred_options,
             agent_controls,
             set_agent_enabled,
             set_agent_hidden,

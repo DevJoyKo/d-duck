@@ -401,7 +401,7 @@ pub struct Stored {
     /// Only when it differs from the bundled refine settings.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refine: Option<RefineSettings>,
-    /// "먼저 검토할 스킬·에이전트" (preferred-skills): the default is none, so the stored list is the whole value.
+    /// "먼저 살펴볼 스킬·에이전트" (preferred-skills): the default is none, so the stored list is the whole value.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub preferred: Vec<crate::preferred::PreferredItem>,
     /// `rule:<id>` / `type:<key>` → hash of the bundled value when the user last saved it ("기본값이 바뀜").
@@ -450,7 +450,7 @@ pub struct Merged {
     pub rules: Vec<RuleView>,
     pub types: Vec<TypeView>,
     pub refine: RefineSettings,
-    /// "먼저 검토할 스킬·에이전트", validated (bad items dropped with an error line).
+    /// "먼저 살펴볼 스킬·에이전트", validated (bad items dropped with an error line).
     pub preferred: Vec<crate::preferred::PreferredItem>,
     /// Items that failed validation and fell back to their default (or were dropped).
     pub errors: Vec<String>,
@@ -829,7 +829,7 @@ pub fn policy_text_for(m: &Merged, push: bool, guard: crate::delivery_guard::Gua
     policy_text_with(m, push, guard, task_type, None)
 }
 
-/// [`policy_text_for`] with the "먼저 검토할 스킬·에이전트" line (preferred-skills): an app-owned "[필수]" line after the
+/// [`policy_text_for`] with the "먼저 살펴볼 스킬·에이전트" line (preferred-skills): an app-owned "[필수]" line after the
 /// evidence rule and before the push rule. Built by `preferred::line` from what is installed for the task.
 pub fn policy_text_with(m: &Merged, push: bool, guard: crate::delivery_guard::Guard, task_type: Option<&str>, preferred: Option<&str>) -> String {
     let lang = m.lang;
@@ -881,7 +881,7 @@ pub struct TeamInput {
     /// Missing = keep the bundled refine settings.
     #[serde(default)]
     pub refine: Option<RefineSettings>,
-    /// "먼저 검토할 스킬·에이전트". Missing = none (the default).
+    /// "먼저 살펴볼 스킬·에이전트". Missing = none (the default).
     #[serde(default)]
     pub preferred: Vec<crate::preferred::PreferredItem>,
 }

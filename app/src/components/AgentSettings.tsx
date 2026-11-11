@@ -6,6 +6,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, reasonIs, type AgentDef, failure, shown, type Shown } from "../lib/api";
 import { addedTools, agentListsFor, wouldEmptyTools, agentLoadoutLock, chosenFromAgent, frontmatterList, loadoutApi, useLoadoutOptions } from "../lib/loadout";
 import { LoadoutSection, namesToPins, type LoadoutValue } from "./LoadoutSection";
+import { PreferredSection } from "./PreferredSection";
 import { sourceText } from "../lib/agents";
 import { EFFORTS } from "../lib/brief";
 import { usd } from "../lib/format";
@@ -401,6 +402,7 @@ function RulesTab({ draft, defaults, onChange }: { draft: TeamConfig; defaults: 
           ))}
         </p>
       )}
+      <PreferredSection value={draft.preferred ?? []} onChange={(preferred) => onChange({ ...draft, preferred })} />
       <RefineSection draft={draft} defaults={defaults} onChange={onChange} />
     </div>
   );
@@ -802,7 +804,7 @@ export function AgentSettings({ catalog, onClose }: { catalog: AgentDef[]; onClo
   const saved = team.data?.config;
   const current = draft ?? saved;
   const invalid = !!draft && draft.types.some((t) => typeProblems(t, team.data?.defaults.types.find((b) => b.key === t.key), catalog).length > 0);
-  const dirty = !!draft && !!saved && JSON.stringify({ r: draft.rules, t: draft.types, f: draft.refine }) !== JSON.stringify({ r: saved.rules, t: saved.types, f: saved.refine });
+  const dirty = !!draft && !!saved && JSON.stringify({ r: draft.rules, t: draft.types, f: draft.refine, p: draft.preferred ?? [] }) !== JSON.stringify({ r: saved.rules, t: saved.types, f: saved.refine, p: saved.preferred ?? [] });
   const close = () => {
     if (!dirty || window.confirm(tr("agents.sheet.unsavedClose"))) onClose();
   };
@@ -821,7 +823,7 @@ export function AgentSettings({ catalog, onClose }: { catalog: AgentDef[]; onClo
     setSaving(true);
     setMsg(null);
     try {
-      await teamApi.save({ rules: draft.rules.map((r) => ({ id: r.id, text: r.text, extra: r.extra })), types: draft.types, refine: draft.refine });
+      await teamApi.save({ rules: draft.rules.map((r) => ({ id: r.id, text: r.text, extra: r.extra })), types: draft.types, refine: draft.refine, preferred: draft.preferred ?? [] });
       await qc.invalidateQueries({ queryKey: ["team-config"] });
       setDraft(null);
       setMsg({ tone: "ok", text: tr("agents.sheet.saved") });
