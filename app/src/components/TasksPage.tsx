@@ -372,6 +372,8 @@ function Detail({ s, onClose, tag, onDraft, label }: { s: AgentSession; onClose:
   const control = canControl(s);
   const live = s.status === "working" || s.status === "waitingInput" || s.status === "idle";
   const prompt = usePrompt(s.key);
+  // model-select: what the task ran on, and a replaced or different model (design 9·11). D.Duck tasks only.
+  const record = useQuery({ queryKey: ["task-record", s.id], queryFn: () => api.taskRecord(s.id as string), enabled: !!s.id && !!tag, staleTime: 10_000 });
   const [report, setReport] = useState(false);
   const chip = reportChip(tag?.report, s.status);
 
@@ -402,6 +404,15 @@ function Detail({ s, onClose, tag, onDraft, label }: { s: AgentSession; onClose:
             {typeName && ` · ${typeName}`}
             {tag?.agent && ` · ${t("tasks.card.persona", { name: tag.agent })}`}
           </p>
+          {record.data && (
+            <div data-model-record>
+              {recordLines(record.data).map((l) => (
+                <p key={l} className="text-xs text-ink-3">
+                  {l}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
         <button ref={closeRef} onClick={onClose} aria-label={t("common.actions.close")} className="rounded-md p-1 text-ink-3 hover:text-ink">
           <X size={18} />

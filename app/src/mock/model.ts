@@ -18,7 +18,8 @@ function options() {
   const custom = [item("claude-opus-3-9", ["custom"], { replacement: { kind: "alias", to: "opus" } })];
   let items = [...cli, ...(param === "env" ? [item("claude-opus-4-8", ["settings"], { price: 25 })] : []), ...recent, ...custom];
   if (param === "managed") {
-    items = items.map((i) => (["sonnet", "claude-sonnet-5-5", "haiku", "claude-haiku-5-5"].includes(i.value) ? i : { ...i, allow: "no", blockedBy: "managed" }));
+    // Rust attaches a replacement only to allowed values: a blocked one stays blocked (design 11).
+    items = items.map((i) => (["sonnet", "claude-sonnet-5-5", "haiku", "claude-haiku-5-5"].includes(i.value) ? i : { value: i.value, sources: i.sources, allow: "no", blockedBy: "managed" }));
   }
   const currentDefault = param === "empty" ? { value: null, basis: "account" } : param === "env" ? { value: "claude-opus-4-8", basis: "env", price: 25 } : { value: "claude-opus-5-5", basis: "recent", price: 20 };
   return { items, currentDefault, cliRead: param !== "cli-fail", dropped: 0, allowlist: param === "managed" ? "managed" : "none" };

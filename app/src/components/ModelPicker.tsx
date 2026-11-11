@@ -53,7 +53,7 @@ export function ModelPicker({
   const typedBad = typed.trim() !== "" && !validChoice(typed.trim());
   const lines = [
     item ? blockedText(item) : null,
-    item ? replacementText(item.replacement, fileAgent) : null,
+    item && item.allow === "yes" ? replacementText(item.replacement, fileAgent) : null,
     item && !item.replacement ? costText(item.price, basePrice) : null,
     item?.note ?? null,
     options && !options.cliRead ? t("common.model.cliUnread") : null,

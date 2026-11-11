@@ -22,7 +22,7 @@ import { START_TASK_KEY, StartingCard, newStartId, useStartingCards, type StartV
 import { useT } from "../i18n/react";
 import { forgetComposer, keepComposer, recallComposer } from "../lib/composerMemory";
 import { defaultLabel, ModelPicker, priceOf, useModelOptions } from "./ModelPicker";
-import { effortHint, itemOf, shallowHint } from "../lib/model";
+import { effortHint, itemOf, replacementText, shallowHint } from "../lib/model";
 import { ro } from "../i18n/josa";
 
 const REPO_REASON: Record<string, string> = localized({
@@ -132,7 +132,9 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
   const model = modelLocked ? null : modelChoice;
   const modelValue = model ?? baseValue ?? models.data?.currentDefault.value ?? null;
   const modelLayer = model ? "task" : fileModel ? "agent" : typeModel ? "type" : "cli";
-  const basePrice = baseValue ? priceOf(models.data, baseValue) : models.data?.currentDefault.price;
+  // A stored type or agent model that is gone: what a start will use instead (design 11).
+  const baseReplacement = baseValue ? itemOf(models.data, baseValue)?.replacement : undefined;
+  const basePrice = baseReplacement?.kind === "alias" ? priceOf(models.data, baseReplacement.to) : baseReplacement ? models.data?.currentDefault.price : baseValue ? priceOf(models.data, baseValue) : models.data?.currentDefault.price;
   const chosenItem = itemOf(models.data, model);
 
   const repo = useQuery({ queryKey: ["repo", cwd], queryFn: () => api.repoCheck(cwd), enabled: !!cwd, staleTime: 30_000 });
@@ -463,6 +465,7 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
           disabled={modelLocked}
         >
           {modelLocked && <p className="text-xs text-ink-3">{t("common.model.agentFixed", { model: fileModel ?? "" })}</p>}
+          {!model && baseReplacement && <p className="text-xs text-ink-3">{replacementText(baseReplacement, !!fileModel)}</p>}
           {(preset?.strict || sensitive) && shallowHint(true, chosenItem?.price, basePrice) && <p className="text-xs text-ink-3">{t("common.model.shallow")}</p>}
           {effortHint(chosenItem ? (chosenItem.resolved?.id ?? chosenItem.value) : modelValue, effort) && <p className="text-xs text-ink-3">{t("common.model.effortHint")}</p>}
           {!model && draft?.originalModel && draft.originalModel !== modelValue && <p className="text-xs text-ink-3">{t("common.model.original", { model: draft.originalModel, ro: ro(draft.originalModel) })}</p>}
