@@ -67,7 +67,8 @@ function Label({ text, children, hint }: { text: string; children: ReactNode; hi
 /** "기본 모델" of one agent file: only its `model:` line is written (model-select design 3). */
 function AgentModel({ d, onSaved }: { d: AgentDef; onSaved: () => void }) {
   const tr = useT();
-  const models = useModelOptions(null);
+  const models = useModelOptions(d.scope ?? null);
+  const qc = useQueryClient();
   const stored = d.model && d.model !== "inherit" ? d.model : null;
   const [value, setValue] = useState<string | null | undefined>(undefined);
   const [msg, setMsg] = useState<{ ok: boolean; text: Shown } | null>(null);
@@ -80,6 +81,7 @@ function AgentModel({ d, onSaved }: { d: AgentDef; onSaved: () => void }) {
     try {
       const def = await api.agentDefinition(d.id);
       await modelApi.saveAgent(d.id, cur, def.token);
+      void qc.invalidateQueries({ queryKey: ["model-options"] });
       setValue(undefined);
       setMsg({ ok: true, text: tr("common.model.saved") });
       onSaved();

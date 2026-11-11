@@ -129,7 +129,7 @@ core `model_select::options(env) -> ModelOptions`. 입력은 순수 데이터(`O
 - `save_agent_model({ id, model: string | null })`: 카탈로그 id만 받는다. 기존 `save_agent_tools`와 같은 쓰기 계획·확인 경로를 쓴다.
 - 팀 설정 저장은 기존 `TeamInput` → `diff`에 `model`이 실린다.
 - `ModelPicker` 컴포넌트 하나를 Composer·유형 상세·에이전트 상세가 같이 쓴다.
-  - 접근성 있는 listbox 팝오버이고, 항목은 한 줄이다: `opus · claude-opus-5-5 (최근 기록 기준)` + 출처 칩(CLI·설정·최근 사용·직접 입력).
+  - 네이티브 `<select>`이고(키보드·스크린리더를 그대로 쓴다, 구현 때 팝오버 listbox 대신 고름), 항목은 한 줄이다: `opus · claude-opus-5-5 (최근 기록 기준) · CLI`. 출처는 칩 대신 글자로 붙인다.
   - 첫 줄은 "기본값 (지금: … · 출처)", 마지막 줄은 "직접 입력"(입력칸 + 검증 한 줄)이다. 머리에 "목록 새로 고침" 버튼이 있다.
   - 막힌 항목은 흐리게 보이고 이유를 붙인다. 비용 줄은 고르기 아래에 둔다.
   - 문구는 해요체다.
@@ -151,7 +151,8 @@ core `model_select::options(env) -> ModelOptions`. 입력은 순수 데이터(`O
   - 재개는 층을 다시 계산하지 않고 **시작 때 넘긴 인자를 재현**한다(리뷰 반영 D-154). `prepare_resume`에 backend-only `ModelPin { layer, arg, role }`을 넣으면 `resolve`를 건너뛰고 `--model=`은 `model_arg`, 역할 JSON `model`은 `role_model`을 그대로 쓴다. 두 값은 `valid_model`로 다시 검사한다.
   - 파일 에이전트+작업 값 잠금은 `layer = task`이고 지금 파일에 `model`이 있을 때만 다시 본다. 그때 걸리면 기존 `Reason::RiskChanged`(limit_cmds.rs `prepare_with` 실패)로 버튼+확인만 남는다. `agent`·`type`·`cli` 층은 작업 값을 만들지 않으므로 잠금에 걸리지 않는다.
   - `task_meta`에 값이 없는 이전 작업(NULL)은 `--model`도 역할 `model`도 넣지 않는다.
-  - 재개 직전 재확인(3.2)에 허용 목록 검사(결정 5)를 더한다. 걸리면 버튼+확인으로만 잇는다.
+  - 재개 직전 재확인(3.2)에 허용 목록 검사(결정 5)를 더한다. 걸리면 버튼+확인으로만 잇는다. 모델 때문에 막힌 재개(허용 목록, 대체 없음, 파일 에이전트 모델, 손상된 기록)는 지금은 모두 `Reason::RiskChanged`로 보인다. 모델 전용 이유 코드는 후속이다.
+  - 기록 읽기는 `task_meta::PinRead`다. 층이 없는 이전 작업은 `layer = cli`·인자 없음으로 재현하고(층 재계산 없음), 층이 네 값이 아니면 거부한다. 값은 거르지 않고 넘겨 `check_pin`이 손상된 값을 거부한다(QA 리뷰 HIGH).
   - 그 change의 design·tasks에 교차 항목을 적었다.
 - **review-rework**(원래 review-rework-evidence에서 나뉨, D-149 (2))
   - "새 작업으로"는 `model_layer = task`일 때만 Composer 초안의 모델 칸에 `model_arg`를 채운다. 다른 층이면 모델 칸을 기본값으로 둔다. 그러면 지금 에이전트·유형 기본값이 적용되고 파일 에이전트 잠금도 걸리지 않는다. 원래 값이 지금 기본값과 다르면 "원래 작업은 X로 돌았어요" 한 줄을 보인다.
@@ -207,6 +208,7 @@ core `model_select::options(env) -> ModelOptions`. 입력은 순수 데이터(`O
 - [정규식이 게이트웨이 id(`a/b`)·ARN을 막음] → 그런 사용자는 CLI 설정(`ANTHROPIC_MODEL` 등)으로 기본값을 쓰면 된다. 기본값 항목은 늘 고를 수 있다. 필요하면 후속으로 넓힌다.
 - [허용 목록 판정이 CLI와 다를 수 있음] → `Unknown`은 막는 쪽이다. 결정 9 알림이 사후에 잡는다.
 - [지원 판정이 틀림(새 모델이 단가표보다 먼저 나옴)] → 같은 계열 별칭으로 대체되므로 대개 같은 최신 모델이 된다. 설정 화면이 미리 "지원되지 않는 모델"을 보여 사용자가 고칠 수 있다. 작업 상세에 대체 사실이 남는다.
+- [오래됐지만 아직 살아 있는 id(일부러 고정한 옛 버전)] → 7일 안에 안 썼고 단가표에 없으면 같은 계열 별칭으로 바뀐다. 단가표에 `claude-opus-4-5`·`claude-opus-4-1`·`claude-sonnet-4-5`를 더해 줄였다. 같은 계열 안에서는 비용 비교를 하지 않는다(별칭은 보통 더 싼 최신 버전).
 - [CLI 거부 문구 미측정] → 1.2 전에는 재시도하지 않고 안내 한 줄만 더한다. 세션 안에서 API가 거부하는 경우는 잡지 못한다(1.2에서 `--fallback-model`과 함께 잰다).
 - [비싼 모델을 기본으로 둔 유형이 쌓이면 비용 증가] → 유형 상세에도 같은 비용 줄을 보인다. 작업 상세에 실제 모델을 보인다.
 

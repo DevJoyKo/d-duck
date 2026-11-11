@@ -464,7 +464,8 @@ pub fn options(env: &OptionsEnv, prices: &PriceTable) -> ModelOptions {
     let current_default = current_default(env, &items, prices);
     let known = Known::from_env(env, prices);
     let ctx = FallbackCtx { known: &known, list: &list, default_value: current_default.value.as_deref() };
-    for i in items.iter_mut().filter(|i| i.sources == [Source::Custom] && i.allow == Allow::Yes) {
+    // Every allowed value that is not supported any more, a stored one or a model last seen 8–30 days ago.
+    for i in items.iter_mut().filter(|i| i.allow == Allow::Yes) {
         if !supported(&i.value, &known) {
             i.replacement = Some(match fallback(&i.value, &ctx) {
                 Ok(r) => r,
@@ -1051,7 +1052,7 @@ mod tests {
     #[test]
     fn support_table() {
         let k = known();
-        for ok in ["opus", "haiku", "sonnet[1m]", "best", "opusplan", "fable", "claude-sonnet-5-5", "claude-haiku-4-5-20251001", "claude-opus-4-6[1m]", "us.anthropic.claude-opus-4-8", "claude-sonnet-4-6@20250929"] {
+        for ok in ["opus", "haiku", "sonnet[1m]", "best", "opusplan", "fable", "claude-sonnet-5-5", "claude-haiku-4-5-20251001", "claude-opus-4-6[1m]", "us.anthropic.claude-opus-4-8", "claude-sonnet-4-6@20250929", "claude-sonnet-4-5-20250929", "claude-opus-4-1"] {
             assert!(supported(ok, &k), "{ok}");
         }
         for gone in ["claude-opus-3-9", "claude-opus-5-9", "acme-large-2", "claude-haiku-4-5-2025", "claude-haiku-3-1"] {

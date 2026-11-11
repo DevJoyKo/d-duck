@@ -22,7 +22,7 @@ import { START_TASK_KEY, StartingCard, newStartId, useStartingCards, type StartV
 import { useT } from "../i18n/react";
 import { forgetComposer, keepComposer, recallComposer } from "../lib/composerMemory";
 import { defaultLabel, ModelPicker, priceOf, useModelOptions } from "./ModelPicker";
-import { effortHint, itemOf, replacementText, shallowHint } from "../lib/model";
+import { blockedText, effortHint, itemOf, replacementText, shallowHint } from "../lib/model";
 import { ro } from "../i18n/josa";
 
 const REPO_REASON: Record<string, string> = localized({
@@ -130,10 +130,14 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
       : defaultLabel(models.data, t);
   const modelLocked = !!fileModel;
   const model = modelLocked ? null : modelChoice;
-  const modelValue = model ?? baseValue ?? models.data?.currentDefault.value ?? null;
+  const baseItem = baseValue ? itemOf(models.data, baseValue) : undefined;
+  // What a start will really pass when nothing is chosen here: a gone base value is replaced (design 11).
+  const baseUsed = baseItem?.allow === "yes" && baseItem.replacement ? (baseItem.replacement.kind === "alias" ? baseItem.replacement.to : null) : baseValue;
+  const modelValue = model ?? baseUsed ?? models.data?.currentDefault.value ?? null;
   const modelLayer = model ? "task" : fileModel ? "agent" : typeModel ? "type" : "cli";
   // A stored type or agent model that is gone: what a start will use instead (design 11).
-  const baseReplacement = baseValue ? itemOf(models.data, baseValue)?.replacement : undefined;
+  const baseReplacement = baseItem?.allow === "yes" ? baseItem.replacement : undefined;
+  const baseBlocked = !model && baseItem ? blockedText(baseItem) : null;
   const basePrice = baseReplacement?.kind === "alias" ? priceOf(models.data, baseReplacement.to) : baseReplacement ? models.data?.currentDefault.price : baseValue ? priceOf(models.data, baseValue) : models.data?.currentDefault.price;
   const chosenItem = itemOf(models.data, model);
 
@@ -465,7 +469,8 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
           disabled={modelLocked}
         >
           {modelLocked && <p className="text-xs text-ink-3">{t("common.model.agentFixed", { model: fileModel ?? "" })}</p>}
-          {!model && baseReplacement && <p className="text-xs text-ink-3">{replacementText(baseReplacement, !!fileModel)}</p>}
+          {!model && baseReplacement && <p className="text-xs text-ink-2">{replacementText(baseReplacement, !!fileModel)}</p>}
+          {baseBlocked && <p className="text-xs text-ink-2">{baseBlocked}</p>}
           {(preset?.strict || sensitive) && shallowHint(true, chosenItem?.price, basePrice) && <p className="text-xs text-ink-3">{t("common.model.shallow")}</p>}
           {effortHint(chosenItem ? (chosenItem.resolved?.id ?? chosenItem.value) : modelValue, effort) && <p className="text-xs text-ink-3">{t("common.model.effortHint")}</p>}
           {!model && draft?.originalModel && draft.originalModel !== modelValue && <p className="text-xs text-ink-3">{t("common.model.original", { model: draft.originalModel, ro: ro(draft.originalModel) })}</p>}

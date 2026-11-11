@@ -69,7 +69,7 @@
 - [x] 5.2 (review-rework) 그 change의 design "실행 조건 이월"과 tasks 1.3·1.4·2.3이 이 change의 `task_meta.model_layer`·`model_arg`·`role_model`(NULL = 모델 인자 없음), `ResumeSpec.model`·`ModelPin` 재현, "새 작업으로"는 `layer = task`일 때만 모델 칸을 채움 계약과 맞는지 확인한다. 이름·의미가 달라졌으면 양쪽 문서를 맞춘다. (확인: 두 change 문서 대조 메모, 재작업 초안·인자 테스트가 그 change에 있음) — 완료: review-rework design "실행 조건 이월"·tasks 1.6과 열 이름·의미 일치 확인. `model_arg`는 실제로 넘긴 값(대체 포함)이라 의미 변화 없음
 
 ## 6. 통합 검증
-- [ ] 6.1 가짜 `claude`(도움말 픽스처)와 픽스처 settings·DB로 끝까지 돌린다. 흐름: 목록 → 유형 기본값 저장 → Composer에서 작업 값 → 시작 인자 확인 → 가짜 기록으로 다른 모델 알림. 관리 허용 목록 거부와 env 토큰 canary도 확인한다. 근거 파일을 scratchpad `qa-evidence/model-select/`에 남긴다(D-145). (확인: 통합 테스트 로그와 스크린샷)
+- [ ] 6.1 (부분: core 통합 테스트·mock 스크린샷만, 셸 끝-끝은 실제 앱 확인 필요) 가짜 `claude`(도움말 픽스처)와 픽스처 settings·DB로 끝까지 돌린다. 흐름: 목록 → 유형 기본값 저장 → Composer에서 작업 값 → 시작 인자 확인 → 가짜 기록으로 다른 모델 알림. 관리 허용 목록 거부와 env 토큰 canary도 확인한다. 근거 파일을 scratchpad `qa-evidence/model-select/`에 남긴다(D-145). (확인: 통합 테스트 로그와 스크린샷)
 
 ## 7. 리뷰
 - [ ] 7.1 테스트 리뷰: qa-verifier + design-critic + brand-reviewer(UI 변경, D-109·D-148) + agent-skills:code-reviewer(D-148)를 붙인다. BLOCKER/HIGH/FAIL을 해결한 뒤 decisions.md "리뷰 기록"에 결과와 조치를 기록한다. (확인: 리뷰 기록 4행)

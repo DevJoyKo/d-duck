@@ -262,8 +262,8 @@ function HistoryRow({ r, focus = false, onDraft, onDeleted }: { r: TaskRecord; f
           )}
           {detail.data && (
             <div className="space-y-0.5" data-model-record>
-              {recordLines(detail.data).map((l) => (
-                <p key={l} className="text-xs text-ink-3">
+              {recordLines(detail.data).map((l, i) => (
+                <p key={l} className={`text-xs ${i > 0 ? "text-ink-2" : "text-ink-3"}`}>
                   {l}
                 </p>
               ))}
@@ -406,8 +406,8 @@ function Detail({ s, onClose, tag, onDraft, label }: { s: AgentSession; onClose:
           </p>
           {record.data && (
             <div data-model-record>
-              {recordLines(record.data).map((l) => (
-                <p key={l} className="text-xs text-ink-3">
+              {recordLines(record.data).map((l, i) => (
+                <p key={l} className={`text-xs ${i > 0 ? "text-ink-2" : "text-ink-3"}`}>
                   {l}
                 </p>
               ))}

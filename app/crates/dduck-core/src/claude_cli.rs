@@ -1832,10 +1832,10 @@ mod model_args {
         let r = ResumeSpec::from_prepared(&spec, sid, dir.path().into()).unwrap();
         assert_eq!(r.model_args, vec![OsString::from("--model=sonnet")]);
         // The pinned id is gone now.
-        let gone = ModelPin { layer: Layer::Task, arg: Some("claude-opus-4-1".into()), role: None };
+        let gone = ModelPin { layer: Layer::Task, arg: Some("claude-opus-3-1".into()), role: None };
         let (spec, _) = run(TaskSpec { model_pin_in: Some(gone), ..base(dir.path()) }, None, None).unwrap();
         assert_eq!(spec.model_args(), vec![OsString::from("--model=opus")]);
-        assert_eq!(spec.model_requested.as_deref(), Some("claude-opus-4-1"));
+        assert_eq!(spec.model_requested.as_deref(), Some("claude-opus-3-1"));
         // An agent-layer pin is not locked.
         let agent = ModelPin { layer: Layer::Agent, arg: None, role: None };
         assert!(run(TaskSpec { agent: Some("x".into()), model_pin_in: Some(agent), ..base(dir.path()) }, None, Some("opus")).is_ok());

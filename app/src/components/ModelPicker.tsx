@@ -51,14 +51,15 @@ export function ModelPicker({
   const item = itemOf(options, value);
   const listed = !!item;
   const typedBad = typed.trim() !== "" && !validChoice(typed.trim());
-  const lines = [
-    item ? blockedText(item) : null,
-    item && item.allow === "yes" ? replacementText(item.replacement, fileAgent) : null,
-    item && !item.replacement ? costText(item.price, basePrice) : null,
-    item?.note ?? null,
-    options && !options.cliRead ? t("common.model.cliUnread") : null,
-    options?.allowlist === "unknown" ? t("common.model.managedUnread") : null,
-  ].filter((l): l is string => !!l);
+  // Warnings (blocked, replaced) read a step darker than plain notes; no yellow (one per screen).
+  const lines: { text: string; warn?: boolean; title?: string }[] = [
+    { text: item ? (blockedText(item) ?? "") : "", warn: true },
+    { text: item && item.allow === "yes" ? (replacementText(item.replacement, fileAgent) ?? "") : "", warn: true },
+    { text: item && !item.replacement ? (costText(item.price, basePrice) ?? "") : "", title: t("common.model.costBasis") },
+    { text: item?.note ?? "" },
+    { text: options && !options.cliRead ? t("common.model.cliUnread") : "" },
+    { text: options?.allowlist === "unknown" ? t("common.model.managedUnread") : "", warn: true },
+  ].filter((l) => !!l.text);
   return (
     <div className="space-y-1" data-model-picker>
       <div className="flex items-center justify-between">
@@ -140,8 +141,8 @@ export function ModelPicker({
       )}
       {typing && typedBad && <p className="text-xs text-danger">{t("common.model.badFormat")}</p>}
       {lines.map((l) => (
-        <p key={l} className="text-xs text-ink-3">
-          {l}
+        <p key={l.text} title={l.title} className={`text-xs ${l.warn ? "text-ink-2" : "text-ink-3"}`}>
+          {l.text}
         </p>
       ))}
       {children}

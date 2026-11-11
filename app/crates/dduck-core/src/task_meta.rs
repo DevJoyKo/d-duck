@@ -189,16 +189,30 @@ pub fn record_model(conn: &Connection, bg_id: &str, pin: &crate::model_select::M
     Ok(())
 }
 
-/// The recorded pin; `None` for older tasks (no layer) or a junk layer. Invalid values read as no model.
-pub fn model_pin(conn: &Connection, bg_id: &str) -> Result<Option<crate::model_select::ModelPin>, Error> {
-    use crate::model_select::{valid_model, Layer, ModelPin};
+/// A recorded pin as a resume reads it (design 10).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PinRead {
+    /// An older task (no layer): no `--model` and no role `model`, as before model-select.
+    None,
+    /// Values as stored; `ModelPin` checks are done by the caller (`check_pin` refuses a bad value).
+    Pin(crate::model_select::ModelPin),
+    /// A layer that is not one of the four: never guessed, the resume is refused.
+    Corrupt,
+}
+
+/// The recorded pin, values unfiltered so a hand-edited one is refused rather than dropped (QA review HIGH).
+pub fn model_pin(conn: &Connection, bg_id: &str) -> Result<PinRead, Error> {
+    use crate::model_select::{Layer, ModelPin};
     use rusqlite::OptionalExtension;
     let row: Option<(Option<String>, Option<String>, Option<String>)> =
         conn.query_row("SELECT model_layer, model_arg, role_model FROM task_meta WHERE bg_id = ?1", [bg_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional()?;
-    Ok(row.and_then(|(l, a, r)| {
-        let layer = Layer::parse(l.as_deref()?)?;
-        Some(ModelPin { layer, arg: a, role: r }).filter(|p| p.arg.as_deref().is_none_or(valid_model) && p.role.as_deref().is_none_or(valid_model))
-    }))
+    Ok(match row {
+        None | Some((None, _, _)) => PinRead::None,
+        Some((Some(l), a, r)) => match Layer::parse(&l) {
+            Some(layer) => PinRead::Pin(ModelPin { layer, arg: a, role: r }),
+            None => PinRead::Corrupt,
+        },
+    })
 }
 
 /// The recorded start language; `None` for older tasks or anything but the two values.
@@ -603,12 +617,12 @@ mod model_record {
     fn records_the_pin_and_the_replaced_request() {
         let conn = crate::db::open_in_memory().unwrap();
         conn.execute("INSERT INTO task_meta(bg_id, created_at, session_id) VALUES ('ab12cd34', 1, 's1')", []).unwrap();
-        assert_eq!(super::model_pin(&conn, "ab12cd34").unwrap(), None, "older task: no pin");
+        assert_eq!(super::model_pin(&conn, "ab12cd34").unwrap(), super::PinRead::None, "older task: no pin");
         let d = super::record_detail(&conn, "ab12cd34").unwrap().unwrap();
         assert_eq!((d.model_layer, d.model_used, d.model_requested), (None, None, None));
         let pin = ModelPin { layer: Layer::Type, arg: Some("opus".into()), role: Some("opus".into()) };
         super::record_model(&conn, "ab12cd34", &pin, Some("claude-opus-3-9")).unwrap();
-        assert_eq!(super::model_pin(&conn, "ab12cd34").unwrap(), Some(pin.clone()));
+        assert_eq!(super::model_pin(&conn, "ab12cd34").unwrap(), super::PinRead::Pin(pin.clone()));
         let d = super::record_detail(&conn, "ab12cd34").unwrap().unwrap();
         assert_eq!((d.model_layer.as_deref(), d.model_used.as_deref(), d.model_requested.as_deref()), (Some("type"), Some("opus"), Some("claude-opus-3-9")));
         let reason: Option<String> = conn.query_row("SELECT model_fallback FROM task_meta WHERE bg_id = 'ab12cd34'", [], |r| r.get(0)).unwrap();
@@ -623,7 +637,13 @@ mod model_record {
         assert_eq!(d.model_other.as_deref(), Some("claude-sonnet-5-5"), "ran on another family than opus");
         // An alias (resume under a new id) keeps the pin.
         super::alias(&conn, "ab12cd34", "ef56ab78", 9).unwrap();
-        assert_eq!(super::model_pin(&conn, "ef56ab78").unwrap(), Some(pin));
+        assert_eq!(super::model_pin(&conn, "ef56ab78").unwrap(), super::PinRead::Pin(pin));
+        // Hand-edited values reach the caller as they are (check_pin refuses them); a junk layer is Corrupt.
+        conn.execute("UPDATE task_meta SET model_arg = 'opus x' WHERE bg_id = 'ef56ab78'", []).unwrap();
+        let super::PinRead::Pin(bad) = super::model_pin(&conn, "ef56ab78").unwrap() else { panic!() };
+        assert!(crate::model_select::check_pin(&bad, crate::model_select::Runner::Inline).is_err());
+        conn.execute("UPDATE task_meta SET model_layer = 'zzz' WHERE bg_id = 'ef56ab78'", []).unwrap();
+        assert_eq!(super::model_pin(&conn, "ef56ab78").unwrap(), super::PinRead::Corrupt);
     }
 
     #[test]

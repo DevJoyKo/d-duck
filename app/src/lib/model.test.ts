@@ -43,7 +43,7 @@ describe("model lines", () => {
   });
 
   it("shows cost from 1.2× on, rounded to one decimal", () => {
-    expect(costText(20, 10)).toBe("기본값보다 토큰당 약 2.0배 비싸요 · 앱 단가표 기준");
+    expect(costText(20, 10)).toBe("기본값보다 약 2.0배 비싸요");
     expect(costText(11, 10)).toBeNull();
     expect(costText(undefined, 10)).toBeNull();
     expect(costText(20, 20)).toBeNull();
@@ -87,7 +87,7 @@ describe("ModelPicker", () => {
     fireEvent.change(select, { target: { value: "opus" } });
     expect(picked).toBe("opus");
     rerender(createElement(ModelPicker, { value: "opus", onChange: (v: string | null) => (picked = v), options: opts, defaultText: "d", basePrice: 10 }));
-    expect(screen.getByText("기본값보다 토큰당 약 2.0배 비싸요 · 앱 단가표 기준")).toBeTruthy();
+    expect(screen.getByText("기본값보다 약 2.0배 비싸요")).toBeTruthy();
   });
 
   it("checks a typed model before using it, and Esc closes only the input", () => {

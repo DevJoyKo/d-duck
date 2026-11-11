@@ -159,7 +159,12 @@ fn resume(app: &AppHandle, c: &Claim, manual: Option<ManualApproval>) -> Result<
     // a folder ticked "로컬만" since the start gets the new scope, and a scope that cannot be computed refuses.
     spec.guard_ctx = Some(resume_guard(&state, &cwd, mode.is_dangerous())?);
     // The start's model arguments, reproduced (model-select design 10); an older task has none.
-    spec.model_pin_in = state.conn().ok().and_then(|c| task_meta::model_pin(&c, &src.bg_id).ok().flatten());
+    // An older task (no record) runs with no model arguments, never re-resolved; a junk record refuses (design 10).
+    spec.model_pin_in = Some(match task_meta::model_pin(&*state.conn().map_err(|_| Reason::CliFailed)?, &src.bg_id).map_err(|_| Reason::CliFailed)? {
+        task_meta::PinRead::Pin(p) => p,
+        task_meta::PinRead::None => dduck_core::model_select::ModelPin { layer: dduck_core::model_select::Layer::Cli, arg: None, role: None },
+        task_meta::PinRead::Corrupt => return Err(Reason::RiskChanged),
+    });
     spec.prepare_with(&home_dir(), chrono_now_ms(), team.as_deref(), &env).map_err(|_| Reason::RiskChanged)?;
     // Allowlist re-check and the fallback for a pinned model that is gone (design 11). A block = button only.
     let file_model = spec.agent.as_deref().filter(|_| spec.inline_role.is_none()).and_then(|n| crate::model_cmds::agent_file_model(&state, n, &spec.cwd));
