@@ -509,6 +509,26 @@ fn verified_spec(conn: &Connection, id: i64) -> Result<TaskSpec, &'static str> {
     Ok(spec)
 }
 
+/// Adds the "먼저 검토할 스킬·에이전트" line to a claimed run's team rules (preferred-skills). Rebuilt with the same
+/// function, the run's own delivery scope (so the local-only line stays) and the current language. `installed` is
+/// what the catalogs show for the run's folder. A run that would get too long keeps its rules without the line.
+pub fn add_preferred(spec: &mut TaskSpec, conn: &Connection, installed: &[crate::preferred::Available]) {
+    let stored = crate::settings::team_config(conn).ok().flatten();
+    let config = crate::team_config::load(stored.as_deref());
+    let Some(line) = crate::preferred::line(&config.preferred, installed, config.lang, crate::preferred::Ctx::default()) else { return };
+    let guard = spec.guard_ctx.as_ref().map_or(crate::delivery_guard::Guard::DraftPr, |g| g.guard);
+    let before = spec.policy_text.replace(crate::team_config::policy_text_with(&config, false, guard, None, Some(&line)));
+    if !spec.args_fit() {
+        spec.policy_text = before;
+    }
+}
+
+/// Whether a routine's team rules carry the preferred line (the shell reads the catalogs only then).
+pub fn wants_preferred(conn: &Connection) -> bool {
+    let stored = crate::settings::team_config(conn).ok().flatten();
+    crate::preferred::needed(&crate::team_config::load(stored.as_deref()).preferred)
+}
+
 fn record(conn: &Connection, id: i64, at: i64, status: &str, error: Option<&str>) -> Result<i64, Error> {
     conn.execute(
         "INSERT INTO routine_runs(routine_id, scheduled_for, started_at, status, error) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -780,6 +800,7 @@ mod tests {
             rules: crate::team_config::defaults().rules.iter().map(|r| crate::team_config::RuleInput { id: r.id.clone(), text: r.text.clone(), extra: String::new() }).collect(),
             types: crate::team_config::defaults().types.iter().map(|t| t.def.clone()).collect(),
             refine: None,
+            preferred: Vec::new(),
         };
         input.rules.push(crate::team_config::RuleInput { id: "u-ko".into(), text: "커밋 메시지는 한국어로 쓴다".into(), extra: String::new() });
         crate::settings::set_team_config(&conn, &crate::team_config::diff(&input, &[]).unwrap()).unwrap();
@@ -800,6 +821,38 @@ mod tests {
         let (_d2, conn2, id2) = setup();
         crate::settings::put_guarded(&conn2, crate::delivery_guard::LOCAL_ONLY_PROJECTS, "{").unwrap();
         assert_eq!(verified_spec(&conn2, id2).err(), Some("guardUnreadable"));
+    }
+
+    #[test]
+    fn routine_runs_get_the_preferred_line_and_keep_the_local_only_rule() {
+        use crate::preferred::{Available, Kind, PreferredItem};
+        let kst = FixedOffset::east_opt(9 * 3600).unwrap();
+        let (d, mut conn, _id) = setup();
+        crate::delivery_guard::add(&conn, &d.path().canonicalize().unwrap(), None).unwrap();
+        assert!(!wants_preferred(&conn));
+        let mut input = crate::team_config::TeamInput {
+            rules: crate::team_config::defaults().rules.iter().map(|r| crate::team_config::RuleInput { id: r.id.clone(), text: r.text.clone(), extra: String::new() }).collect(),
+            types: crate::team_config::defaults().types.iter().map(|t| t.def.clone()).collect(),
+            refine: None,
+            preferred: vec![PreferredItem { kind: Kind::Skill, name: "tdd".into(), source: "user".into(), scope: None }],
+        };
+        input.preferred.push(PreferredItem { kind: Kind::Skill, name: "gone".into(), source: "user".into(), scope: None });
+        crate::settings::set_team_config(&conn, &crate::team_config::diff(&input, &[]).unwrap()).unwrap();
+        assert!(wants_preferred(&conn));
+        let mut claims = tick(&mut conn, ms("2026-11-07T09:00:10+09:00"), &kst).unwrap();
+        let installed = [Available { kind: Kind::Skill, name: "tdd".into(), source: "user".into(), scope: None, description: Some("테스트 먼저".into()), members: vec![], writes: false, writing_members: vec![] }];
+        add_preferred(&mut claims[0].spec, &conn, &installed);
+        let p = claims[0].spec.policy_text.clone().unwrap();
+        assert_eq!(p.matches("작업을 시작하기 전에").count(), 1, "{p}");
+        assert!(p.contains("스킬 tdd 「테스트 먼저」") && !p.contains("gone"));
+        assert!(p.contains(crate::delivery_guard::LOCAL_ONLY_RULE), "the run's own scope is kept");
+        // Nothing installed: the rules stay as they were.
+        let before = claims[0].spec.policy_text.clone();
+        let mut again = claims.remove(0).spec;
+        again.policy_text = before.clone().map(|t| t.replace("작업을 시작하기 전에", "X"));
+        let kept = again.policy_text.clone();
+        add_preferred(&mut again, &conn, &[]);
+        assert_eq!(again.policy_text, kept);
     }
 
     #[test]
