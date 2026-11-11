@@ -142,7 +142,7 @@ Guardrails are enforced in layers (CLI deny rules, a hook, and git settings). So
 
 ## Install
 
-> **Status: early (v0.1.1).** Apple Silicon Macs only for now. The UI comes in Korean and English. Switch it from the sidebar or in Settings. The app is signed with a Developer ID and notarized by Apple, so it opens without a warning.
+> **Status: early (v0.1.2).** Apple Silicon Macs only for now. The UI comes in Korean and English. Switch it from the sidebar or in Settings. The app is signed with a Developer ID and notarized by Apple, so it opens without a warning.
 
 1. Download the latest `.dmg` from [Releases](https://github.com/DevJoyKo/d-duck/releases) and drag **D.Duck** into Applications.
 2. You need [Claude Code](https://docs.claude.com/en/docs/claude-code) installed. If you're not logged in, D.Duck shows a button that opens the browser login.
