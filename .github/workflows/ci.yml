@@ -108,6 +108,8 @@ jobs:
     needs: [ui, rust]
     if: always()
     strategy:
+      # Both required checks report a result; with fail-fast the second gate would show as cancelled.
+      fail-fast: false
       matrix:
         name: [macOS Apple Silicon, macOS Intel]
     runs-on: ubuntu-latest
