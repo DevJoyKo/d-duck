@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useQuery } from "@tanstack/react-query";
 import { t as tr } from "../i18n";
 import type { AgentDef } from "./api";
+import type { PreferredItem } from "./preferred";
 
 /** A label record read at access time, so it follows the current language (never frozen at module load). */
 export function liveLabels<K extends string>(keys: readonly K[], text: (k: K) => string): Record<K, string> {
@@ -76,6 +77,8 @@ export interface TeamConfig {
   rules: TeamRule[];
   types: TeamType[];
   refine: RefineSettings;
+  /** "먼저 살펴볼 스킬·에이전트" (preferred-skills). Older payloads may lack it. */
+  preferred?: PreferredItem[];
   errors: string[];
 }
 
@@ -102,7 +105,7 @@ export interface TrashResult {
 
 export const teamApi = {
   config: () => invoke<TeamConfigDto>("team_config"),
-  save: (input: { rules: { id: string; text: string; extra: string }[]; types: TeamType[]; refine: RefineSettings }) => invoke<void>("save_team_config", { input }),
+  save: (input: { rules: { id: string; text: string; extra: string }[]; types: TeamType[]; refine: RefineSettings; preferred: PreferredItem[] }) => invoke<void>("save_team_config", { input }),
   reset: (item: string | null) => invoke<void>("reset_team_config", { item }),
   controls: () => invoke<AgentControls>("agent_controls"),
   setEnabled: (id: string, enabled: boolean) => invoke<string | null>("set_agent_enabled", { id, enabled }),

@@ -29,8 +29,10 @@ fn scheduler_paths_have_no_interactive_calls() {
     assert!(claim.contains("let mut spec = claim.spec;"));
     assert!(claim.contains("start_background(&spec, None)"));
     assert_eq!(claim.matches("start_background(").count(), 1);
-    assert_eq!(claim.matches("&mut spec").count(), 1, "attach_report is the only change to the claimed spec");
+    // Besides the report folder, only the "먼저 살펴볼 스킬·에이전트" line may be added to the team rules (preferred-skills).
+    assert_eq!(claim.matches("&mut spec").count(), 2, "attach_report and add_preferred are the only changes to the claimed spec");
     assert!(claim.contains("attach_report(&app, &mut spec, None)"));
+    assert!(claim.contains("routines::add_preferred(&mut spec, &conn, &installed)"));
     for bad in ["remote", "push", "permission_mode", "spec.agent", "spec.tools"] {
         assert!(!claim.contains(bad), "start_claim must not touch {bad}");
     }
@@ -45,6 +47,18 @@ fn scheduler_paths_have_no_interactive_calls() {
         .filter(|l| !l.trim_start().starts_with("//"))
         .collect::<Vec<_>>()
         .join("\n");
+    // `add_preferred` changes the team rules text and nothing else.
+    let add = body_of(&core, "pub fn add_preferred(");
+    let mut written = Vec::new();
+    for (i, _) in add.match_indices("spec.") {
+        let rest = &add[i + 5..];
+        let field: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        let after = &rest[field.len()..];
+        if after.starts_with(" = ") || after.starts_with(".replace(") || after.starts_with(".push") || after.starts_with(".take(") {
+            written.push(field);
+        }
+    }
+    assert!(!written.is_empty() && written.iter().all(|f| f == "policy_text"), "{written:?}");
     for bad in ["DangerApproval", "dialog", "Command::new"] {
         assert!(!core.contains(bad), "routines.rs must not use {bad}");
     }

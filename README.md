@@ -53,6 +53,8 @@ The five groups below explain how these fit together.
 - **Trust-critical repos: keep it on your machine.** Turn on "Block remote push" and nothing leaves until you've reviewed it locally.
 - **Risky permission modes are blocked** for security, deploy, and QA tasks.
 
+Not every setting is a guardrail. Team rules and "Consider these first" (installed plugins, skills, and agents Claude should check before it starts) are added to the prompt as guidance. They steer the agent but are not enforced like deny rules or hooks.
+
 ### 2. Review with evidence, sized to your time
 
 **Problem:** Agents finish work faster than you can read it, and "done, tests pass" tells you little. Review becomes the new bottleneck.
@@ -136,7 +138,7 @@ I wanted to hand real work to a team of Claude Code agents without giving up con
 | **No raw transcripts** | Transcripts are aggregated into numbers and names, not stored. The raw view reads them only when you open it, with secrets masked by default. |
 | **Confirm risky actions** | Writing settings files, risky permissions, approving routines, and installs are hard to undo. D.Duck shows what will change and asks first. |
 
-Guardrails are enforced in layers (CLI deny rules, a hook, and git settings). Some gaps remain: a hand-written network client can get past the hook, so the git setting is the last layer.
+Guardrails are enforced in layers (CLI deny rules, a hook, and git settings). Some gaps remain: a hand-written network client can get past the hook, so the git setting is the last layer. "Consider these first" and team rules are prompt-level guidance, not one of these layers.
 
 ## Install
 

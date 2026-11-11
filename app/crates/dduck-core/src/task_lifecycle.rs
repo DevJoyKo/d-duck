@@ -107,6 +107,18 @@ fn wrapped_keys(conn: &Connection) -> Result<Vec<String>, Error> {
     Ok(list.into_iter().filter(|k| valid_key(k)).collect())
 }
 
+/// Marks a listed session without a D.Duck record as wrapped up (review-delete: a deleted record's session must not
+/// come back on the board as "리뷰 없음").
+pub fn add_wrapped_key(conn: &Connection, key: &str) -> Result<(), Error> {
+    if !valid_key(key) {
+        return Err(Error::Config("task id"));
+    }
+    let mut keys = wrapped_keys(conn)?;
+    keys.retain(|k| k != key);
+    keys.push(key.to_string());
+    put_wrapped_keys(conn, &keys)
+}
+
 fn put_wrapped_keys(conn: &Connection, keys: &[String]) -> Result<(), Error> {
     let start = keys.len().saturating_sub(KEEP_WRAPPED_KEYS);
     let json = serde_json::to_string(&keys[start..]).map_err(|_| Error::Config("wrapped keys"))?;

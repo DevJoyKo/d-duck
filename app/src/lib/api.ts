@@ -742,6 +742,8 @@ export interface Inbox {
   hasAny: boolean;
   /** Finished D.Duck tasks without a report in this scope (D-196), listed under 전체 only. */
   noReport?: number;
+  /** A good `claude agents` poll has landed (no delete before it). */
+  known?: boolean;
   /** Still running tasks with a report in this project. */
   running: number;
   groups: InboxGroupTotal[];
@@ -956,6 +958,8 @@ export const api = {
   markReviewed: (id: string) => invoke<boolean>("mark_reviewed", { id }),
   reviewInbox: (project: string | null, filter: InboxFilter, offset: number, limit = 10) => invoke<Inbox>("review_inbox", { project, filter, offset, limit }),
   inboxMarkReviewed: (id: string) => invoke<void>("inbox_mark_reviewed", { id }),
+  /** review-delete: native confirmation in the shell; `false` = cancelled. */
+  inboxDelete: (id: string) => invoke<boolean>("inbox_delete", { id }),
   unmarkReviewed: (id: string) => invoke<boolean>("unmark_reviewed", { id }),
   /** `wrapupCards`: how many 정리 cards ("더 보기"; 40 by default). */
   boardWrapup: (wrapupCards?: number) => invoke<BoardWrapup>("board_wrapup", wrapupCards ? { wrapupCards } : {}),

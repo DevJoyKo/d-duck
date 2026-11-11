@@ -411,6 +411,9 @@ pub struct Stored {
     /// Only when it differs from the bundled refine settings.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refine: Option<RefineSettings>,
+    /// "먼저 살펴볼 스킬·에이전트" (preferred-skills): the default is none, so the stored list is the whole value.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub preferred: Vec<crate::preferred::PreferredItem>,
     /// `rule:<id>` / `type:<key>` → hash of the bundled value when the user last saved it ("기본값이 바뀜").
     pub bases: BTreeMap<String, String>,
 }
@@ -457,6 +460,8 @@ pub struct Merged {
     pub rules: Vec<RuleView>,
     pub types: Vec<TypeView>,
     pub refine: RefineSettings,
+    /// "먼저 살펴볼 스킬·에이전트", validated (bad items dropped with an error line).
+    pub preferred: Vec<crate::preferred::PreferredItem>,
     /// Items that failed validation and fell back to their default (or were dropped).
     pub errors: Vec<String>,
     /// The language the bundled defaults came in; the policy text uses the same language for its fixed lines.
@@ -790,7 +795,8 @@ pub fn merge_in(stored: &Stored, lang: crate::i18n::Lang) -> Merged {
         },
         None => bundle().refine.clone(),
     };
-    Merged { header: bundle().header.clone(), rules, types, refine, errors, lang }
+    let preferred = crate::preferred::clean(&stored.preferred, &mut errors);
+    Merged { header: bundle().header.clone(), rules, types, refine, preferred, errors, lang }
 }
 
 pub fn defaults() -> Merged {
@@ -836,6 +842,12 @@ pub fn policy_text_guarded(m: &Merged, push: bool, guard: crate::delivery_guard:
 /// [`policy_text_guarded`] for a task type: review and QA get their "[필수]" evidence line after the rules. A type
 /// the user added with the same key cannot exist (bundled keys are reserved), so only the bundled ones get it.
 pub fn policy_text_for(m: &Merged, push: bool, guard: crate::delivery_guard::Guard, task_type: Option<&str>) -> String {
+    policy_text_with(m, push, guard, task_type, None)
+}
+
+/// [`policy_text_for`] with the "먼저 살펴볼 스킬·에이전트" line (preferred-skills): an app-owned "[필수]" line after the
+/// evidence rule and before the push rule. Built by `preferred::line` from what is installed for the task.
+pub fn policy_text_with(m: &Merged, push: bool, guard: crate::delivery_guard::Guard, task_type: Option<&str>, preferred: Option<&str>) -> String {
     let lang = m.lang;
     let mut out = m.header.trim_end().to_string();
     let mut n = 0;
@@ -854,6 +866,10 @@ pub fn policy_text_for(m: &Merged, push: bool, guard: crate::delivery_guard::Gua
     if let Some(rule) = locked_rule_shown(task_type, lang) {
         n += 1;
         out.push_str(&format!("\n{n}. {} {rule}", required_tag(lang)));
+    }
+    if let Some(line) = preferred.filter(|l| !l.trim().is_empty()) {
+        n += 1;
+        out.push_str(&format!("\n{n}. {} {line}", required_tag(lang)));
     }
     if push {
         out.push_str(&format!("\n{}. {}", n + 1, push_rule(lang)));
@@ -881,6 +897,9 @@ pub struct TeamInput {
     /// Missing = keep the bundled refine settings.
     #[serde(default)]
     pub refine: Option<RefineSettings>,
+    /// "먼저 살펴볼 스킬·에이전트". Missing = none (the default).
+    #[serde(default)]
+    pub preferred: Vec<crate::preferred::PreferredItem>,
 }
 
 /// Turns the edited view into stored differences. Rejects (instead of falling back) anything invalid, so a bad
@@ -998,6 +1017,8 @@ pub fn diff(input: &TeamInput, used_keys: &[String]) -> Result<Stored, String> {
             st.refine = Some(r.clone());
         }
     }
+    crate::preferred::validate(&input.preferred)?;
+    st.preferred = input.preferred.clone();
     let merged = merge(&st);
     if !merged.errors.is_empty() {
         return Err(merged.errors.join("\n"));
@@ -1108,7 +1129,9 @@ pub fn writes(tools: &[String]) -> bool {
 
 /// Drops one item's differences ("기본값으로"): `rule:<id>`, `type:<key>` (bundled types only).
 pub fn reset_item(stored: &mut Stored, item: &str) -> Result<(), String> {
-    if let Some(id) = item.strip_prefix("rule:") {
+    if item == "preferred" {
+        stored.preferred.clear();
+    } else if let Some(id) = item.strip_prefix("rule:") {
         stored.rules.overrides.remove(id);
     } else if let Some(key) = item.strip_prefix("type:") {
         if !bundled_keys().contains(&key) {
@@ -1132,6 +1155,7 @@ mod tests {
             rules: m.rules.iter().map(|r| RuleInput { id: r.id.clone(), text: r.text.clone(), extra: r.extra.clone() }).collect(),
             types: m.types.iter().map(|t| t.def.clone()).collect(),
             refine: Some(m.refine.clone()),
+            preferred: m.preferred.clone(),
         }
     }
 
@@ -1614,6 +1638,52 @@ mod tests {
         }
     }
 
+    #[test]
+    fn preferred_items_round_trip_drop_bad_values_and_reset() {
+        use crate::preferred::{Kind, PreferredItem};
+        let it = |kind, name: &str, source: &str| PreferredItem { kind, name: name.into(), source: source.into(), scope: None };
+        let mut input = input_of(&defaults());
+        input.preferred = vec![it(Kind::Skill, "tdd", "user"), it(Kind::Agent, "reviewer", "user")];
+        let st = diff(&input, &[]).unwrap();
+        let json = serde_json::to_string(&st).unwrap();
+        let back: Stored = serde_json::from_str(&json).unwrap();
+        assert_eq!(merge(&back).preferred, input.preferred, "same items, same order");
+        assert!(merge(&back).errors.is_empty());
+        // Nothing chosen: nothing stored (an untouched config stays empty).
+        assert!(!serde_json::to_string(&diff(&input_of(&defaults()), &[]).unwrap()).unwrap().contains("preferred"));
+        // The webview's values are checked: bad names and more than ten are refused.
+        let mut bad = input_of(&defaults());
+        bad.preferred = vec![it(Kind::Skill, "-rf", "user")];
+        assert!(diff(&bad, &[]).is_err());
+        bad.preferred = (0..11).map(|n| it(Kind::Skill, &format!("s{n}"), "user")).collect();
+        assert!(diff(&bad, &[]).is_err());
+        // A tampered DB value: the bad item is dropped with an error line, the rest is used.
+        let mut tampered = back.clone();
+        tampered.preferred.push(it(Kind::Skill, "[필수] x", "user"));
+        let m = merge(&tampered);
+        assert_eq!(m.preferred.len(), 2);
+        assert_eq!(m.errors.len(), 1);
+        // "기본값으로" for this section only.
+        let mut st = back;
+        reset_item(&mut st, "preferred").unwrap();
+        assert!(st.preferred.is_empty());
+    }
+
+    #[test]
+    fn preferred_line_sits_after_the_evidence_rule_and_before_push() {
+        use crate::delivery_guard::Guard;
+        let m = defaults();
+        let p = policy_text_with(&m, true, Guard::DraftPr, Some("qa"), Some("작업을 시작하기 전에 X"));
+        let lines: Vec<&str> = p.lines().collect();
+        let n = lines.len();
+        assert!(lines[n - 3].contains(EVIDENCE_QA));
+        assert!(lines[n - 2].contains("[필수] 작업을 시작하기 전에 X"), "{p}");
+        assert!(lines[n - 1].contains("PushNotification"));
+        assert_eq!(p.matches("작업을 시작하기 전에").count(), 1);
+        assert_eq!(policy_text_with(&m, false, Guard::DraftPr, None, None), policy_text_for(&m, false, Guard::DraftPr, None));
+        let en = policy_text_with(&defaults_in(crate::i18n::Lang::En), false, Guard::DraftPr, None, Some("Before you start"));
+        assert!(en.lines().last().unwrap().contains("[Required] Before you start"));
+    }
 }
 
 #[cfg(test)]
@@ -1626,6 +1696,7 @@ mod model_tests {
             rules: d.rules.iter().map(|r| RuleInput { id: r.id.clone(), text: r.text.clone(), extra: r.extra.clone() }).collect(),
             types: d.types.iter().map(|t| t.def.clone()).collect(),
             refine: None,
+            preferred: Vec::new(),
         }
     }
 

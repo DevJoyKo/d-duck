@@ -353,7 +353,8 @@ pub fn delete_all_and_reports(conn: &Connection, reports_root: Option<&std::path
     Ok(n)
 }
 
-fn remove_unreferenced(conn: &Connection, root: &std::path::Path, ids: &[String]) {
+/// Removes each report folder that no record and no routine run points at any more (a failed count keeps it).
+pub(crate) fn remove_unreferenced(conn: &Connection, root: &std::path::Path, ids: &[String]) {
     for id in ids {
         let still: i64 = conn
             .query_row("SELECT (SELECT COUNT(*) FROM task_meta WHERE report_id = ?1) + (SELECT COUNT(*) FROM routine_runs WHERE report_id = ?1)", [id], |r| r.get(0))

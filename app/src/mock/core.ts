@@ -13,7 +13,7 @@ import { mockArtifactPreview, mockArtifacts } from "./artifacts";
 import { mockNoCli, onboardingHandlers } from "./onboarding";
 import { mockTaskReport } from "./report";
 import { evidenceHandlers, mockEvidenceReport, normalize } from "./evidence";
-import { mockReviewPending, mockReviewReport, pollUnknown, reviewHandlers, wrapped } from "./review";
+import { deleted, mockReviewPending, mockReviewReport, pollUnknown, reviewHandlers, wrapped } from "./review";
 import { limitHandlers } from "./limits";
 import { deliveryHandlers } from "./delivery";
 import { authHandlers, mockLoggedOut, mockNotClaudeAi } from "./auth";
@@ -418,7 +418,9 @@ const handlers: Record<string, (a: Record<string, unknown>) => unknown> = {
     { bgId: "aa11bb22", name: "payment-refactor", cwd: "/Users/me/Agents/side-project", agent: null, taskType: "dev", createdAt: now - 2 * day, promptLen: 120, reviewed: true, hasReport: true },
     { bgId: "ee0c0d22", name: "market-research", cwd: "/Users/me/Agents/dev_team", agent: null, taskType: "research", createdAt: now - 4 * day, promptLen: 48, reviewed: false, hasReport: false },
     { bgId: "cc33dd44", name: "release-notes-1.2", cwd: "/Users/me/Agents/side-project", agent: "dduck-release", taskType: "deploy", createdAt: now - 5 * day, promptLen: 0, reviewed: false, hasReport: true },
-  ].map((r) => ({ ...r, wrapped: wrapped.has(r.bgId) })),
+  ]
+    .filter((r) => !deleted.has(r.bgId))
+    .map((r) => ({ ...r, wrapped: wrapped.has(r.bgId) })),
   task_record: (a) =>
     a.id === "aa11bb22"
       ? { prompt: "## 목표\n결제 화면 상태 관리를 정리한다\n\n## 완료 기준\n기존 테스트 통과", brief: { goal: "결제 화면 상태 관리를 정리한다", outOfScope: "", constraints: "", done: "기존 테스트 통과" }, effort: "high", worktree: true, modelLayer: "task", modelUsed: "sonnet", modelRequested: null, modelOther: "claude-haiku-5-5" }
