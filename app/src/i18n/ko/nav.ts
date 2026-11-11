@@ -14,6 +14,7 @@ export default {
     mcp: "MCP",
     permissions: "권한",
     memory: "메모리",
+    news: "소식",
     usage: "사용 통계",
     settings: "설정",
   },

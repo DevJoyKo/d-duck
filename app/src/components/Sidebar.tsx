@@ -1,4 +1,4 @@
-import { BarChart3, Bot, Brain, CalendarClock, CircleHelp, ClipboardCheck, Layers, Monitor, Moon, Plug, Puzzle, Settings, ShieldCheck, SquareTerminal, Sun } from "lucide-react";
+import { BarChart3, Bot, Brain, CalendarClock, CircleHelp, ClipboardCheck, Layers, Monitor, Moon, Newspaper, Plug, Puzzle, Settings, ShieldCheck, SquareTerminal, Sun } from "lucide-react";
 import { useState } from "react";
 import { applyTheme, loadTheme, NEXT_THEME, type Theme } from "../lib/theme";
 import { useT } from "../i18n/react";
@@ -129,6 +129,9 @@ export function Sidebar({
       </div>
       <div className="mt-auto space-y-3 pt-4">
         <div className="space-y-0.5">
+          <NavItem active={page === "news"} onClick={() => onNavigate("news")} icon={<Newspaper size={16} strokeWidth={1.8} />}>
+            {t("nav.pages.news")}
+          </NavItem>
           <NavItem active={page === "usage"} onClick={() => onNavigate("usage")} icon={<BarChart3 size={16} strokeWidth={1.8} />}>
             {t("nav.pages.usage")}
           </NavItem>

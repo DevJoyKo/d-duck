@@ -458,6 +458,45 @@ export interface CloudEditInput {
 
 export type CloudEditResult = { outcome: "declined" } | { outcome: "done"; routine: CloudRoutine; costUsd: number | null };
 
+// News tab (news-tab, D-204). Items are Claude's checked explainers in the app language; render as text only.
+export type NewsCategory = "model" | "command" | "setting" | "agent" | "integration" | "ide" | "security" | "other";
+export interface NewsItem {
+  id: string;
+  title: string;
+  version: string | null;
+  /** YYYY-MM-DD from the changelog. */
+  date: string;
+  category: NewsCategory;
+  summary: string;
+  what: string;
+  whenToUse: string;
+  bestPractice: string;
+  sourceUrl: string;
+  firstSeenMs: number;
+  seen: boolean;
+}
+export type NewsErrorKind = "budget" | "turns" | "timeout" | "cancelled" | "spawn" | "failed" | "login_required" | "empty" | "malformed" | "busy" | "guard";
+export interface NewsStatus {
+  atMs: number;
+  ok: boolean;
+  added: number;
+  dropped: number;
+  costUsd: number | null;
+  error: NewsErrorKind | null;
+  daily: boolean;
+}
+export interface NewsView {
+  items: NewsItem[];
+  status: NewsStatus | null;
+  daily: { enabled: boolean; nextAtMs: number | null };
+  otherLang: number;
+  running: boolean;
+}
+export type NewsRun =
+  | { kind: "done"; added: number; dropped: number; costUsd: number | null }
+  | { kind: "declined" }
+  | { kind: "failed"; error: { kind: NewsErrorKind; costUsd?: number | null }; message: string };
+
 // Usage insights (D-078).
 export type InsightLink = "plugins" | "skills" | "permissions" | "settings";
 
@@ -1014,6 +1053,12 @@ export const api = {
   insightsLast: () => invoke<Advice | null>("usage_insights_last"),
   insightsDelete: () => invoke<void>("usage_insights_delete"),
   openInsightLink: (url: string) => invoke<boolean>("open_insight_link", { url }),
+  newsList: () => invoke<NewsView>("news_list"),
+  newsFetch: () => invoke<NewsRun>("news_fetch"),
+  newsCancel: () => invoke<void>("news_cancel"),
+  newsMarkSeen: (id: string) => invoke<boolean>("news_mark_seen", { id }),
+  newsSetDaily: (enabled: boolean) => invoke<boolean>("news_set_daily", { enabled }),
+  newsOpenSource: (id: string) => invoke<void>("news_open_source", { id }),
   refineBrief: (req: RefineRequest) => invoke<RefineRun>("refine_brief", { req }),
   refineCancel: () => invoke<void>("refine_cancel"),
   routines: () => invoke<RoutineSummary[]>("list_routines"),
