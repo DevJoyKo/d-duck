@@ -99,7 +99,9 @@ export function validateRoutineForm(f: { name: string; cwd: string; prompt: stri
   if (!f.prompt.trim()) return t("routines.validate.prompt");
   const s = f.schedule;
   if (s.kind === "interval" && (!Number.isInteger(s.hours) || s.hours < 1 || s.hours > 24)) return t("routines.validate.interval");
-  if (s.kind !== "interval" && (s.hour < 0 || s.hour > 23 || s.minute < 0 || s.minute > 59)) return t("routines.validate.time");
+  // Integer checks too: comparisons with undefined/NaN are always false and would let a broken time through.
+  if (s.kind !== "interval" && (!Number.isInteger(s.hour) || !Number.isInteger(s.minute) || s.hour < 0 || s.hour > 23 || s.minute < 0 || s.minute > 59))
+    return t("routines.validate.time");
   if (s.kind === "weekly" && s.weekdays === 0) return t("routines.validate.weekdays");
   return null;
 }
