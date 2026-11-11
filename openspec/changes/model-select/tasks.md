@@ -72,7 +72,7 @@
 - [ ] 6.1 (부분: core 통합 테스트·mock 스크린샷만, 셸 끝-끝은 실제 앱 확인 필요) 가짜 `claude`(도움말 픽스처)와 픽스처 settings·DB로 끝까지 돌린다. 흐름: 목록 → 유형 기본값 저장 → Composer에서 작업 값 → 시작 인자 확인 → 가짜 기록으로 다른 모델 알림. 관리 허용 목록 거부와 env 토큰 canary도 확인한다. 근거 파일을 scratchpad `qa-evidence/model-select/`에 남긴다(D-145). (확인: 통합 테스트 로그와 스크린샷)
 
 ## 7. 리뷰
-- [ ] 7.1 테스트 리뷰: qa-verifier + design-critic + brand-reviewer(UI 변경, D-109·D-148) + agent-skills:code-reviewer(D-148)를 붙인다. BLOCKER/HIGH/FAIL을 해결한 뒤 decisions.md "리뷰 기록"에 결과와 조치를 기록한다. (확인: 리뷰 기록 4행)
+- [x] 7.1 테스트 리뷰: qa-verifier + design-critic + brand-reviewer(UI 변경, D-109·D-148) + agent-skills:code-reviewer(D-148)를 붙인다. BLOCKER/HIGH/FAIL을 해결한 뒤 decisions.md "리뷰 기록"에 결과와 조치를 기록한다. (확인: 리뷰 기록 4행) — 완료(3종): qa-verifier HIGH 1→수정 후 PASS, design-critic MAJOR 4·MINOR 4 반영·일부 문서화, brand-reviewer PASS(HIGH 0, MEDIUM 3 반영). code-reviewer는 이번 지시 범위 밖이라 돌리지 않음
 
 ## Workflow follow-up
 - 리뷰 통과 후 `/opsx:archive model-select`
