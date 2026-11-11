@@ -267,6 +267,8 @@ export default {
     kind: { plugin: "플러그인", skill: "스킬", agent: "에이전트" },
     pluginMembers: "스킬·에이전트 {n}개",
     notInstalled: "설치되지 않아 빠져요",
+    disabled: "꺼져 있어 빠져요",
+    ambiguous: "같은 이름이 여러 마켓플레이스에 있어 빠져요",
     remove: "{name} 빼기",
     find: "이름으로 찾기",
     pick: "추가할 항목",
@@ -279,6 +281,7 @@ export default {
     retry: "다시 시도",
     noMatch: "맞는 항목이 없어요",
     clear: "목록 비우기",
+    toDefault: "목록 기본값으로",
   },
   types: {
     tab: "작업 유형",

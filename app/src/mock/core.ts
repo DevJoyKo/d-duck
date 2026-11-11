@@ -20,6 +20,7 @@ import { deliveryHandlers } from "./delivery";
 import { authHandlers, mockLoggedOut, mockNotClaudeAi } from "./auth";
 import { lifecycleHandlers, mockLanes, noLive } from "./lifecycle";
 import { localize, delocalize } from "./english";
+import { emit } from "./event";
 import { DATA_LANG, backendLang, mockChoice, setMockChoice } from "./lang";
 const day = 86_400_000;
 const now = Date.now();
@@ -167,7 +168,12 @@ const marketplace: Record<string, { version?: string; sha?: string; updated: str
   "cloudflare@cloudflare": { version: "1.0.3", updated: "2026-11-06T08:01:29.687Z" },
   "expo@claude-plugins-official": { sha: "e5a9c01", updated: "2026-11-07T10:16:52.432Z" },
   "team-lint@acme-tools": { version: "0.3.1", updated: "2026-11-05T01:00:00.000Z" },
+  "frontend-design@claude-plugins-official": { version: "1.1.0", updated: "2026-11-07T10:16:52.432Z" },
 };
+// plugin-bulk-update: frontend-design fails, expo wants a command approved, cloudflare updates. `stop_plugin_updates`
+// stops after the current one. Each update takes a moment so the row progress can be seen.
+let bulkStop = false;
+const bulkDelay = () => new Promise((r) => setTimeout(r, typeof window === "undefined" || import.meta.env.MODE === "test" ? 5 : 1500));
 const cmpVersion = (a: string, b: string) => {
   const pa = a.split(".").map(Number), pb = b.split(".").map(Number);
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) if ((pb[i] ?? 0) !== (pa[i] ?? 0)) return (pb[i] ?? 0) > (pa[i] ?? 0) ? 1 : -1;
@@ -375,6 +381,34 @@ const handlers: Record<string, (a: Record<string, unknown>) => unknown> = {
     p.version = String(u.latest);
     p.lastUpdated = new Date().toISOString();
     return { kind: "done" };
+  },
+  update_plugins: async (a) => {
+    bulkStop = false;
+    const items: { id: string; status: unknown }[] = [];
+    const skipped: typeof items = [];
+    for (const id of (a.ids as string[]).slice(0, 15)) {
+      const p = plugins.find((x) => x.id === id);
+      if (!p || p.locked || updateOf(p).state === "latest") {
+        skipped.push({ id, status: { kind: "skipped", reason: !p ? "notInstalled" : p.locked ? "locked" : "latest" } });
+        continue;
+      }
+      if (bulkStop) {
+        const it = { id, status: { kind: "stopped" } };
+        emit("plugin-update-progress", it);
+        items.push(it);
+        continue;
+      }
+      emit("plugin-update-progress", { id, status: { kind: "running" } });
+      await bulkDelay();
+      const outcome = id === "frontend-design@claude-plugins-official" ? { kind: "failed" } : handlers.update_plugin({ id });
+      const it = { id, status: { kind: "finished", outcome } };
+      emit("plugin-update-progress", it);
+      items.push(it);
+    }
+    return { confirmed: items.length > 0, items: [...items, ...skipped] };
+  },
+  stop_plugin_updates: () => {
+    bulkStop = true;
   },
   get_status: () => ({ cli: mockNoCli ? null : { path: "/Users/me/.nvm/versions/node/v22.14.0/bin/claude", version: "2.1.319", supported: true }, configDir: "/Users/me/.claude", configDirExplicit: false, notifyWaiting: true, storeTitles: true, permissionModes: ["manual", "plan", "acceptEdits", "dontAsk", "auto", "bypassPermissions"], defaultCwd: "/Users/me/Agents/dev_team", reviewCapacity: 3, notifyFinished: true, remoteAlerts: false, storeTaskPrompts: true, taskReport: true, limitNotify: true, limitAutoResume: true, limitAutoShipped: true }),
   usage_summary: () => ({ tokens: tokens(2_110_000), estCostUsd: 251.51, unpricedModels: [], sessions: 9, responses: 2277, toolCalls: 2532, skillCalls: 15, commandCalls: 3 }),

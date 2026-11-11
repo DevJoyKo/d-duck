@@ -930,6 +930,18 @@ export interface Plugin {
 
 export type PluginUpdate = ({ state: "available"; latest: string } | { state: "latest" } | { state: "unknown" }) & { marketplaceUpdated: string | null };
 export type PluginOutcome = { kind: "done" | "needsApproval" | "locked" | "unchanged" | "cancelled" | "timeout" | "failed" };
+/** Why a plugin of a batch did not run (plugin-bulk-update, plugin_bulk.rs `Skip`). */
+export type PluginSkip = "badId" | "notInstalled" | "locked" | "latest" | "tooMany" | "changed";
+export type PluginBulkStatus = { kind: "running" } | { kind: "finished"; outcome: PluginOutcome } | { kind: "skipped"; reason: PluginSkip } | { kind: "stopped" };
+export interface PluginBulkItem {
+  id: string;
+  status: PluginBulkStatus;
+}
+/** `confirmed: false`: nothing ran (declined, or nothing to run; then `items` holds the skipped ones). */
+export interface PluginBulkResult {
+  confirmed: boolean;
+  items: PluginBulkItem[];
+}
 
 /** First-run tour state (onboarding-tour). Booleans and card ids only. */
 export interface OnboardingState {
@@ -988,6 +1000,8 @@ export const api = {
   plugins: () => invoke<Plugin[]>("plugin_list"),
   setPluginEnabled: (id: string, enabled: boolean) => invoke<PluginOutcome>("set_plugin_enabled", { id, enabled }),
   updatePlugin: (id: string) => invoke<PluginOutcome>("update_plugin", { id }),
+  updatePlugins: (ids: string[]) => invoke<PluginBulkResult>("update_plugins", { ids }),
+  stopPluginUpdates: () => invoke<void>("stop_plugin_updates"),
   sessionDetail: (sessionId: string) => invoke<SessionDetail>("usage_session_detail", { sessionId }),
   filterOptions: () => invoke<[string[], string[]]>("usage_filter_options"),
   agents: () => invoke<AgentsPayload>("list_agents"),

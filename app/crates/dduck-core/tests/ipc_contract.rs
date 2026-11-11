@@ -147,7 +147,7 @@ fn task_type_keys_and_team_config_payloads() {
         rules: d.rules.iter().map(|r| team_config::RuleInput { id: r.id.clone(), text: r.text.clone(), extra: String::new() }).collect(),
         types: d.types.iter().map(|t| t.def.clone()).collect(),
         refine: None,
-        preferred: Vec::new(),
+        preferred: None,
     };
     input.types.iter_mut().find(|t| t.key == "learn").unwrap().effort = dduck_core::team::Effort::High;
     let mut ops = d.get("qa").unwrap().clone();

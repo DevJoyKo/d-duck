@@ -6,6 +6,7 @@
 //! (one line, no markers, length caps) and quoted as data before they reach the system prompt.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +41,10 @@ pub struct PreferredItem {
     pub source: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
+    /// Plugin-sourced items: the marketplace folder it was picked from (preferred-default). `None` (items saved
+    /// before this field) matches any marketplace, but only while the plugin name is in one marketplace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marketplace: Option<String>,
 }
 
 fn valid_plugin(p: &str) -> bool {
@@ -55,6 +60,11 @@ pub fn valid_item(i: &PreferredItem) -> bool {
     };
     if !name_ok {
         return false;
+    }
+    if let Some(m) = &i.marketplace {
+        if !i.source.starts_with("plugin:") || !valid_plugin(m) {
+            return false;
+        }
     }
     let scope_ok = |s: &Option<String>| match s {
         Some(s) => s.starts_with('/') && s.chars().count() <= MAX_SCOPE_CHARS && !s.chars().any(crate::text::is_unsafe_char),
@@ -134,15 +144,24 @@ pub struct Available {
     /// Plugins: members that are such agents.
     #[serde(skip)]
     pub writing_members: Vec<String>,
+    /// Plugin-sourced items: the marketplace folder under `plugins/cache`.
+    pub marketplace: Option<String>,
+    /// Plugin-sourced items: recorded in `installed_plugins.json` and turned on in `enabledPlugins` (see
+    /// [`plugin_env`]). Always true for user and project items.
+    pub enabled: bool,
 }
 
 impl Available {
     pub fn matches(&self, i: &PreferredItem) -> bool {
-        self.kind == i.kind && self.name == i.name && self.source == i.source && (self.source != "project" || self.scope == i.scope)
+        self.kind == i.kind
+            && self.name == i.name
+            && self.source == i.source
+            && (self.source != "project" || self.scope == i.scope)
+            && (i.marketplace.is_none() || self.marketplace == i.marketplace)
     }
 
     fn item(&self) -> PreferredItem {
-        PreferredItem { kind: self.kind, name: self.name.clone(), source: self.source.clone(), scope: self.scope.clone() }
+        PreferredItem { kind: self.kind, name: self.name.clone(), source: self.source.clone(), scope: self.scope.clone(), marketplace: self.marketplace.clone() }
     }
 }
 
@@ -157,9 +176,10 @@ fn short(name: &str) -> &str {
 /// Builds the choosable list from the catalog readers the extensions and agents tabs use. `usable_only`: keep only
 /// agents usable in the folder the agent catalog was asked for (a start). Built-in agents, workflows, malformed
 /// agent files and agents with hooks, MCP servers or a risky mode are never offered.
-pub fn available(skills: &[Skill], agents: &[AgentDef], usable_only: bool) -> Vec<Available> {
+pub fn available(skills: &[Skill], agents: &[AgentDef], usable_only: bool, env: &PluginEnv) -> Vec<Available> {
     let mut out: Vec<Available> = Vec::new();
-    let mut plugins: BTreeMap<String, (Vec<String>, Vec<String>)> = BTreeMap::new();
+    // (marketplace, plugin) → (members, writing members): a same-named plugin from another marketplace is its own bundle.
+    let mut plugins: BTreeMap<(String, String), (Vec<String>, Vec<String>)> = BTreeMap::new();
     let push = |a: Available, out: &mut Vec<Available>| {
         let item = a.item();
         if valid_item(&item) && !out.iter().any(|x| x.item() == item) {
@@ -170,52 +190,168 @@ pub fn available(skills: &[Skill], agents: &[AgentDef], usable_only: bool) -> Ve
         if !matches!(s.kind, "skill" | "command") || !crate::loadout::valid_skill_name(&s.name) {
             continue;
         }
-        let (source, scope) = match s.source {
-            SkillSource::User => ("user".to_string(), None),
-            SkillSource::Project => ("project".to_string(), s.scope.clone()),
+        let (source, scope, market) = match s.source {
+            SkillSource::User => ("user".to_string(), None, None),
+            SkillSource::Project => ("project".to_string(), s.scope.clone(), None),
             SkillSource::Plugin => {
                 let Some(p) = plugin_of(&s.name) else { continue };
-                let members = &mut plugins.entry(p.to_string()).or_default().0;
-                if !members.iter().any(|m| m == short(&s.name)) {
+                let Some(m) = env.market_of(s.path.as_deref()) else { continue };
+                let members = &mut plugins.entry((m.clone(), p.to_string())).or_default().0;
+                if !members.iter().any(|x| x == short(&s.name)) {
                     members.push(short(&s.name).to_string());
                 }
-                (format!("plugin:{p}"), None)
+                (format!("plugin:{p}"), None, Some(m))
             }
             SkillSource::Builtin => continue,
         };
+        let enabled = env.is_on(market.as_deref(), &source);
         let description = s.description.as_deref().map(|d| crate::text::display_safe(d, 200));
-        push(Available { kind: Kind::Skill, name: s.name.clone(), source, scope, description, members: Vec::new(), writes: false, writing_members: Vec::new() }, &mut out);
+        push(Available { kind: Kind::Skill, name: s.name.clone(), source, scope, description, members: Vec::new(), writes: false, writing_members: Vec::new(), marketplace: market, enabled }, &mut out);
     }
     for d in agents {
         if d.malformed || d.risk.any() || (usable_only && !d.usable) || !agents_catalog::valid_name(&d.name) {
             continue;
         }
         let writes = crate::team_config::writes(&d.tools);
-        let (source, scope) = match d.source {
-            agents_catalog::Source::User => ("user".to_string(), None),
-            agents_catalog::Source::Project => ("project".to_string(), d.scope.clone()),
+        let (source, scope, market) = match d.source {
+            agents_catalog::Source::User => ("user".to_string(), None, None),
+            agents_catalog::Source::Project => ("project".to_string(), d.scope.clone(), None),
             agents_catalog::Source::Plugin => {
                 let Some(p) = plugin_of(&d.name) else { continue };
-                let entry = plugins.entry(p.to_string()).or_default();
+                let Some(m) = env.market_of(d.file.as_deref()) else { continue };
+                let entry = plugins.entry((m.clone(), p.to_string())).or_default();
                 if !entry.0.iter().any(|m| m == short(&d.name)) {
                     entry.0.push(short(&d.name).to_string());
                 }
                 if writes {
                     entry.1.push(short(&d.name).to_string());
                 }
-                (format!("plugin:{p}"), None)
+                (format!("plugin:{p}"), None, Some(m))
             }
             agents_catalog::Source::Builtin => continue,
         };
+        let enabled = env.is_on(market.as_deref(), &source);
         let description = d.description.as_deref().map(|x| crate::text::display_safe(x, 200));
-        push(Available { kind: Kind::Agent, name: d.name.clone(), source, scope, description, members: Vec::new(), writes, writing_members: Vec::new() }, &mut out);
+        push(Available { kind: Kind::Agent, name: d.name.clone(), source, scope, description, members: Vec::new(), writes, writing_members: Vec::new(), marketplace: market, enabled }, &mut out);
     }
-    for (p, (mut members, writing)) in plugins {
+    for ((m, p), (mut members, writing)) in plugins {
         members.sort();
-        push(Available { kind: Kind::Plugin, name: p.clone(), source: format!("plugin:{p}"), scope: None, description: None, members, writes: false, writing_members: writing }, &mut out);
+        let source = format!("plugin:{p}");
+        let enabled = env.is_on(Some(&m), &source);
+        push(Available { kind: Kind::Plugin, name: p.clone(), source, scope: None, description: None, members, writes: false, writing_members: writing, marketplace: Some(m), enabled }, &mut out);
     }
-    out.sort_by(|a, b| (a.kind, a.name.to_lowercase(), &a.source, &a.scope).cmp(&(b.kind, b.name.to_lowercase(), &b.source, &b.scope)));
+    out.sort_by(|a, b| (a.kind, a.name.to_lowercase(), &a.source, &a.scope, &a.marketplace).cmp(&(b.kind, b.name.to_lowercase(), &b.source, &b.scope, &b.marketplace)));
     out
+}
+
+// ---------- installed and enabled plugins ----------
+
+/// Which plugins Claude Code would load, from its own files (preferred-default, security review). Only the
+/// `installed_plugins.json` fields `scope`·`projectPath` and the settings key `enabledPlugins` are read.
+#[derive(Debug, Clone, Default)]
+pub struct PluginEnv {
+    /// `<config>/plugins/cache`, literal and canonical: a plugin file's marketplace is the folder right below.
+    pub caches: Vec<PathBuf>,
+    /// (marketplace, plugin) recorded as installed for the folder and turned on there.
+    pub on: BTreeSet<(String, String)>,
+}
+
+impl PluginEnv {
+    fn market_of(&self, path: Option<&Path>) -> Option<String> {
+        let path = path?;
+        self.caches.iter().find_map(|c| path.strip_prefix(c).ok()?.components().next()?.as_os_str().to_str().map(str::to_string)).filter(|m| valid_plugin(m))
+    }
+
+    fn is_on(&self, market: Option<&str>, source: &str) -> bool {
+        match (source.strip_prefix("plugin:"), market) {
+            (None, _) => true,
+            (Some(p), Some(m)) => self.on.contains(&(m.to_string(), p.to_string())),
+            (Some(_), None) => false,
+        }
+    }
+}
+
+const MAX_SETTINGS_BYTES: u64 = 1_000_000;
+
+fn read_capped(path: &Path) -> Option<String> {
+    let meta = std::fs::metadata(path).ok()?;
+    (meta.is_file() && meta.len() <= MAX_SETTINGS_BYTES).then(|| std::fs::read_to_string(path).ok()).flatten()
+}
+
+#[derive(Deserialize)]
+struct InstalledFile {
+    #[serde(default)]
+    plugins: BTreeMap<String, Vec<InstalledEntry>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InstalledEntry {
+    #[serde(default)]
+    scope: Option<String>,
+    #[serde(default)]
+    project_path: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EnabledOnly {
+    #[serde(default)]
+    enabled_plugins: Option<serde_json::Value>,
+}
+
+/// `enabledPlugins` of one settings file: id → on/off. Values other than booleans are ignored.
+fn enabled_in(path: &Path) -> BTreeMap<String, bool> {
+    let Some(v) = read_capped(path).and_then(|t| serde_json::from_str::<EnabledOnly>(&t).ok()).and_then(|e| e.enabled_plugins) else {
+        return BTreeMap::new();
+    };
+    v.as_object().map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_bool()?))).collect()).unwrap_or_default()
+}
+
+/// Plugins on for each context (`None` = user settings only, `Some(folder)` = that folder's local, project, then
+/// user settings; the first file naming the plugin decides). A plugin counts when it is on in any context and
+/// recorded for it: user or managed scope anywhere, project or local scope only at or below its `projectPath`.
+pub fn plugin_env(config_dir: &Path, contexts: &[Option<&Path>]) -> PluginEnv {
+    let cache = config_dir.join("plugins").join("cache");
+    let mut caches = vec![cache.clone()];
+    if let Ok(c) = cache.canonicalize() {
+        if c != cache {
+            caches.push(c);
+        }
+    }
+    let installed = read_capped(&config_dir.join("plugins").join("installed_plugins.json"))
+        .and_then(|t| serde_json::from_str::<InstalledFile>(&t).ok())
+        .map(|f| f.plugins)
+        .unwrap_or_default();
+    let user = enabled_in(&config_dir.join("settings.json"));
+    let mut on = BTreeSet::new();
+    for ctx in contexts {
+        let ctx = ctx.and_then(|c| c.canonicalize().ok());
+        let layers: Vec<BTreeMap<String, bool>> = match &ctx {
+            Some(c) => vec![enabled_in(&c.join(".claude").join("settings.local.json")), enabled_in(&c.join(".claude").join("settings.json")), user.clone()],
+            None => vec![user.clone()],
+        };
+        for (id, entries) in &installed {
+            let Some((name, market)) = id.split_once('@') else { continue };
+            if !valid_plugin(name) || !valid_plugin(market) {
+                continue;
+            }
+            let here = entries.iter().any(|e| match e.scope.as_deref() {
+                Some("project" | "local") => match (&ctx, e.project_path.as_deref().and_then(|p| Path::new(p).canonicalize().ok())) {
+                    (Some(c), Some(p)) => c.starts_with(p),
+                    _ => false,
+                },
+                // A record without a scope (older files) is user-wide; an unknown scope never counts.
+                None | Some("user" | "managed") => true,
+                Some(_) => false,
+            });
+            let enabled = layers.iter().find_map(|l| l.get(id).copied()).unwrap_or(false);
+            if here && enabled {
+                on.insert((market.to_string(), name.to_string()));
+            }
+        }
+    }
+    PluginEnv { caches, on }
 }
 
 /// Whether a start has to read the catalogs at all: only when something is chosen.
@@ -338,7 +474,12 @@ fn build(entries: &[Entry], lang: Lang, cap: usize, keep: usize) -> String {
 pub fn line(chosen: &[PreferredItem], installed: &[Available], lang: Lang, ctx: Ctx) -> Option<String> {
     let mut entries = Vec::new();
     for i in chosen.iter().filter(|i| valid_item(i)).take(MAX_PREFERRED) {
-        let Some(a) = installed.iter().find(|a| a.matches(i)) else { continue };
+        // One definition only: an item without a marketplace whose plugin name is in several marketplaces is ambiguous.
+        let mut found = installed.iter().filter(|a| a.matches(i));
+        let (Some(a), None) = (found.next(), found.next()) else { continue };
+        if !a.enabled {
+            continue;
+        }
         if (ctx.worktree && a.source == "project") || a.name.chars().count() > MAX_NAME_IN_LINE {
             continue;
         }
@@ -377,11 +518,11 @@ mod tests {
     use super::*;
 
     fn item(kind: Kind, name: &str, source: &str) -> PreferredItem {
-        PreferredItem { kind, name: name.into(), source: source.into(), scope: None }
+        PreferredItem { kind, name: name.into(), source: source.into(), scope: None, marketplace: None }
     }
 
     fn avail(kind: Kind, name: &str, source: &str, desc: Option<&str>) -> Available {
-        Available { kind, name: name.into(), source: source.into(), scope: None, description: desc.map(str::to_string), members: Vec::new(), writes: false, writing_members: Vec::new() }
+        Available { kind, name: name.into(), source: source.into(), scope: None, description: desc.map(str::to_string), members: Vec::new(), writes: false, writing_members: Vec::new(), marketplace: None, enabled: true }
     }
 
     #[test]
@@ -504,6 +645,8 @@ mod tests {
 
     #[test]
     fn available_reads_the_catalog_shapes() {
+        let cache = PathBuf::from("/cfg/plugins/cache");
+        let env = PluginEnv { caches: vec![cache.clone()], on: [("mk".to_string(), "kit".to_string())].into_iter().collect() };
         let skill = |name: &str, source: SkillSource, kind: &'static str| Skill {
             name: name.into(),
             source,
@@ -517,7 +660,7 @@ mod tests {
             readonly: None,
             copied_from: None,
             cc: None,
-            path: None,
+            path: (source == SkillSource::Plugin).then(|| cache.join("mk/kit/1.0/skills").join(name).join("SKILL.md")),
         };
         let skills = vec![
             skill("tdd", SkillSource::User, "skill"),
@@ -527,15 +670,110 @@ mod tests {
             skill("local", SkillSource::Project, "skill"),
             skill("Bash", SkillSource::Builtin, "skill"),
         ];
-        let a = available(&skills, &[], true);
+        let a = available(&skills, &[], true, &env);
         let names: Vec<(Kind, &str)> = a.iter().map(|x| (x.kind, x.name.as_str())).collect();
         assert_eq!(names, vec![(Kind::Plugin, "kit"), (Kind::Skill, "kit:grill"), (Kind::Skill, "kit:plan"), (Kind::Skill, "local"), (Kind::Skill, "tdd")]);
         assert_eq!(a[0].members, vec!["grill", "plan"]);
+        assert_eq!((a[0].marketplace.as_deref(), a[0].enabled), (Some("mk"), true));
+        assert_eq!((a[4].marketplace.as_deref(), a[4].enabled), (None, true), "user items are always on");
+        // A plugin file outside the cache (marketplace unknown) is never offered.
+        assert!(available(&skills, &[], true, &PluginEnv::default()).iter().all(|x| !x.source.starts_with("plugin:")));
         assert_eq!(a[3].scope.as_deref(), Some("/work/a"));
         assert_eq!(a[4].description.as_deref(), Some("d"), "display-cleaned for the webview");
         let v = serde_json::to_value(&a[0]).unwrap();
         let keys: BTreeSet<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
-        assert_eq!(keys, ["description", "kind", "members", "name", "scope", "source"].into_iter().collect(), "no paths reach the webview");
+        assert_eq!(keys, ["description", "enabled", "kind", "marketplace", "members", "name", "scope", "source"].into_iter().collect(), "no paths reach the webview");
         assert!(needed(&[item(Kind::Skill, "tdd", "user")]) && !needed(&[]));
+    }
+
+    fn plugin_skill(cache: &Path, market: &str, plugin: &str, short: &str) -> Skill {
+        Skill {
+            name: format!("{plugin}:{short}"),
+            source: SkillSource::Plugin,
+            scope: None,
+            kind: "skill",
+            description: None,
+            uses: 0,
+            last_used: None,
+            defined: true,
+            id: None,
+            readonly: None,
+            copied_from: None,
+            cc: None,
+            path: Some(cache.join(market).join(plugin).join("1.0/skills").join(short).join("SKILL.md")),
+        }
+    }
+
+    fn official(name: &str) -> PreferredItem {
+        PreferredItem { kind: Kind::Plugin, name: name.into(), source: format!("plugin:{name}"), scope: None, marketplace: Some("claude-plugins-official".into()) }
+    }
+
+    #[test]
+    fn a_same_named_plugin_from_another_marketplace_is_not_the_default() {
+        let cache = PathBuf::from("/cfg/plugins/cache");
+        let other = vec![plugin_skill(&cache, "elsewhere", "mattpocock-skills", "evil")];
+        let env = PluginEnv { caches: vec![cache.clone()], on: [("elsewhere".to_string(), "mattpocock-skills".to_string())].into_iter().collect() };
+        let a = available(&other, &[], true, &env);
+        assert_eq!(line(&[official("mattpocock-skills")], &a, Lang::Ko, Ctx::default()), None, "only claude-plugins-official counts");
+    }
+
+    #[test]
+    fn two_marketplaces_keep_their_members_apart_and_an_unnamed_pick_is_ambiguous() {
+        let cache = PathBuf::from("/cfg/plugins/cache");
+        let skills = vec![plugin_skill(&cache, "claude-plugins-official", "mattpocock-skills", "tdd"), plugin_skill(&cache, "elsewhere", "mattpocock-skills", "evil")];
+        let on = [("claude-plugins-official", "mattpocock-skills"), ("elsewhere", "mattpocock-skills")].iter().map(|(m, p)| (m.to_string(), p.to_string())).collect();
+        let a = available(&skills, &[], true, &PluginEnv { caches: vec![cache], on });
+        let bundles: Vec<(&str, &Vec<String>)> = a.iter().filter(|x| x.kind == Kind::Plugin).map(|x| (x.marketplace.as_deref().unwrap(), &x.members)).collect();
+        assert_eq!(bundles, vec![("claude-plugins-official", &vec!["tdd".to_string()]), ("elsewhere", &vec!["evil".to_string()])]);
+        let l = line(&[official("mattpocock-skills")], &a, Lang::Ko, Ctx::default()).unwrap();
+        assert!(l.contains("tdd") && !l.contains("evil"), "{l}");
+        let unnamed = PreferredItem { marketplace: None, ..official("mattpocock-skills") };
+        assert_eq!(line(std::slice::from_ref(&unnamed), &a, Lang::Ko, Ctx::default()), None, "no marketplace + two marketplaces = ambiguous");
+        // The same unnamed pick still works while the name is in one marketplace only.
+        let one: Vec<Available> = a.iter().filter(|x| x.marketplace.as_deref() == Some("claude-plugins-official")).cloned().collect();
+        assert!(line(&[unnamed], &one, Lang::Ko, Ctx::default()).is_some());
+    }
+
+    #[test]
+    fn plugins_count_only_when_recorded_and_enabled() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = tmp.path().join("cfg");
+        let proj = tmp.path().join("proj");
+        std::fs::create_dir_all(cfg.join("plugins/cache")).unwrap();
+        std::fs::create_dir_all(proj.join(".claude")).unwrap();
+        let proj_s = proj.canonicalize().unwrap().to_string_lossy().to_string();
+        std::fs::write(
+            cfg.join("plugins/installed_plugins.json"),
+            format!(
+                r#"{{"version":2,"plugins":{{"on@m":[{{"scope":"user","installPath":"/x"}}],"off@m":[{{"scope":"user"}}],"proj@m":[{{"scope":"project","projectPath":"{proj_s}"}}],"local@m":[{{"scope":"local","projectPath":"{proj_s}"}}],"odd@m":[{{"scope":"team"}}]}}}}"#
+            ),
+        )
+        .unwrap();
+        std::fs::write(cfg.join("settings.json"), r#"{"env":{"X":"secret"},"enabledPlugins":{"on@m":true,"off@m":false,"cached@m":true,"proj@m":true,"local@m":true,"odd@m":true}}"#).unwrap();
+        std::fs::write(proj.join(".claude/settings.local.json"), r#"{"enabledPlugins":{"local@m":false}}"#).unwrap();
+        let on = |ctx: &[Option<&Path>]| plugin_env(&cfg, ctx).on.into_iter().map(|(_, p)| p).collect::<Vec<_>>();
+        assert_eq!(on(&[None]), vec!["on"], "off is off, cached@m has no install record, project scope needs its folder");
+        assert_eq!(on(&[Some(proj.as_path())]), vec!["on", "proj"], "local settings turn local@m off there");
+        assert_eq!(on(&[Some(tmp.path())]), vec!["on"], "a folder above the project is not the project");
+        // A disabled plugin's bundle is listed (marked off) and left out of the line.
+        let cache = cfg.join("plugins/cache");
+        let env = plugin_env(&cfg, &[None]);
+        let skills = vec![plugin_skill(&cache, "m", "off", "a"), plugin_skill(&cache, "m", "on", "b")];
+        let a = available(&skills, &[], true, &env);
+        let off = a.iter().find(|x| x.kind == Kind::Plugin && x.name == "off").unwrap();
+        assert!(!off.enabled);
+        let pick = |n: &str| PreferredItem { kind: Kind::Plugin, name: n.into(), source: format!("plugin:{n}"), scope: None, marketplace: Some("m".into()) };
+        assert_eq!(line(&[pick("off")], &a, Lang::Ko, Ctx::default()), None);
+        assert!(line(&[pick("on")], &a, Lang::Ko, Ctx::default()).is_some());
+        // Unreadable or odd files mean nothing is on.
+        std::fs::write(cfg.join("settings.json"), r#"{"enabledPlugins":["on@m"]}"#).unwrap();
+        assert!(plugin_env(&cfg, &[None]).on.is_empty());
+    }
+
+    #[test]
+    fn a_marketplace_only_belongs_on_plugin_items() {
+        assert!(valid_item(&official("kit")));
+        assert!(!valid_item(&PreferredItem { marketplace: Some("m".into()), ..item(Kind::Skill, "tdd", "user") }));
+        assert!(!valid_item(&PreferredItem { marketplace: Some("../x".into()), ..official("kit") }));
     }
 }

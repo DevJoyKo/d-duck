@@ -2,7 +2,7 @@
 //! `description` of each file are read (64 KB cap, no symlinks); usage comes from `command_invocations` alone so a
 //! Skill tool call is not counted twice (design review MAJOR).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -287,27 +287,8 @@ pub fn discover(config_dir: &Path, project_dirs: &[PathBuf]) -> Vec<Skill> {
     if real_dir(&config_dir.join("workflows")) {
         workflows_in(&config_dir.join("workflows"), SkillSource::User, None, &mut out);
     }
-    // Plugins: cache/<marketplace>/<plugin>/<newest version>/{skills,commands}.
-    let cache = config_dir.join("plugins").join("cache");
-    let mut latest: BTreeMap<String, (std::time::SystemTime, PathBuf)> = BTreeMap::new();
-    if let Ok(markets) = std::fs::read_dir(&cache) {
-        for m in markets.filter_map(Result::ok).filter(|e| real_dir(&e.path())) {
-            let Ok(plugins) = std::fs::read_dir(m.path()) else { continue };
-            for p in plugins.filter_map(Result::ok).filter(|e| real_dir(&e.path())) {
-                let Ok(versions) = std::fs::read_dir(p.path()) else { continue };
-                for v in versions.filter_map(Result::ok).filter(|e| real_dir(&e.path())) {
-                    let when = v.metadata().and_then(|x| x.modified()).unwrap_or(std::time::UNIX_EPOCH);
-                    // market/plugin: two marketplaces may ship a plugin with the same name.
-                    let key = format!("{}/{}", m.file_name().to_string_lossy(), p.file_name().to_string_lossy());
-                    if latest.get(&key).is_none_or(|(t, _)| when > *t) {
-                        latest.insert(key, (when, v.path()));
-                    }
-                }
-            }
-        }
-    }
-    for (key, (_, dir)) in latest {
-        let plugin = key.rsplit('/').next().unwrap_or(&key).to_string();
+    // Plugins: the install folders Claude Code loads (installed_plugins.json, else the newest cached version).
+    for (plugin, dir) in crate::plugins::plugin_roots(config_dir) {
         // Default `skills/` plus the folders the plugin's manifest lists (the same rule as the plugins tab).
         crate::plugins::plugin_skills(&dir, &crate::plugins::read_manifest(&dir), &plugin, &mut out);
         if real_dir(&dir.join("commands")) {
