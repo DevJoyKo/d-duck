@@ -650,7 +650,7 @@ mod model_record {
     fn unversioned_columns_are_added_once() {
         let conn = crate::db::open_in_memory().unwrap();
         let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
-        assert_eq!(v, 15, "no version number taken");
+        assert_eq!(v, 16, "no version number taken (v16 is review-routine-runs)");
         let n: i64 = conn.query_row("SELECT COUNT(*) FROM pragma_table_info('task_meta') WHERE name IN ('model_requested','model_fallback')", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 2);
     }
