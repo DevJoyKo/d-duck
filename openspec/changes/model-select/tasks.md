@@ -9,8 +9,12 @@
   BLOCKER/HIGH를 해결하고 결과와 조치를 decisions.md "리뷰 기록"과 결정 항목에 남긴다. (확인: 리뷰 기록 2행, 개정된 문서) — 완료: design-critic HIGH 2·MAJOR 2·MINOR 2, security MEDIUM 2·LOW 3을 D-154로 반영
 - [x] 0.2 앞 change의 DB 번호(usage-limit-resume v10, delivery-guard·report-evidence·task-lifecycle)를 확인하고 이 change의 `task_meta` 번호를 정한다. `TaskSpec`·`ResumeSpec`을 같이 고치는 change(usage-limit-resume 2.7, review-rework)가 지금 어느 단계인지 확인하고 리베이스 순서를 적는다. (확인: decisions.md 구현 메모)
 
+- [ ] 0.3 설계 리뷰(대체 요구사항, D-197): design-critic + security-privacy-reviewer로 spec "지원되지 않는 모델은 자동으로 대체한다"와 design 결정 11을 검토한다. 중점: 정책 우회 불가, 더 비싼 계열 금지, CLI 거부 재시도의 안전성, DB v17 번호. BLOCKER/HIGH를 해결한다. (확인: 리뷰 결과를 PR·보고에 기록)
+
 ## 1. 확인 실행 (사용자 승인 후에만, 사용량 소모)
 - [ ] 1.1 `--agent=<model: haiku 파일 에이전트> --model=sonnet`으로 짧은 bg 작업 1개를 돌린다. 수집 기록 메인 대화 모델로 어느 쪽이 이기는지 기록한다. 같은 세션 `--resume`에서 `--model`이 유지되는지도 잰다. 결과에 따라 `FILE_AGENT_MODEL_OVERRIDE_VERIFIED`를 바꾸고, design 결정 4를 고친다. 다른 태스크는 이 결과 없이 구현한다. D-144에 따라 한도 실측 때 함께 해도 된다. (확인: decisions.md 실측 항목, 세션 id와 api_calls 모델 값)
+
+- [ ] 1.2 (사용자 승인 후, 사용량 소모 가능) 단가표·도움말에 없는 id로 `claude --bg --model=<사라진 id>`를 한 번 돌려, 시작 때 거부하는지(종료 코드·stderr 문구)와 세션 안에서 거부하는지를 기록한다. 결과에 맞게 `rejects_model` 문구 목록과 design 결정 11을 고친다. (확인: decisions.md 실측 항목)
 
 ## 2. core
 - [x] 2.1 `model_select.rs`: `valid_model`(design 결정 2), CLI 도움말 파서(`--model` 절 별칭), 출처 합치기·정렬·`resolved`·`current_default`(결정 1).
@@ -32,9 +36,13 @@
   - (확인: spec "작업별 모델"·"모델 우선순위" 시나리오마다 `bg_args` 테스트)
 - [ ] 2.8 DB: `task_meta.model_layer`·`model_arg`·`role_model` nullable 컬럼(0.2에서 정한 번호), 시작 때 실제로 넘긴 값을 기록한다. 요청과 다른 모델 비교 함수(결정 9: 메인 대화 첫 행, `<synthetic>` 제외, 계열·접두사 비교, 비교 불가 값 제외). (확인: 마이그레이션 테스트, 비교 표 테스트)
 
+- [ ] 2.9 대체(design 결정 11, D-197): `Known`·`supported`(계열·문서 별칭, 도움말, 설정 값, 최근 기록, 단가표 접두사 또는 `-YYYYMMDD`), `family_of`(별칭·`opusplan`·id 낱말), `fallback`(같은 계열 별칭 → 기본값, 더 비싼 계열 금지, 대체 값 허용 목록 검사, 요청 값이 막히면 대체 없이 거부), `rejects_model`(stderr 문구), `options`의 저장 값 항목에 `replacement`. `TaskSpec`·`ResumeSpec`에 대체 적용(층별 표). DB v17 `model_requested`·`model_fallback`와 기록·읽기. (확인: spec "지원되지 않는 모델은 자동으로 대체한다" 시나리오마다 단위 테스트, 마이그레이션 테스트)
+
 ## 3. 셸
 - [ ] 3.1 `model_options` 명령: `claude --help`를 앱 데이터 폴더 cwd·5초 제한·256KB 상한으로 실행하고, (CLI 경로, 버전, cwd)로 캐시한다. `refresh`면 캐시를 비운다. cwd 검사, 최근 사용 SQL(30일·12개), 관리 설정 루트는 `permissions::default_managed_roots`를 쓴다. (확인: 가짜 CLI 통합 테스트 — 도움말 실패 시 `cliRead: false`이고 나머지 출처는 유지, 모델 호출 인자 없음)
 - [ ] 3.2 `start_task`·팀 설정 저장·`save_agent_model`에서 허용 목록을 검사한다(fail closed). 페르소나·"내 에이전트"는 `resolve_for_cwd`가 고른 정의 파일에서 `model` 원문을 다시 읽어 넘긴다(`valid_model` 실패·`inherit`는 모델 없음). `save_agent_model`은 기존 에이전트 저장 경로(링크·하드링크·소유자·원자적 쓰기)를 쓴다. (확인: 막힌 값으로 시작하면 CLI가 실행되지 않는 통합 테스트, 프로젝트 에이전트가 사용자 에이전트를 가리는 cwd에서 프로젝트 파일 값을 쓰는 테스트)
+
+- [ ] 3.3 대체 연결: `start_task`·재개가 `Known`·허용 목록·기본값으로 대체를 적용하고 기록한다. `claude --bg`가 실패하고 `rejects_model`이 맞으면 대체 값으로 한 번만 다시 시작한다(이유 `cli_rejected`). (확인: 가짜 CLI가 첫 시작을 거부하는 통합 테스트 — 두 번째 인자에 대체 값, 기록 이유)
 
 ## 4. UI
 - [ ] 4.1 `src/lib/model.ts`: 정규식(Rust와 같은 표 테스트), 출처 라벨, 기본값 줄·비용 줄·막힘 이유 문구(해요체 한 줄). (확인: vitest, `copyRules.test.ts` 통과)
@@ -53,6 +61,8 @@
   - `startTask`에 `model`을 보낸다. 다시 맡기기·초안은 `model_layer = task`일 때만 모델 칸을 채우고, 아니면 기본값과 "원래 작업은 X로 돌았어요" 한 줄을 보인다.
   - (확인: vitest, 스크린샷)
 - [ ] 4.5 작업 상세에 "모델: … · 층"과 요청과 다른 모델 알림 한 줄을 넣는다. 기록이 없는 이전 작업은 "기록 없음"이다. (확인: vitest, mock)
+
+- [ ] 4.6 대체 표시: 작업 상세 "요청한 X를 쓸 수 없어 Y로 실행했어요"(기본값이면 "기본값으로"), 유형·에이전트 상세 "지원되지 않는 모델 · Y로 대체돼요"/"… · 대신 쓸 모델이 없어요". ko·en, 조사 처리. (확인: vitest, copyRules, 스크린샷)
 
 ## 5. 다른 change와의 연결
 - [ ] 5.1 (usage-limit-resume) `ResumeSpec.model`, `args()`가 `--model=`을 붙인다. `prepare_resume`은 `task_meta`의 `ModelPin`(`model_layer`·`model_arg`·`role_model`)으로 시작 인자를 재현하고 층을 다시 계산하지 않는다. 잠금은 `layer = task`일 때만 보고, 걸리면 기존 RiskChanged로 버튼만 남는다. 재개 직전 허용 목록 검사를 더한다. 그 change tasks 2.8과 같은 항목이다. (확인: 재개 인자 테스트 — 유형 기본값이 바뀌어도 원래 값 유지, 에이전트 층 작업은 잠금에 안 걸림, NULL이면 없음, 막히면 자동 재개 없음)

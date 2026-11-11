@@ -17,6 +17,7 @@
 - **허용 목록 존중**: `availableModels`(특히 관리 설정)가 막는 값은 고를 수 없게 보이고, 시작도 거부한다. CLI는 막힌 `--model`을 경고 하나만 내고 기본 모델로 바꾸기 때문이다.
 - **비용 한 줄**: 고른 모델이 지금 기본값보다 비싸면 한 줄로 알린다. 앱에 든 단가표(`pricing.json`)로만 계산하고, 원격에서 값을 가져오지 않는다.
 - **이어 하기·재작업**: 시작 때 넘긴 모델 인자와 그 층을 저장해 두고, usage-limit-resume의 재개와 review-rework의 재작업에서 그대로 재현한다(D-154).
+- **지원되지 않는 모델 자동 대체**(사용자 요청 2026-11-11): 정해 둔 모델이 더는 지원되지 않으면(도움말·설정·최근 기록·단가표 어디에도 없거나 CLI가 거부) 시작을 실패시키지 않는다. 같은 계열 별칭 → 계열을 모르면 기본값 순서로 바꾼다. 더 비싼 계열로는 바꾸지 않고, 대체 값도 허용 목록을 통과해야 한다. 정책에 막힌 값은 대체 없이 거부한다. 요청 값·실제 값·이유를 기록하고, 작업 상세와 설정 화면에 한 줄로 보인다.
 - **확인 표시**: 작업이 시작된 뒤 수집한 기록의 메인 세션 모델이 요청한 값과 계열이 다르면 작업 상세에 한 줄로 알린다.
 
 ## Capabilities
@@ -33,7 +34,7 @@
   - `team_config`: `TypeDef.model`·`TypePatch.model`·`RoleDef.model`.
   - `agents_catalog`: `with_model`(frontmatter `model:` 한 줄 편집).
   - `pricing`: 단가 비교 함수.
-  - DB: `task_meta` 컬럼 3개(`model_layer`·`model_arg`·`role_model`). 번호는 적용할 때 앞 change들 다음으로 정한다.
+  - DB: `task_meta` 컬럼 3개(`model_layer`·`model_arg`·`role_model`, v13)와 대체 기록 2개(`model_requested`·`model_fallback`, v17).
 - 셸: 명령 `model_options`, `save_agent_model`. 기존 `start_task`·팀 설정 저장 경로 보강.
 - UI: 공용 `ModelPicker`(Composer, AgentSettings 유형 상세, 에이전트 상세), mock, vitest.
 - 다른 change: usage-limit-resume(`ResumeSpec.model`), review-rework(재작업이 원래 모델을 이어받음).

@@ -169,3 +169,54 @@
 #### Scenario: CLI가 기본 모델로 바꿨다
 - **WHEN** `--model=opus`로 시작했는데 그 세션 메인 대화의 첫 기록 모델이 `claude-sonnet-5-5`다
 - **THEN** 작업 상세에 "요청한 모델(opus)과 다른 claude-sonnet-5-5로 돌았어요" 한 줄이 보인다
+
+### Requirement: 지원되지 않는 모델은 자동으로 대체한다
+작업·유형·에이전트 파일·재개 기록에서 정해진 모델이 지금 지원되지 않으면, 앱은 시작을 실패시키지 않고 대체 모델로 시작해야 한다(SHALL). "지원됨"은 다음 중 하나다: 계열 별칭(`opus`·`sonnet`·`haiku`·`fable`, `[1m]` 포함), 문서에 있는 별칭(`best`·`opusplan`), 지금 `claude --help`의 별칭, 설정의 모델 값, 최근 30일 기록의 모델, 앱 단가표에 있는 id(접두사가 같거나 뒤에 `-YYYYMMDD` 날짜만 붙은 것). 이 밖의 값은 "지원되지 않음"이다. CLI가 시작할 때 그 모델을 거부했다고 판단되면 그것도 "지원되지 않음"이다.
+
+대체 순서는 다음과 같다(SHALL).
+1. 같은 계열 별칭. 계열은 별칭 이름이나 id 안의 `opus`·`sonnet`·`haiku`·`fable` 낱말로 정한다. `[1m]`은 떼고 넘긴다.
+2. 계열을 정할 수 없으면 기본값(`--model`을 넣지 않음).
+3. 요청한 계열보다 비싼 계열(haiku < sonnet < opus < fable)로 바꾸어서는 안 된다(MUST NOT). 같은 계열 별칭이 허용 목록에 막혀 기본값으로 가야 하는데, 기본값의 계열을 모르거나 더 비싸면 시작을 거부한다.
+4. 대체 모델도 허용 목록을 통과해야 한다(MUST). 요청한 값이 허용 목록에 막혔으면 대체하지 않고 지금처럼 거부한다(MUST). 대체는 정책을 돌아가는 길이 아니다.
+
+앱은 요청한 값, 실제로 넘긴 값, 이유(`unsupported`·`cli_rejected`)를 작업 기록에 남겨야 한다(SHALL). 재개는 실제로 넘긴 값을 재현하고, 그 값이 그 사이 지원되지 않게 됐으면 같은 규칙으로 다시 대체해야 한다(SHALL).
+
+#### Scenario: 사라진 전체 id는 같은 계열 별칭으로
+- **WHEN** 유형 기본 모델이 `claude-opus-3-9`이고, 그 id가 CLI 도움말·설정·최근 기록·단가표 어디에도 없다
+- **THEN** 시작 인자와 역할 JSON `model`이 `opus`다. 작업 기록에 요청 `claude-opus-3-9`, 실제 `opus`, 이유 `unsupported`가 남는다
+
+#### Scenario: 계열을 모르는 값은 기본값으로
+- **WHEN** 작업에서 직접 입력한 `acme-large-2`가 어디에도 없다
+- **THEN** `--model`이 없고 역할 JSON에도 `model`이 없다. 기록의 실제 값은 기본값이다
+
+#### Scenario: 지원되는 값은 그대로
+- **WHEN** 작업 값이 `claude-haiku-4-5-20251001`이고 단가표에 `claude-haiku-4-5`가 있다
+- **THEN** `--model=claude-haiku-4-5-20251001` 그대로다. 대체 기록이 없다
+
+#### Scenario: 정책에 막힌 값은 대체하지 않는다
+- **WHEN** 관리 설정 `availableModels`가 `["sonnet"]`이고 작업 값이 지원되지 않는 `claude-opus-3-9`다
+- **THEN** 시작을 거부하고 "관리 설정이 이 모델을 막아요"를 보인다. `opus`나 기본값으로 시작하지 않는다
+
+#### Scenario: 대체 별칭이 막히고 기본값이 더 비싸다
+- **WHEN** 작업 값이 지원되지 않는 `claude-haiku-3-1`이고, 사용자 설정 `availableModels`가 `["claude-haiku-3-1", "opus"]`이고, 기본값이 `opus`다
+- **THEN** 시작을 거부하고 "대신 쓸 모델이 없어 시작하지 않았어요 · 더 비싼 모델로는 바꾸지 않아요"를 보인다
+
+#### Scenario: CLI가 시작 때 거부했다
+- **WHEN** `--model=claude-sonnet-4-6`로 시작했는데 `claude --bg`가 실패하고 stderr에 그 모델 이름과 "model … not found" 같은 거부 문구가 있다
+- **THEN** 한 번만 `--model=sonnet`으로 다시 시작한다. 기록 이유는 `cli_rejected`다. 다시 실패하면 그 실패를 그대로 보인다
+
+#### Scenario: 에이전트 파일의 사라진 모델
+- **WHEN** 파일 에이전트의 `model:`이 지원되지 않는 `claude-sonnet-3-9`이고 작업 값이 없다
+- **THEN** `--model=sonnet`을 넣어 시작한다(파일 모델 잠금은 작업 값에만 걸린다). 기록 층은 `agent`, 요청은 `claude-sonnet-3-9`다
+
+#### Scenario: 재개 때 기록된 모델이 사라졌다
+- **WHEN** `--model=claude-opus-4-1`로 시작한 작업을 재개하는데 그 사이 그 id가 지원되지 않게 됐다
+- **THEN** 재개 인자에 `--model=opus`가 있고, 기록에 대체가 남는다
+
+#### Scenario: 작업 상세 알림
+- **WHEN** 작업 기록에 요청 `claude-opus-3-9`, 실제 `opus`가 있다
+- **THEN** 작업 상세에 "요청한 claude-opus-3-9를 쓸 수 없어 opus로 실행했어요" 한 줄이 보인다. 실제가 기본값이면 "…기본값으로 실행했어요"다
+
+#### Scenario: 설정 화면 표시
+- **WHEN** 유형 상세나 에이전트 상세에 저장된 모델이 지원되지 않는 `claude-opus-3-9`다
+- **THEN** 모델 고르기 아래에 "지원되지 않는 모델 · opus로 대체돼요" 한 줄이 보인다. 대체할 모델이 없으면 "지원되지 않는 모델 · 대신 쓸 모델이 없어요"다

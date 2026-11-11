@@ -158,6 +158,38 @@ core `model_select::options(env) -> ModelOptions`. 입력은 순수 데이터(`O
   - "같은 세션에서 이어서"는 재개와 같은 `ModelPin` 재현을 쓴다.
   - 그 change에는 이미 같은 내용이 있다: design "실행 조건 이월", tasks 1.3·1.4·2.3, spec 시나리오 "모델 유지". 이 change는 그 change가 쓰는 계약 두 가지를 제공한다. 하나는 `task_meta.model_layer`·`model_arg`·`role_model` 열 이름과 NULL 의미("기록 없음, 모델 인자 없음")이고, 다른 하나는 `ResumeSpec.model`·`ModelPin` 재현 규칙이다. 이 계약을 바꾸면 그 change에 알린다.
 
+### 11. 지원되지 않는 모델의 자동 대체 (사용자 요청 2026-11-11, D-197)
+요청: 고른 모델이 더는 지원되지 않으면 시작을 실패시키지 말고 자동으로 대체한다.
+
+**지원 판정** `model_select::supported(value, &Known) -> bool`. `Known`은 순수 데이터다(`cli` 별칭, 설정 값, 최근 30일 모델, 단가표 접두사). 다음 중 하나면 지원된다.
+- 계열 별칭(`FAMILIES`, `[1m]` 포함)과 문서 별칭 `best`·`opusplan`. 도움말에 haiku가 없어도 계열 별칭은 CLI가 푼다.
+- 지금 `claude --help` 별칭, 설정의 모델 값(`model`·`availableModels`·`modelOverrides` 키·정해진 env 값), 최근 30일 기록의 모델(`normalize_id`로 비교).
+- 단가표: `price_key(value)`가 어떤 접두사와 같거나 `접두사-YYYYMMDD`다. `PriceTable::find`의 "가장 긴 접두사"는 쓰지 않는다. 그 규칙이면 `claude-opus-5-9`도 `claude-opus-5`로 "안다"가 되기 때문이다.
+- 대안: 단가표만 쓰기. 단가표는 앱 버전에 묶여 늦고, 게이트웨이·설정의 사용자 id를 모른다. 대안: 모델을 불러 확인하기. 비용이 들고 네트워크를 쓴다(비대상).
+
+**대체 대상** `model_select::fallback(requested, &FallbackCtx) -> Result<Replacement, &'static str>`.
+- `Replacement::Alias(f)`: 같은 계열 별칭. 계열은 `family_of(value)`다. 별칭이면 그 계열, `opusplan`은 opus, 그 밖에는 `normalize_id` 결과가 `claude-`로 시작하고 `-`로 나눈 낱말에 계열 이름이 딱 하나 있을 때 그 계열이다(`claude-3-5-sonnet-…`도 잡는다). `[1m]`은 떼서 넘긴다. 1M 문맥은 단가가 더 높기 때문이다(규칙 3).
+- `Replacement::Default`: 계열을 모르면 기본값이다. 인라인 역할은 `--model`과 역할 `model`을 모두 뺀다. 파일 에이전트는 `--model`을 빼면 CLI가 파일 값을 다시 쓰므로, 기본값의 값을 알면(`current_default`가 env·settings·recent) 그 값을 `--model`로 넣고, 모르면 거부한다.
+- 같은 계열 별칭이 허용 목록에 막히면 기본값을 본다. 이때 기본값의 계열이 요청 계열보다 높거나(haiku < sonnet < opus < fable) 계열을 모르면 거부한다("대신 쓸 모델이 없어 시작하지 않았어요 · 더 비싼 모델로는 바꾸지 않아요").
+- 순서는 늘 **형식 검사 → 요청 값의 허용 목록 검사(막히면 거부, 대체 없음) → 지원 판정 → 대체 대상의 허용 목록 검사**다. 그래서 대체가 정책을 돌아가는 길이 되지 않는다.
+
+**CLI 거부** `model_select::rejects_model(stderr_tail, value) -> bool`. `claude --bg`가 실패하고 stderr 끝부분(이미 화면용으로 자른 값)에 그 모델 값과 `model`, 거부 문구(`not found`·`not_found`·`invalid model`·`unknown model`·`not available`·`not supported`·`unsupported`·`does not exist`·`retired`·`deprecated`)가 함께 있으면 거부로 본다. 그러면 그 값을 "지원되지 않음"으로 보고 대체 대상으로 **한 번만** 다시 시작한다. 실제 문구는 측정하지 않았다(태스크 1.2, 사용자 승인 필요). 문구가 다르면 재시도가 일어나지 않을 뿐이고, 원래 실패가 그대로 보인다. `--bg`가 시작은 받고 세션 안에서 API가 거부하는 경우는 잡지 않는다(비대상, 후속). 그때는 결정 9 알림도 뜨지 않는다.
+
+**층별 적용**
+| 요청 값 | 대체 시 인자 |
+|---|---|
+| 작업·유형(인라인 역할) | `--model`과 역할 `model`을 같은 대체 값으로(기본값이면 둘 다 없음) |
+| 작업·유형(파일 에이전트 위) | `--model`만 대체 값으로 |
+| 에이전트 파일 `model:` | `--model=<대체 값>`을 넣는다. 파일 잠금(결정 4)은 작업 값에만 걸린다. `--agent`가 이기면 CLI가 파일 값을 쓰지만, 그 경우 결정 9 알림이 사후에 보인다 |
+| 재개 `ModelPin` | `arg`·`role`을 같은 규칙으로 대체한다. 층은 그대로 둔다 |
+
+**기록** DB v17(`task_meta.model_requested TEXT`, `task_meta.model_fallback TEXT` = `unsupported`·`cli_rejected`). v16은 열린 PR #5(routine_runs)가 쓴다. `model_arg`·`role_model`은 늘 **실제로 넘긴 값**이다. 그래서 재개·"같은 세션에서 이어서"는 대체된 값을 그대로 재현한다. 재개에서 다시 대체하면 두 열을 새 값으로 바꾸고, `model_requested`는 처음 요청이 비어 있을 때만 채운다.
+
+**표시**
+- 작업 상세: `model_requested`가 있으면 "요청한 X를 쓸 수 없어 Y로 실행했어요"(Y가 없으면 "기본값으로") 한 줄. 결정 9 알림은 실제로 넘긴 값과 비교한다.
+- 설정 화면: `model_options`가 저장된 값(팀 설정 유형 모델, 이 cwd의 에이전트 파일 모델)을 "직접 입력" 출처 항목으로 넣고, 지원되지 않으면 `replacement: { kind: "alias", to } | { kind: "default" } | { kind: "none" }`을 단다. 고르기 아래에 "지원되지 않는 모델 · Y로 대체돼요" 또는 "… · 대신 쓸 모델이 없어요" 한 줄을 보인다.
+- 대체는 노랑을 쓰지 않는다. 보조 글자색 한 줄이다.
+
 ## Risks / Trade-offs
 - [`--agent`의 모델과 `--model` 중 무엇이 이기는지 문서에 없음] → 인라인 역할은 두 값을 같게 넣어 영향을 없앤다. 파일 에이전트+작업 값 조합만 상수로 잠그고, 확인 실행 1.1(사용량 소모, 사용자 승인 후, D-144처럼 다른 실측과 함께)로 연다.
 - [`claude --help` 문구는 계약이 아님] → 파싱 실패는 CLI 출처만 비운다. 픽스처 테스트에 2.1.319 출력 발췌를 넣는다. 도움말에 haiku가 없는 것도 그대로 받아들인다(최근 사용·직접 입력으로 보완).
@@ -167,10 +199,12 @@ core `model_select::options(env) -> ModelOptions`. 입력은 순수 데이터(`O
 - [settings `env`에 토큰·API 키가 같이 있음] → 정해진 이름만 `get`한다. canary 테스트로 토큰 값이 응답·로그·DB에 없음을 고정한다.
 - [정규식이 게이트웨이 id(`a/b`)·ARN을 막음] → 그런 사용자는 CLI 설정(`ANTHROPIC_MODEL` 등)으로 기본값을 쓰면 된다. 기본값 항목은 늘 고를 수 있다. 필요하면 후속으로 넓힌다.
 - [허용 목록 판정이 CLI와 다를 수 있음] → `Unknown`은 막는 쪽이다. 결정 9 알림이 사후에 잡는다.
+- [지원 판정이 틀림(새 모델이 단가표보다 먼저 나옴)] → 같은 계열 별칭으로 대체되므로 대개 같은 최신 모델이 된다. 설정 화면이 미리 "지원되지 않는 모델"을 보여 사용자가 고칠 수 있다. 작업 상세에 대체 사실이 남는다.
+- [CLI 거부 문구 미측정] → 재시도는 문구가 맞을 때만 한 번 일어난다. 틀리면 지금처럼 실패를 보인다(태스크 1.2).
 - [비싼 모델을 기본으로 둔 유형이 쌓이면 비용 증가] → 유형 상세에도 같은 비용 줄을 보인다. 작업 상세에 실제 모델을 보인다.
 
 ## Migration Plan
-- DB: `task_meta`에 nullable `model_layer TEXT`, `model_arg TEXT`, `role_model TEXT`를 더한다. 번호는 적용할 때 usage-limit-resume v10·delivery-guard·report-evidence·task-lifecycle 다음으로 정한다. 기존 행은 NULL이고 "기록 없음"으로 보인다. 재개에서 NULL이면 `--model`을 넣지 않는다(지금 동작과 같음).
+- DB: `task_meta`에 nullable `model_layer TEXT`, `model_arg TEXT`, `role_model TEXT`를 더한다(v13, 이미 main에 있음). 대체 기록 `model_requested TEXT`, `model_fallback TEXT`는 v17이다(v16은 PR #5). PR #5가 먼저 합쳐지면 번호가 그대로 맞는다. 이 PR이 먼저 합쳐지면 v17까지 올라간 DB에서는 나중에 들어온 PR #5의 `version < 16` 단계가 돌지 않는다. 그때는 PR #5의 단계를 v18로 옮겨야 한다(PR 본문에 적는다). 기존 행은 NULL이고 "기록 없음"으로 보인다. 재개에서 NULL이면 `--model`을 넣지 않는다(지금 동작과 같음).
 - 팀 설정: `TypePatch.model`은 선택 필드다. 이전 저장 값은 그대로 읽히고 모델 없음이 된다.
 - 되돌리기: 기능을 빼도 저장된 `model` 필드는 serde `default`로 무시된다. 파일 에이전트에 쓴 `model:` 줄은 CLI가 원래 지원하는 필드라 그대로 둬도 된다.
 
