@@ -142,7 +142,7 @@ Claude Code 에이전트 팀에게 실제 일을 맡기면서도 권한 통제�
 
 ## 설치
 
-> **상태: 초기 버전(v0.1.1).** 지금은 Apple Silicon Mac만 지원합니다. UI는 한국어와 영어를 지원하며 사이드바나 설정에서 바꿉니다. 앱은 Developer ID로 서명하고 Apple 공증(notarize)을 받아 경고 없이 열립니다.
+> **상태: 초기 버전(v0.1.2).** 지금은 Apple Silicon Mac만 지원합니다. UI는 한국어와 영어를 지원하며 사이드바나 설정에서 바꿉니다. 앱은 Developer ID로 서명하고 Apple 공증(notarize)을 받아 경고 없이 열립니다.
 
 1. [Releases](https://github.com/DevJoyKo/d-duck/releases)에서 최신 `.dmg`를 받아 **D.Duck**을 Applications로 끌어다 놓습니다.
 2. [Claude Code](https://docs.claude.com/en/docs/claude-code)가 설치되어 있어야 합니다. 로그인하지 않았다면 D.Duck이 브라우저 로그인 버튼을 표시합니다.
