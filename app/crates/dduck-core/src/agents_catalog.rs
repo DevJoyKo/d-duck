@@ -1025,6 +1025,14 @@ mod tests {
         let foreign = format!(r#"{{"plugins":{{"bare@mk":[{{"installPath":"{}"}}]}}}}"#, cache.join("kit/1.3.1").display());
         put(&r.config_dir.join("plugins/installed_plugins.json"), &foreign);
         assert!(plugin_agents(&r).contains(&"bare:old".to_string()), "a record pointing at another plugin's folder is ignored");
+        assert!(!plugin_agents(&r).contains(&"bare:recorded".to_string()), "kit's agents never show under bare");
+
+        let missing = format!(r#"{{"plugins":{{"kit@mk":[{{"installPath":"{}"}}]}}}}"#, cache.join("kit/0.0.1").display());
+        put(&r.config_dir.join("plugins/installed_plugins.json"), &missing);
+        assert!(plugin_agents(&r).contains(&"kit:newer".to_string()), "an unusable record falls back to the newest folder");
+        put(&cache.join("kit/49dd158d1076/.orphaned_at"), "1");
+        assert!(plugin_agents(&r).contains(&"kit:recorded".to_string()), "an orphaned version folder is never picked");
+        assert!(!plugin_agents(&r).contains(&"kit:newer".to_string()));
     }
 
     #[cfg(unix)]

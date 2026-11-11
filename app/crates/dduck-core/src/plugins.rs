@@ -375,7 +375,7 @@ const MAX_VERSION_DIRS: usize = 5000;
 
 /// The install folders whose components count, as `(plugin name, canonical folder)`: the `installPath`s recorded in
 /// `installed_plugins.json` (what Claude Code loads), or, for a cached plugin with no usable record, its most recently
-/// modified version folder. Only real folders (no links) under a real `<config>/plugins/cache`.
+/// modified version folder that is not marked `.orphaned_at`. Only real folders (no links) under a real `<config>/plugins/cache`.
 pub(crate) fn plugin_roots(config_dir: &Path) -> Vec<(String, PathBuf)> {
     let cache = config_dir.join("plugins").join("cache");
     if !real_dir(&config_dir.join("plugins")) || !real_dir(&cache) {
@@ -397,7 +397,8 @@ pub(crate) fn plugin_roots(config_dir: &Path) -> Vec<(String, PathBuf)> {
                 continue;
             }
             let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
-            for v in dirs(&p.path()) {
+            // Claude Code marks a version it no longer uses with `.orphaned_at` before removing it.
+            for v in dirs(&p.path()).into_iter().filter(|v| !file_exists(&v.path().join(".orphaned_at"))) {
                 seen += 1;
                 if seen > MAX_VERSION_DIRS {
                     break 'scan;

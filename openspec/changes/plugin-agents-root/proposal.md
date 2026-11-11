@@ -5,7 +5,7 @@ The Agents tab showed a "형식 오류" (malformed) agent card for the `mattpoco
 ## What Changes
 
 - One shared helper (`plugins::plugin_agent_files`) lists a plugin's agent files: `agents/*.md` plus `plugin.json` `agents` `.md` files (relative, inside the install folder, regular files, no links). Folder entries, `..` and absolute paths are ignored. Both the plugins tab and the agents tab use it.
-- One shared helper (`plugins::plugin_roots`) picks the install folder(s): the recorded `installPath`s (validated like the plugins tab's install path, in that plugin's own cache folder; all records are read), else the newest-modified version folder. The agents tab and the skills tab use it.
+- One shared helper (`plugins::plugin_roots`) picks the install folder(s): the recorded `installPath`s (validated like the plugins tab's install path, in that plugin's own cache folder; all records are read), else the newest-modified version folder not marked `.orphaned_at`. The agents tab and the skills tab use it.
 - A folder named `agents` elsewhere in a plugin (e.g. `docs/agents/`) is ignored, so documentation never shows as a broken agent.
 - Plugin agent paths and ids are now based on the canonical install path.
 
