@@ -125,6 +125,8 @@ pub struct AppState {
     mcp_last: Mutex<Option<Instant>>,
     /// One plugin enable/disable/update at a time (D-075).
     plugin_busy: AtomicBool,
+    /// Set by `stop_plugin_updates`: the running batch stops after the current plugin (plugin-bulk-update).
+    plugin_stop: AtomicBool,
     /// One routine approval dialog at a time (D-049).
     confirm_lock: Mutex<()>,
     /// External links open at most once per second (D-053).
@@ -1410,25 +1412,31 @@ fn set_plugin_enabled(state: State<'_, AppState>, id: String, enabled: bool) -> 
     Ok(dduck_core::plugins::judge_toggle(outcome, after.as_ref(), enabled))
 }
 
+/// Runs `claude plugin update` for one already-confirmed plugin and judges it by the re-read list (single and bulk).
+fn update_one(state: &AppState, p: &dduck_core::plugins::Installed) -> Res<dduck_core::plugins::Outcome> {
+    use dduck_core::plugins::{Action, Outcome};
+    let outcome = state.client()?.plugin_action(&home_dir(), Action::Update, &p.id, p.scope).map_err(err)?;
+    if outcome != Outcome::Done {
+        return Ok(outcome);
+    }
+    let after = installed_plugins(state)?.into_iter().find(|x| x.id == p.id && x.scope == p.scope);
+    Ok(dduck_core::plugins::judge_update(outcome, p, after.as_ref()))
+}
+
 /// Updates one plugin after a native confirmation. Never auto-approves a marketplace command (D-075).
 #[tauri::command]
 async fn update_plugin(app: AppHandle, id: String) -> Res<dduck_core::plugins::Outcome> {
     tauri::async_runtime::spawn_blocking(move || {
-        use dduck_core::plugins::{Action, Outcome};
+        use dduck_core::plugins::Outcome;
 
         let state = app.state::<AppState>();
         let _busy = PluginBusy::take(&state.plugin_busy)?;
         let p = editable_plugin(&state, &id)?;
-        use dduck_core::plugins::UpdateState;
         let config = state.config.read().map_err(err)?.path.clone();
         let info = dduck_core::plugins::local_updates(&config, std::slice::from_ref(&p)).remove(&p.id);
         let (name, market) = p.id.split_once('@').unwrap_or((&p.id, ""));
         let current = p.version.clone().unwrap_or_else(|| tr(C::PluginNoVersion));
-        let target = match info.map(|i| i.state) {
-            Some(UpdateState::Available { latest }) => latest,
-            Some(UpdateState::Latest) => tr(C::PluginLatestSame),
-            _ => tr(C::PluginLatestUnknown),
-        };
+        let target = dduck_core::plugin_bulk::target_text(info.as_ref().map(|i| &i.state), false);
         let _guard = state.confirm_lock.try_lock().map_err(|_| ReasonCode::ConfirmOpen.now())?;
         let ok = app
             .dialog()
@@ -1444,15 +1452,69 @@ async fn update_plugin(app: AppHandle, id: String) -> Res<dduck_core::plugins::O
         if !ok {
             return Ok(Outcome::Cancelled);
         }
-        let outcome = state.client()?.plugin_action(&home_dir(), Action::Update, &p.id, p.scope).map_err(err)?;
-        if outcome != Outcome::Done {
-            return Ok(outcome);
-        }
-        let after = installed_plugins(&state)?.into_iter().find(|x| x.id == p.id);
-        Ok(dduck_core::plugins::judge_update(outcome, &p, after.as_ref()))
+        update_one(&state, &p)
     })
     .await
     .map_err(err)?
+}
+
+/// Updates several plugins after ONE native confirmation that names every target (plugin-bulk-update, D-203).
+/// Targets, scopes and versions come from the re-read CLI list; each one is re-checked right before it runs and goes
+/// through `update_one` (same command, own 120 s limit, never `-y`/`--accept-command`), one at a time.
+/// `plugin-update-progress` carries `{id, status}` only; any error becomes that row's `failed` (no text).
+#[tauri::command]
+async fn update_plugins(app: AppHandle, ids: Vec<String>) -> Res<dduck_core::plugin_bulk::BulkResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use dduck_core::plugin_bulk::{self as bulk, BulkResult};
+        use dduck_core::plugins::Outcome;
+
+        let state = app.state::<AppState>();
+        let _busy = PluginBusy::take(&state.plugin_busy)?;
+        // Only after taking the busy flag: a stop meant for an earlier batch must not leak into this one.
+        state.plugin_stop.store(false, Ordering::SeqCst);
+        let config = state.config.read().map_err(err)?.path.clone();
+        let installed = installed_plugins(&state)?;
+        let updates = dduck_core::plugins::local_updates(&config, &installed);
+        let plan = bulk::plan(&ids, &installed, &updates);
+        if plan.run.is_empty() {
+            return Ok(BulkResult { confirmed: false, items: plan.skipped });
+        }
+        let (title, body) = bulk::confirm_text(&plan.run, plan.skipped.len());
+        let _guard = state.confirm_lock.try_lock().map_err(|_| ReasonCode::ConfirmOpen.now())?;
+        let ok = app
+            .dialog()
+            .message(body)
+            .title(title)
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancelCustom(tr(C::BtnUpdate), tr(C::BtnCancel)))
+            .blocking_show();
+        drop(_guard);
+        if !ok {
+            return Ok(BulkResult { confirmed: false, items: vec![] });
+        }
+        let stop = || state.plugin_stop.load(Ordering::SeqCst);
+        let mut check = |t: &bulk::Target| match installed_plugins(&state) {
+            Ok(now) => bulk::recheck(t, &now, &dduck_core::plugins::local_updates(&config, &now)),
+            Err(_) => Some(bulk::Skip::Changed),
+        };
+        let mut update = |t: &bulk::Target| update_one(&state, &t.plugin).unwrap_or(Outcome::Failed);
+        let mut report = |item: &bulk::Item| {
+            let _ = app.emit("plugin-update-progress", item);
+        };
+        let mut items = bulk::run(&plan.run, &stop, &mut check, &mut update, &mut report);
+        items.extend(plan.skipped);
+        Ok(BulkResult { confirmed: true, items })
+    })
+    .await
+    .map_err(err)?
+}
+
+/// Stops a running `update_plugins` after the plugin it is on. No-op when nothing runs.
+#[tauri::command]
+fn stop_plugin_updates(state: State<'_, AppState>) {
+    if state.plugin_busy.load(Ordering::SeqCst) {
+        state.plugin_stop.store(true, Ordering::SeqCst);
+    }
 }
 
 // ---------- tech-lead workflow (D-061, AG-01 … AG-14) ----------
@@ -3816,6 +3878,7 @@ pub fn run() {
                 mcp_busy: std::sync::atomic::AtomicBool::new(false),
                 mcp_last: Mutex::new(None),
                 plugin_busy: AtomicBool::new(false),
+                plugin_stop: AtomicBool::new(false),
                 last_open: Mutex::new(None),
             };
             state.resolve_cli();
@@ -3889,6 +3952,8 @@ pub fn run() {
             plugin_list,
             set_plugin_enabled,
             update_plugin,
+            update_plugins,
+            stop_plugin_updates,
             add_items::inspect_link,
             add_items::discard_link,
             add_items::install_plugin,
