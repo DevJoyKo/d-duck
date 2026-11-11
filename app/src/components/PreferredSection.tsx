@@ -4,7 +4,7 @@
 import { Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { useT } from "../i18n/react";
-import { addable, folderName, installedOf, itemKey, KINDS, MAX_PREFERRED, toItem, usePreferredOptions, type PreferredItem } from "../lib/preferred";
+import { addable, folderName, installedOf, itemKey, KINDS, MAX_PREFERRED, statusOf, toItem, usePreferredOptions, type PreferredItem } from "../lib/preferred";
 import { Button, fieldClass } from "./ui";
 
 export function PreferredSection({ value, defaults, onChange }: { value: PreferredItem[]; defaults: PreferredItem[]; onChange: (v: PreferredItem[]) => void }) {
@@ -32,7 +32,8 @@ export function PreferredSection({ value, defaults, onChange }: { value: Preferr
       ) : (
         <ul className="space-y-1.5" aria-label={tr("agents.preferred.title")}>
           {value.map((item, i) => {
-            const o = installedOf(item, opts.data);
+            const status = statusOf(item, opts.data);
+            const o = status === "ok" ? installedOf(item, opts.data) : null;
             const folder = item.source === "project" ? folderName(item.scope) : null;
             return (
               <li key={itemKey(item)} className="flex items-start gap-2 rounded-md border border-line bg-sheet px-2.5 py-1.5">
@@ -41,7 +42,9 @@ export function PreferredSection({ value, defaults, onChange }: { value: Preferr
                   <p className="flex flex-wrap items-center gap-x-2 text-[13px]">
                     <span className="font-medium break-all">{item.name}</span>
                     {folder && <span className="text-[11px] text-ink-3">{folder}</span>}
-                    {o === null && <span className="text-[11px] text-ink-2">{tr("agents.preferred.notInstalled")}</span>}
+                    {status === "missing" && <span className="text-[11px] text-ink-2">{tr("agents.preferred.notInstalled")}</span>}
+                    {status === "off" && <span className="text-[11px] text-ink-2">{tr("agents.preferred.disabled")}</span>}
+                    {status === "ambiguous" && <span className="text-[11px] text-ink-2">{tr("agents.preferred.ambiguous")}</span>}
                   </p>
                   {o && (o.kind === "plugin" ? <p className="truncate text-[11px] text-ink-3">{tr("agents.preferred.pluginMembers", { n: o.members.length })}</p> : o.description && <p className="truncate text-[11px] text-ink-3" title={o.description}>{o.description}</p>)}
                 </div>
@@ -74,7 +77,7 @@ export function PreferredSection({ value, defaults, onChange }: { value: Preferr
                   <optgroup key={k} label={tr(`agents.preferred.kind.${k}`)}>
                     {list.map((o) => (
                       <option key={itemKey(o)} value={itemKey(o)}>
-                        {o.source === "project" ? `${o.name} · ${folderName(o.scope)}` : o.name}
+                        {o.source === "project" ? `${o.name} · ${folderName(o.scope)}` : choices.some((x) => x !== o && x.kind === o.kind && x.name === o.name) ? `${o.name} · ${o.marketplace}` : o.name}
                       </option>
                     ))}
                   </optgroup>

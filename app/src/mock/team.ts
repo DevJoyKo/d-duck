@@ -39,7 +39,7 @@ const defaults = () => {
   })),
   refine: { ...bundle.refine },
   // The bundled default (preferred-default): the mattpocock-skills plugin.
-  preferred: [{ kind: "plugin", name: "mattpocock-skills", source: "plugin:mattpocock-skills" }] as { kind: string; name: string; source: string; scope?: string }[],
+  preferred: [{ kind: "plugin", name: "mattpocock-skills", source: "plugin:mattpocock-skills", marketplace: "claude-plugins-official" }] as { kind: string; name: string; source: string; scope?: string; marketplace?: string }[],
   errors: [] as string[],
   };
 };
@@ -75,7 +75,7 @@ config.types = config.types.map((t) =>
 );
 
 // "먼저 살펴볼 스킬·에이전트" stays at the bundled default; mattpocock-skills is not in the options, so it shows "설치되지 않아 빠져요".
-const opt = (kind: string, name: string, source: string, description: string | null, members: string[] = [], scope: string | null = null) => ({ kind, name, source, scope, description, members });
+const opt = (kind: string, name: string, source: string, description: string | null, members: string[] = [], scope: string | null = null) => ({ kind, name, source, scope, description, members, marketplace: source.startsWith("plugin:") ? "mock-market" : null, enabled: source !== "plugin:cloudflare" });
 const preferredOptions = [
   opt("plugin", "writing-kit", "plugin:writing-kit", null, ["grill-me", "plan", "tdd", "write-a-prd"]),
   opt("plugin", "cloudflare", "plugin:cloudflare", null, ["workers-best-practices", "wrangler"]),

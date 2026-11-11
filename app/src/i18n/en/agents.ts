@@ -267,6 +267,8 @@ export default {
     kind: { plugin: "Plugin", skill: "Skill", agent: "Agent" },
     pluginMembers: "{n} skills and agents",
     notInstalled: "Not installed, left out",
+    disabled: "Turned off, left out",
+    ambiguous: "Same name in several marketplaces, left out",
     remove: "Remove {name}",
     find: "Find by name",
     pick: "Item to add",
