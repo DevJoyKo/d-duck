@@ -35,8 +35,10 @@ The more you delegate, the more your attention becomes the scarce resource. Most
 | A vague ask comes back off target, and I only find out at review time. | **Structured brief** (goal, out of scope, constraints, done criteria) with Claude's clarifying questions before it starts |
 | "Done, tests pass" tells me little, so I end up re-checking everything. | **Reports with evidence:** each done criterion as met, partly met, or not met, with screenshots, test reports, or command output |
 | The session that wrote the code is the worst reviewer of it. | **Fresh-eyes review:** hand finished work to a new QA or review session that never saw the conversation |
-| Agents finish faster than I can review, so review becomes the bottleneck. | **Review capacity** per day, and a **Review tab** that groups finished work by role |
+| Agents finish faster than I can review, so review becomes the bottleneck. | **Review capacity** per day, and a **Review tab** that groups finished work by role, routine runs included |
 | With many sessions open, I check terminal tabs one by one to find what's waiting or failed. | **One task board** with tasks that need you on top, a live terminal preview, and a notification when an agent waits |
+| Claude keeps reaching for the same few skills and rarely considers the ones I installed on purpose. | **Consider these first:** pick up to 10 installed plugins, skills, and agents for Claude to check before it starts (prompt guidance) |
+| Every task runs on the default model unless I go back to the terminal. | **Model per task type, role, agent, or single task,** with an automatic fallback when a model is no longer supported |
 | Skills, MCP servers, plugins, and memory are scattered across files. | **Extensions, MCP, Permissions, and Memory tabs:** see, create, edit, and delete without JSON |
 | When a way of working proves itself, I still redo it by hand every time. | **Grow what works:** save it as a skill or command, chain skills into a workflow (checked so Claude Code can actually load it), and put it on a schedule as a routine |
 | I don't notice my own bad habits: an expensive model for small tasks, failing commands repeated, outdated setups. | **Usage review:** finds patterns in your own usage that cost money or lower success rates, explains why, and turns each recommendation into a task you can hand off |
@@ -53,7 +55,7 @@ The five groups below explain how these fit together.
 - **Trust-critical repos: keep it on your machine.** Turn on "Block remote push" and nothing leaves until you've reviewed it locally.
 - **Risky permission modes are blocked** for security, deploy, and QA tasks.
 
-Not every setting is a guardrail. Team rules and "Consider these first" (installed plugins, skills, and agents Claude should check before it starts; by default the `mattpocock-skills` plugin, left out when it isn't installed) are added to the prompt as guidance. They steer the agent but are not enforced like deny rules or hooks.
+Not every setting is a guardrail. Team rules and "Consider these first" (up to 10 installed plugins, skills, and agents Claude should check before it starts; by default the `mattpocock-skills` plugin from `claude-plugins-official`, left out when it isn't installed or is turned off) are added to the prompt as guidance: each task gets one line asking Claude to check them first. They steer the agent but are not enforced like deny rules or hooks.
 
 ### 2. Review with evidence, sized to your time
 
@@ -65,6 +67,7 @@ Not every setting is a guardrail. Team rules and "Consider these first" (install
 - **Reports with evidence:** each done criterion comes back as met, partly met, or not met, with screenshots, test reports, or command output. No evidence, no pass.
 - **Fresh eyes:** send finished work to a new QA or review session that never saw the original conversation.
 - **Review capacity:** set how many changes you can properly review in a day. Past that, D.Duck asks before starting more.
+- **One place to review:** the Review tab lists routine runs' reports next to tasks, and under All, finished tasks without a report with a "No report" chip. Delete a finished card after a native confirmation; the Claude session and the git worktree and branch are kept.
 
 ### 3. See what is hidden, and what needs you
 
@@ -88,7 +91,7 @@ Each step makes the unit of delegation bigger, so you hand off whole processes, 
 
 **Problem:** The ways you misuse a tool are the ones you can't see yourself. A heavy model for quick tasks, the same failing command retried, a cache that never pays off, a CLI several versions behind. None of it shows up as an error.
 
-**D.Duck:** The usage review reads your own usage records and points out patterns that cost money or lower success rates, with the reason and a source for each. Each recommendation can become a task in one click, so the fix is handed off like any other work instead of staying a note.
+**D.Duck:** The usage review reads your own usage records and points out patterns that cost money or lower success rates, with the reason and a source for each. Each recommendation can become a task in one click, so the fix is handed off like any other work instead of staying a note. When the fix is the model, set it per task type, role, or agent, or for a single task.
 
 <table>
 <tr>
@@ -120,12 +123,13 @@ I wanted to hand real work to a team of Claude Code agents without giving up con
 | Area | What it does |
 |---|---|
 | **Agents** | Every agent (user, project, plugin, built-in) as a duck card showing whether it's working, waiting for you, failed, or idle. Ten built-in roles, injected into task sessions only. |
-| **Hand off a task** | Pick a folder and one of 10 task types. Each type brings its role, tools, default permissions, and effort. Team rules are added to every task; safety rules are locked. |
+| **Hand off a task** | Pick a folder and one of 10 task types. Each type brings its role, tools, default permissions, and effort. Team rules are added to every task; safety rules are locked. "Consider these first" adds one line asking Claude to check up to 10 picked plugins, skills, and agents. |
+| **Models** | Pick a model per task, or set one per task type, role, or agent. An unsupported model falls back to a same-family alias, then the default: never a pricier family, never past an allow list. The task shows the requested and the used model. |
 | **Task board** | Queued → in progress → needs you → waiting for review → wrap-up, with a live terminal preview. |
-| **Review** | Reports with evidence, a Review tab grouped by role, copy text and save attachments. |
+| **Review** | Reports with evidence, a Review tab grouped by role, copy text and save attachments. Routine runs' reports are listed too, and under All, finished tasks with no report ("No report"). Delete a finished card after a native confirmation (the Claude session and git worktree and branch are kept). |
 | **Guardrails** | Draft PR by default, "Block remote push" for trust-critical repos, no risky modes for strict task types. |
 | **Routines and artifacts** | Scheduled work, locally or as claude.ai cloud routines. Artifacts Claude made across sessions. |
-| **Configure without JSON** | Skills, commands, workflows, plugins, MCP servers, rules, memory, and effective permissions. Changes are shown before they're saved. |
+| **Configure without JSON** | Skills, commands, workflows, plugins, MCP servers, rules, memory, and effective permissions. Changes are shown before they're saved. Update all or selected plugins at once. |
 | **Usage** | Cost, models, and tool and skill calls by period, usage-limit alerts, and a usage review that turns recommendations into tasks. |
 | **Language** | Korean and English, switched from the sidebar or Settings. |
 
