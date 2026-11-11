@@ -341,7 +341,9 @@ pub fn plugin_env(config_dir: &Path, contexts: &[Option<&Path>]) -> PluginEnv {
                     (Some(c), Some(p)) => c.starts_with(p),
                     _ => false,
                 },
-                _ => true,
+                // A record without a scope (older files) is user-wide; an unknown scope never counts.
+                None | Some("user" | "managed") => true,
+                Some(_) => false,
             });
             let enabled = layers.iter().find_map(|l| l.get(id).copied()).unwrap_or(false);
             if here && enabled {
@@ -743,11 +745,11 @@ mod tests {
         std::fs::write(
             cfg.join("plugins/installed_plugins.json"),
             format!(
-                r#"{{"version":2,"plugins":{{"on@m":[{{"scope":"user","installPath":"/x"}}],"off@m":[{{"scope":"user"}}],"proj@m":[{{"scope":"project","projectPath":"{proj_s}"}}],"local@m":[{{"scope":"local","projectPath":"{proj_s}"}}]}}}}"#
+                r#"{{"version":2,"plugins":{{"on@m":[{{"scope":"user","installPath":"/x"}}],"off@m":[{{"scope":"user"}}],"proj@m":[{{"scope":"project","projectPath":"{proj_s}"}}],"local@m":[{{"scope":"local","projectPath":"{proj_s}"}}],"odd@m":[{{"scope":"team"}}]}}}}"#
             ),
         )
         .unwrap();
-        std::fs::write(cfg.join("settings.json"), r#"{"env":{"X":"secret"},"enabledPlugins":{"on@m":true,"off@m":false,"cached@m":true,"proj@m":true,"local@m":true}}"#).unwrap();
+        std::fs::write(cfg.join("settings.json"), r#"{"env":{"X":"secret"},"enabledPlugins":{"on@m":true,"off@m":false,"cached@m":true,"proj@m":true,"local@m":true,"odd@m":true}}"#).unwrap();
         std::fs::write(proj.join(".claude/settings.local.json"), r#"{"enabledPlugins":{"local@m":false}}"#).unwrap();
         let on = |ctx: &[Option<&Path>]| plugin_env(&cfg, ctx).on.into_iter().map(|(_, p)| p).collect::<Vec<_>>();
         assert_eq!(on(&[None]), vec!["on"], "off is off, cached@m has no install record, project scope needs its folder");

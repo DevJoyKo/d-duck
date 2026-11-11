@@ -23,4 +23,4 @@
 
 - [x] 5.1 마켓플레이스: `PreferredItem.marketplace`, `Available.marketplace`, (마켓, 이름) 묶음, 모호하면 빼기. 테스트: 다른 마켓 같은 이름 → 줄 없음, 둘 다 → 섞이지 않음
 - [x] 5.2 켜짐: `plugin_env`(installed_plugins.json·enabledPlugins), 꺼짐·기록 없음 → 빠짐, 화면 표시. 테스트
-- [ ] 5.3 origin/main 병합, 전체 검사, qa-verifier 한 번
+- [x] 5.3 origin/main 병합, 전체 검사, qa-verifier 한 번
