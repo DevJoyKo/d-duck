@@ -509,7 +509,7 @@ fn verified_spec(conn: &Connection, id: i64) -> Result<TaskSpec, &'static str> {
     Ok(spec)
 }
 
-/// Adds the "먼저 검토할 스킬·에이전트" line to a claimed run's team rules (preferred-skills). Rebuilt with the same
+/// Adds the "먼저 살펴볼 스킬·에이전트" line to a claimed run's team rules (preferred-skills). Rebuilt with the same
 /// function, the run's own delivery scope (so the local-only line stays) and the current language. `installed` is
 /// what the catalogs show for the run's folder. A run that would get too long keeps its rules without the line.
 pub fn add_preferred(spec: &mut TaskSpec, conn: &Connection, installed: &[crate::preferred::Available]) {

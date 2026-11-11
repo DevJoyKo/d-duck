@@ -201,7 +201,7 @@ pub struct Env {
     pub mcp_servers: Vec<String>,
     /// A settings file with MCP servers exists but could not be read: "only the chosen servers" cannot be built.
     pub mcp_unreadable: bool,
-    /// "먼저 검토할 스킬·에이전트" installed for the task's folder (preferred-skills). Filled only when some are chosen.
+    /// "먼저 살펴볼 스킬·에이전트" installed for the task's folder (preferred-skills). Filled only when some are chosen.
     pub preferred: Vec<crate::preferred::Available>,
 }
 

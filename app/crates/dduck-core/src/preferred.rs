@@ -1,4 +1,4 @@
-//! "먼저 검토할 스킬·에이전트" (preferred-skills, D-198): the user picks installed plugins, skills and agents, and every
+//! "먼저 살펴볼 스킬·에이전트" (preferred-skills, D-198): the user picks installed plugins, skills and agents, and every
 //! start that carries the team rules gets one app-owned line asking Claude to consider them first.
 //!
 //! Prompt-level guidance only: it grants nothing and is not enforced like deny rules or hooks. Names are checked by

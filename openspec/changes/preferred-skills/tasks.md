@@ -8,12 +8,12 @@
 - [x] 1.4 `routines::add_preferred`. (확인: 루틴 정책 문장에 줄이 들어가고 로컬 전용 줄도 남음)
 
 ## 2. 셸
-- [ ] 2.1 `preferred_options` 명령, `loadout_env`가 `Env.preferred`를 채움(고른 항목이 있을 때만), `start_claim`이 `add_preferred` 호출. (확인: `cargo check`, clippy)
+- [x] 2.1 `preferred_options` 명령, `loadout_env`가 `Env.preferred`를 채움(고른 항목이 있을 때만), `start_claim`이 `add_preferred` 호출. (확인: `cargo check`, clippy)
 
 ## 3. UI
-- [ ] 3.1 `lib/preferred.ts`(타입·옵션 쿼리·설치 여부), `lib/team.ts` 저장에 `preferred`, mock. (확인: vitest)
-- [ ] 3.2 `PreferredSection` 팀 규칙 탭, i18n ko·en. (확인: vitest 추가·빼기·설치되지 않음·10개, copyRules)
-- [ ] 3.3 README.md·README.ko.md 가드레일 절 한 줄. (확인: 읽기)
+- [x] 3.1 `lib/preferred.ts`(타입·옵션 쿼리·설치 여부), `lib/team.ts` 저장에 `preferred`, mock. (확인: vitest)
+- [x] 3.2 `PreferredSection` 팀 규칙 탭, i18n ko·en. (확인: vitest 추가·빼기·설치되지 않음·10개, copyRules)
+- [x] 3.3 README.md·README.ko.md 가드레일 절 한 줄. (확인: 읽기)
 
 ## 4. 검증·리뷰
 - [ ] 4.1 `cargo test -p dduck-core`, clippy, tsc, vitest, lint. mock 1436에서 스크린샷 라이트 1440·다크 900.
