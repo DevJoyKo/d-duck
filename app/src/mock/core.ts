@@ -8,6 +8,7 @@ import { rulesHandlers } from "./rules";
 import { projectHandlers } from "./projects";
 import { mcpHandlers } from "./mcp";
 import { loadoutHandlers } from "./loadout";
+import { modelHandlers } from "./model";
 import { mockArtifactPreview, mockArtifacts } from "./artifacts";
 import { mockNoCli, onboardingHandlers } from "./onboarding";
 import { mockTaskReport } from "./report";
@@ -422,8 +423,10 @@ const handlers: Record<string, (a: Record<string, unknown>) => unknown> = {
     .map((r) => ({ ...r, wrapped: wrapped.has(r.bgId) })),
   task_record: (a) =>
     a.id === "aa11bb22"
-      ? { prompt: "## 목표\n결제 화면 상태 관리를 정리한다\n\n## 완료 기준\n기존 테스트 통과", brief: { goal: "결제 화면 상태 관리를 정리한다", outOfScope: "", constraints: "", done: "기존 테스트 통과" }, effort: "high", worktree: true }
-      : { prompt: null, brief: null, effort: null, worktree: false },
+      ? { prompt: "## 목표\n결제 화면 상태 관리를 정리한다\n\n## 완료 기준\n기존 테스트 통과", brief: { goal: "결제 화면 상태 관리를 정리한다", outOfScope: "", constraints: "", done: "기존 테스트 통과" }, effort: "high", worktree: true, modelLayer: "task", modelUsed: "sonnet", modelRequested: null, modelOther: "claude-haiku-5-5" }
+      : a.id === "f3e5ff71"
+        ? { prompt: null, brief: null, effort: null, worktree: false, modelLayer: "type", modelUsed: "opus", modelRequested: "claude-opus-3-9", modelOther: null }
+        : { prompt: null, brief: null, effort: null, worktree: false },
   delete_task_record: () => true,
   task_report: (a) => {
     const v = (mockEvidenceReport(String(a.id)) ?? mockReviewReport(String(a.id)) ?? mockTaskReport(String(a.id))) as Record<string, unknown>;
@@ -575,6 +578,7 @@ const handlers: Record<string, (a: Record<string, unknown>) => unknown> = {
   ...projectHandlers,
   ...mcpHandlers,
   ...loadoutHandlers,
+  ...modelHandlers,
   ...onboardingHandlers,
   ...reviewHandlers,
   ...evidenceHandlers,

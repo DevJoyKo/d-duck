@@ -295,6 +295,7 @@ export default {
     name: "이름",
     key: "키",
     keyHint: "영문 소문자, 저장 후 못 바꿈",
+    model: "기본 모델",
     effort: "기본 생각 깊이 (effort)",
     updated: "앱 업데이트로 이 유형의 기본값이 바뀌었어요. \"기본값으로\"를 누르면 새 기본값을 써요.",
     role: "역할",

@@ -392,6 +392,21 @@ fn migrate(conn: &Connection) -> Result<(), Error> {
     if version < 16 {
         conn.execute_batch(&format!("BEGIN IMMEDIATE; {SCHEMA_V16} PRAGMA user_version = 16; COMMIT;"))?;
     }
+    ensure_columns(conn)?;
+    Ok(())
+}
+
+/// Columns added without a version number (model-select design 11): each is added only when missing, so this step
+/// never collides with a numbered migration landing from another branch.
+const UNVERSIONED_COLUMNS: [(&str, &str, &str); 2] = [("task_meta", "model_requested", "TEXT"), ("task_meta", "model_fallback", "TEXT")];
+
+fn ensure_columns(conn: &Connection) -> Result<(), Error> {
+    for (table, column, kind) in UNVERSIONED_COLUMNS {
+        let has: bool = conn.query_row(&format!("SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = ?1"), [column], |r| r.get::<_, i64>(0))? > 0;
+        if !has {
+            conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {kind};"))?;
+        }
+    }
     Ok(())
 }
 

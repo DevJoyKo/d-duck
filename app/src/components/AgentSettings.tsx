@@ -13,6 +13,8 @@ import { usd } from "../lib/format";
 import { refineBudget } from "../lib/refine";
 import { roleOf } from "../lib/roles";
 import { tx, useT } from "../i18n/react";
+import { defaultLabel, ModelPicker, useModelOptions } from "./ModelPicker";
+import { modelApi } from "../lib/model";
 import {
   AUTO_ALLOWED_LABEL,
   EDITABLE_MODES,
@@ -62,6 +64,63 @@ function Label({ text, children, hint }: { text: string; children: ReactNode; hi
 }
 
 // ---------- 에이전트 관리 ----------
+
+/** "기본 모델" of one agent file: only its `model:` line is written (model-select design 3). */
+function AgentModel({ d, onSaved }: { d: AgentDef; onSaved: () => void }) {
+  const tr = useT();
+  const models = useModelOptions(d.scope ?? null);
+  const qc = useQueryClient();
+  const stored = d.model && d.model !== "inherit" ? d.model : null;
+  const [value, setValue] = useState<string | null | undefined>(undefined);
+  const [msg, setMsg] = useState<{ ok: boolean; text: Shown } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const cur = value === undefined ? stored : value;
+  const editable = d.editable && (d.source === "user" || d.source === "project");
+  const save = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const def = await api.agentDefinition(d.id);
+      await modelApi.saveAgent(d.id, cur, def.token);
+      void qc.invalidateQueries({ queryKey: ["model-options"] });
+      setValue(undefined);
+      setMsg({ ok: true, text: tr("common.model.saved") });
+      onSaved();
+    } catch (e) {
+      setMsg({ ok: false, text: failure(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mb-3 space-y-2">
+      <ModelPicker
+        label={tr("agents.types.model")}
+        value={cur}
+        onChange={setValue}
+        options={models.data}
+        onRefresh={models.refresh}
+        refreshing={models.refreshing}
+        defaultText={d.model === "inherit" ? tr("common.model.defaultInherit") : defaultLabel(models.data, tr)}
+        basePrice={models.data?.currentDefault.price}
+        disabled={!editable || busy}
+      >
+        {!editable && <p className="text-xs text-ink-3">{tr("common.model.readOnly")}</p>}
+      </ModelPicker>
+      {editable && (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className={`min-w-0 flex-1 text-[11px] ${msg && !msg.ok ? "text-danger" : "text-ink-3"}`}>{msg ? shown(msg.text) : ""}</p>
+          <Button disabled={value === undefined || busy} onClick={() => setValue(undefined)}>
+            {tr("agents.manage.revert")}
+          </Button>
+          <Button disabled={value === undefined || cur === stored || busy} onClick={save}>
+            {tr("common.actions.save")}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** "기본 장비" of one agent definition: frontmatter `skills`, and MCP through `tools` (when it has one) or
  * `disallowedTools`. The save builds on the file's raw lists; Rust refuses any change outside MCP entries. */
@@ -273,6 +332,7 @@ function AgentsTab({ catalog, types }: { catalog: AgentDef[]; types: TeamType[] 
                 {open === d.id && (
                   <tr className="border-t border-line bg-paper/40">
                     <td colSpan={4} className="px-3 py-3">
+                      <AgentModel d={d} onSaved={refresh} />
                       <AgentLoadout d={d} onSaved={refresh} />
                     </td>
                   </tr>
@@ -518,6 +578,7 @@ function TypesTab({
 }) {
   const tr = useT();
   const controls = useAgentControls();
+  const models = useModelOptions(null);
   const [sel, setSel] = useState(draft.types[0]?.key ?? "");
   const [resetN, setResetN] = useState(0);
   const idx = Math.max(0, draft.types.findIndex((t) => t.key === sel));
@@ -610,6 +671,18 @@ function TypesTab({
             </Label>
           </div>
           {t.defaultChanged && <p className="text-[11px] text-ink-2">{tr("agents.types.updated")}</p>}
+          <ModelPicker
+            label={tr("agents.types.model")}
+            value={t.model ?? null}
+            onChange={(m) => set({ model: m })}
+            options={models.data}
+            onRefresh={models.refresh}
+            refreshing={models.refreshing}
+            defaultText={defaultLabel(models.data, tr)}
+            basePrice={models.data?.currentDefault.price}
+          >
+            {t.agent && <p className="text-xs text-ink-3">{tr("common.model.agentFirst")}</p>}
+          </ModelPicker>
 
           <fieldset className="space-y-2 rounded-lg border border-line p-3">
             <legend className="px-1 text-xs font-medium text-ink-2">{tr("agents.types.role")}</legend>

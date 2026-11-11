@@ -16,6 +16,7 @@ export interface ComposerInput {
   remoteChoice: boolean | null;
   reportChoice: boolean | null;
   limitChoice: boolean | null;
+  modelChoice?: string | null;
 }
 
 let kept: { key: string; input: ComposerInput } | null = null;

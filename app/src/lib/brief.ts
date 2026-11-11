@@ -56,6 +56,10 @@ export interface Draft {
   refineHint?: boolean;
   /** Preset permission mode (settings-type insights start in plan). */
   permissionMode?: string;
+  /** "다시 맡기기": the original task's model when it was chosen for that task (model-select design 10). */
+  model?: string;
+  /** The model the original task ran on when it came from an agent, type or CLI default: shown, not filled in. */
+  originalModel?: string;
   /** Local names in the draft's evidence; the refiner offers to remove them before sending. */
   localNames?: string[];
   /** Shown under the folder field when the draft leaves the folder empty. */

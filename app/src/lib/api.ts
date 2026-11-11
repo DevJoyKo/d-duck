@@ -273,6 +273,8 @@ export interface TaskSpec {
   wantReport?: boolean;
   /** "리셋되면 자동으로 이어서 하기" unchecked: never resumed by itself after a usage-limit reset. */
   limitOptOut?: boolean;
+  /** This task's model (model-select); `null` = follow the agent, type or CLI default. */
+  model?: string | null;
 }
 
 /** Fixed reason codes from Rust (`limit_resume::Reason`). */
@@ -758,6 +760,12 @@ export interface TaskRecordDetail {
   effort: string | null;
   worktree: boolean;
   origin?: TaskOrigin | null;
+  /** model-select: layer, the model passed, the value asked for when an unsupported one was replaced, and the
+   * transcript's model when it differs. All `null` for older tasks. */
+  modelLayer?: string | null;
+  modelUsed?: string | null;
+  modelRequested?: string | null;
+  modelOther?: string | null;
 }
 
 export interface SessionPage {

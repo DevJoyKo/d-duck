@@ -174,6 +174,47 @@ pub fn record_lang(conn: &Connection, bg_id: &str, lang: crate::i18n::Lang) -> R
     Ok(())
 }
 
+/// What a start passed for the model (model-select design 3·11): the layer, the `--model=` value, the role `model`
+/// and, when an unsupported model was replaced, the value asked for. Only valid model names are written.
+pub fn record_model(conn: &Connection, bg_id: &str, pin: &crate::model_select::ModelPin, requested: Option<&str>) -> Result<(), Error> {
+    use crate::model_select::valid_model;
+    let ok = |v: Option<&str>| v.filter(|m| valid_model(m)).map(str::to_string);
+    let requested = ok(requested);
+    conn.execute(
+        "UPDATE task_meta SET model_layer = ?2, model_arg = ?3, role_model = ?4,
+           model_requested = COALESCE(model_requested, ?5), model_fallback = CASE WHEN ?5 IS NULL THEN model_fallback ELSE 'unsupported' END
+         WHERE bg_id = ?1",
+        params![bg_id, pin.layer.as_str(), ok(pin.arg.as_deref()), ok(pin.role.as_deref()), requested],
+    )?;
+    Ok(())
+}
+
+/// A recorded pin as a resume reads it (design 10).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PinRead {
+    /// An older task (no layer): no `--model` and no role `model`, as before model-select.
+    None,
+    /// Values as stored; `ModelPin` checks are done by the caller (`check_pin` refuses a bad value).
+    Pin(crate::model_select::ModelPin),
+    /// A layer that is not one of the four: never guessed, the resume is refused.
+    Corrupt,
+}
+
+/// The recorded pin, values unfiltered so a hand-edited one is refused rather than dropped (QA review HIGH).
+pub fn model_pin(conn: &Connection, bg_id: &str) -> Result<PinRead, Error> {
+    use crate::model_select::{Layer, ModelPin};
+    use rusqlite::OptionalExtension;
+    let row: Option<(Option<String>, Option<String>, Option<String>)> =
+        conn.query_row("SELECT model_layer, model_arg, role_model FROM task_meta WHERE bg_id = ?1", [bg_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional()?;
+    Ok(match row {
+        None | Some((None, _, _)) => PinRead::None,
+        Some((Some(l), a, r)) => match Layer::parse(&l) {
+            Some(layer) => PinRead::Pin(ModelPin { layer, arg: a, role: r }),
+            None => PinRead::Corrupt,
+        },
+    })
+}
+
 /// The recorded start language; `None` for older tasks or anything but the two values.
 pub fn lang(conn: &Connection, bg_id: &str) -> Result<Option<crate::i18n::Lang>, Error> {
     use rusqlite::OptionalExtension;
@@ -247,20 +288,43 @@ pub struct RecordDetail {
     pub effort: Option<String>,
     pub worktree: bool,
     pub origin: Option<String>,
+    /// model-select: the layer that decided (`task`·`agent`·`type`·`cli`), the model passed (`--model` or the role's),
+    /// and the value asked for when an unsupported one was replaced. All `None` for older tasks.
+    pub model_layer: Option<String>,
+    pub model_used: Option<String>,
+    pub model_requested: Option<String>,
+    /// The main conversation's first model when it differs from `model_used` (design 9), computed on read.
+    pub model_other: Option<String>,
 }
 
 pub fn record_detail(conn: &Connection, bg_id: &str) -> Result<Option<RecordDetail>, Error> {
     Ok(conn
-        .query_row("SELECT prompt, brief_json, effort, worktree, origin FROM task_meta WHERE bg_id = ?1", [bg_id], |r| {
+        .query_row("SELECT prompt, brief_json, effort, worktree, origin, model_layer, COALESCE(model_arg, role_model), model_requested, session_id FROM task_meta WHERE bg_id = ?1", [bg_id], |r| {
+            let model = |v: Option<String>| v.filter(|m| crate::model_select::valid_model(m));
             Ok(RecordDetail {
                 prompt: r.get(0)?,
                 brief: r.get::<_, Option<String>>(1)?.and_then(|j| serde_json::from_str(&j).ok()),
                 effort: r.get(2)?,
                 worktree: r.get::<_, i64>(3)? != 0,
                 origin: clean_origin(r.get(4)?),
+                model_layer: r.get::<_, Option<String>>(5)?.filter(|l| crate::model_select::Layer::parse(l).is_some()),
+                model_used: model(r.get(6)?),
+                model_requested: model(r.get(7)?),
+                model_other: r.get::<_, Option<String>>(8)?,
             })
         })
-        .optional()?)
+        .optional()?
+        .map(|mut d| {
+            // `model_other` held the session id until here.
+            let session = d.model_other.take();
+            if let (Some(used), Some(sid)) = (d.model_used.as_deref(), session.as_deref()) {
+                let seen = crate::model_select::first_main_model(conn, sid).ok().flatten();
+                if let Some(seen) = seen.filter(|a| crate::model_select::same_model(used, a) == Some(false)) {
+                    d.model_other = Some(crate::text::display_safe(&seen, 80));
+                }
+            }
+            d
+        }))
 }
 
 /// Deletes one record (and its instruction). Callers scrub afterwards. Unknown ids → false.
@@ -338,9 +402,11 @@ pub fn alias(conn: &Connection, old: &str, new: &str, now_ms: i64) -> Result<boo
     }
     Ok(conn.execute(
         "INSERT OR IGNORE INTO task_meta(bg_id, agent, task_type, created_at, reviewed_at, name, cwd, prompt, brief_json, effort, worktree,
-           report_id, permission_mode, origin, loadout_dropped, session_id, limit_opt_out, limit_auto_ok, origin_bg_id, remote)
+           report_id, permission_mode, origin, loadout_dropped, session_id, limit_opt_out, limit_auto_ok, origin_bg_id, remote,
+           model_layer, model_arg, role_model, model_requested, model_fallback)
          SELECT ?2, agent, task_type, ?3, NULL, name, cwd, prompt, brief_json, effort, worktree,
-           report_id, permission_mode, origin, loadout_dropped, session_id, limit_opt_out, limit_auto_ok, COALESCE(origin_bg_id, bg_id), remote
+           report_id, permission_mode, origin, loadout_dropped, session_id, limit_opt_out, limit_auto_ok, COALESCE(origin_bg_id, bg_id), remote,
+           model_layer, model_arg, role_model, model_requested, model_fallback
          FROM task_meta WHERE bg_id = ?1",
         params![old, new, now_ms],
     )? > 0)
@@ -540,5 +606,53 @@ mod tests {
         // A tampered value reads as no origin.
         conn.execute("UPDATE task_meta SET origin = 'evil' WHERE bg_id = 'abababab'", []).unwrap();
         assert_eq!(record_detail(&conn, "abababab").unwrap().unwrap().origin, None);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod model_record {
+    use crate::model_select::{Layer, ModelPin};
+
+    #[test]
+    fn records_the_pin_and_the_replaced_request() {
+        let conn = crate::db::open_in_memory().unwrap();
+        conn.execute("INSERT INTO task_meta(bg_id, created_at, session_id) VALUES ('ab12cd34', 1, 's1')", []).unwrap();
+        assert_eq!(super::model_pin(&conn, "ab12cd34").unwrap(), super::PinRead::None, "older task: no pin");
+        let d = super::record_detail(&conn, "ab12cd34").unwrap().unwrap();
+        assert_eq!((d.model_layer, d.model_used, d.model_requested), (None, None, None));
+        let pin = ModelPin { layer: Layer::Type, arg: Some("opus".into()), role: Some("opus".into()) };
+        super::record_model(&conn, "ab12cd34", &pin, Some("claude-opus-3-9")).unwrap();
+        assert_eq!(super::model_pin(&conn, "ab12cd34").unwrap(), super::PinRead::Pin(pin.clone()));
+        let d = super::record_detail(&conn, "ab12cd34").unwrap().unwrap();
+        assert_eq!((d.model_layer.as_deref(), d.model_used.as_deref(), d.model_requested.as_deref()), (Some("type"), Some("opus"), Some("claude-opus-3-9")));
+        let reason: Option<String> = conn.query_row("SELECT model_fallback FROM task_meta WHERE bg_id = 'ab12cd34'", [], |r| r.get(0)).unwrap();
+        assert_eq!(reason.as_deref(), Some("unsupported"));
+        // A later resume keeps the first request.
+        super::record_model(&conn, "ab12cd34", &ModelPin { arg: Some("sonnet".into()), ..pin.clone() }, Some("opus")).unwrap();
+        assert_eq!(super::record_detail(&conn, "ab12cd34").unwrap().unwrap().model_requested.as_deref(), Some("claude-opus-3-9"));
+        // Junk is never written; a mismatching transcript model shows up on read.
+        super::record_model(&conn, "ab12cd34", &pin, Some("opus x")).unwrap();
+        conn.execute("INSERT INTO api_calls(message_id, session_id, agent_id, ts, model) VALUES ('m1', 's1', NULL, 5, 'claude-sonnet-5-5')", []).unwrap();
+        let d = super::record_detail(&conn, "ab12cd34").unwrap().unwrap();
+        assert_eq!(d.model_other.as_deref(), Some("claude-sonnet-5-5"), "ran on another family than opus");
+        // An alias (resume under a new id) keeps the pin.
+        super::alias(&conn, "ab12cd34", "ef56ab78", 9).unwrap();
+        assert_eq!(super::model_pin(&conn, "ef56ab78").unwrap(), super::PinRead::Pin(pin));
+        // Hand-edited values reach the caller as they are (check_pin refuses them); a junk layer is Corrupt.
+        conn.execute("UPDATE task_meta SET model_arg = 'opus x' WHERE bg_id = 'ef56ab78'", []).unwrap();
+        let super::PinRead::Pin(bad) = super::model_pin(&conn, "ef56ab78").unwrap() else { panic!() };
+        assert!(crate::model_select::check_pin(&bad, crate::model_select::Runner::Inline).is_err());
+        conn.execute("UPDATE task_meta SET model_layer = 'zzz' WHERE bg_id = 'ef56ab78'", []).unwrap();
+        assert_eq!(super::model_pin(&conn, "ef56ab78").unwrap(), super::PinRead::Corrupt);
+    }
+
+    #[test]
+    fn unversioned_columns_are_added_once() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+        assert_eq!(v, 16, "no version number taken (v16 is review-routine-runs)");
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM pragma_table_info('task_meta') WHERE name IN ('model_requested','model_fallback')", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 2);
     }
 }

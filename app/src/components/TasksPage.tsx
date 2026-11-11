@@ -29,6 +29,7 @@ import { reportChip } from "../lib/report";
 import { YELLOW } from "../lib/yellow";
 import { Button, Empty, PageHeader, Sheet } from "./ui";
 import { StartingCards } from "./StartingCards";
+import { recordLines, reworkModel } from "../lib/model";
 import { useT } from "../i18n/react";
 
 const KIND_LABEL: Record<AgentSession["kind"], string> = localized({ background: "tasks.kind.background", interactive: "tasks.kind.interactive", other: "tasks.kind.misc" });
@@ -259,6 +260,15 @@ function HistoryRow({ r, focus = false, onDraft, onDeleted }: { r: TaskRecord; f
           ) : (
             <p className="text-xs text-ink-3">{detail.isPending ? t("tasks.loading") : t("tasks.history.noPrompt")}</p>
           )}
+          {detail.data && (
+            <div className="space-y-0.5" data-model-record>
+              {recordLines(detail.data).map((l, i) => (
+                <p key={l} className={`text-xs ${i > 0 ? "text-ink-2" : "text-ink-3"}`}>
+                  {l}
+                </p>
+              ))}
+            </div>
+          )}
           {detail.data?.prompt && r.cwd && (
             <Button
               onClick={() =>
@@ -269,6 +279,7 @@ function HistoryRow({ r, focus = false, onDraft, onDeleted }: { r: TaskRecord; f
                   name: r.name ?? undefined,
                   // Keeps the plan-only rule of a draft from Claude's advice (the backend also checks the brief).
                   origin: detail.data?.origin ?? undefined,
+                  ...reworkModel(detail.data),
                 })
               }
             >
@@ -361,6 +372,8 @@ function Detail({ s, onClose, tag, onDraft, label }: { s: AgentSession; onClose:
   const control = canControl(s);
   const live = s.status === "working" || s.status === "waitingInput" || s.status === "idle";
   const prompt = usePrompt(s.key);
+  // model-select: what the task ran on, and a replaced or different model (design 9·11). D.Duck tasks only.
+  const record = useQuery({ queryKey: ["task-record", s.id], queryFn: () => api.taskRecord(s.id as string), enabled: !!s.id && !!tag, staleTime: 10_000 });
   const [report, setReport] = useState(false);
   const chip = reportChip(tag?.report, s.status);
 
@@ -391,6 +404,15 @@ function Detail({ s, onClose, tag, onDraft, label }: { s: AgentSession; onClose:
             {typeName && ` · ${typeName}`}
             {tag?.agent && ` · ${t("tasks.card.persona", { name: tag.agent })}`}
           </p>
+          {record.data && (
+            <div data-model-record>
+              {recordLines(record.data).map((l, i) => (
+                <p key={l} className={`text-xs ${i > 0 ? "text-ink-2" : "text-ink-3"}`}>
+                  {l}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
         <button ref={closeRef} onClick={onClose} aria-label={t("common.actions.close")} className="rounded-md p-1 text-ink-3 hover:text-ink">
           <X size={18} />

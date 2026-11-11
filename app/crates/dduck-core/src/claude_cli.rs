@@ -252,6 +252,9 @@ pub struct TaskSpec {
     /// "리셋되면 자동으로 이어서 하기" unchecked in the composer (usage-limit-resume). The webview can only turn it off.
     #[serde(default)]
     pub limit_opt_out: bool,
+    /// This task's model (model-select). Checked with `model_select::valid_choice` in `validate`.
+    #[serde(default)]
+    pub model: Option<String>,
     // ---- backend-only, filled by `prepare` from the merged team config; never deserialized ----
     #[serde(skip)]
     pub inline_role: Option<String>,
@@ -295,6 +298,18 @@ pub struct TaskSpec {
     /// resume or rework reuses the recorded one. Adds one reply-language line at the end of the app's fixed text.
     #[serde(skip)]
     pub lang: Option<crate::i18n::Lang>,
+    /// The task type's default model, from the merged team config (`prepare_with`).
+    #[serde(skip)]
+    pub type_model: Option<String>,
+    /// A resume's recorded pin: reproduced instead of resolving the layers again (design 10).
+    #[serde(skip)]
+    pub model_pin_in: Option<crate::model_select::ModelPin>,
+    /// What `apply_model` decided: the layer, the `--model=` value and the role's `model`.
+    #[serde(skip)]
+    pub model_pin: Option<crate::model_select::ModelPin>,
+    /// The value asked for when an unsupported model was replaced (design 11).
+    #[serde(skip)]
+    pub model_requested: Option<String>,
 }
 
 const MAX_ARGV_BYTES: usize = 512 * 1024;
@@ -351,6 +366,11 @@ impl TaskSpec {
             loadout_dropped: 0,
             guard_ctx: None,
             lang: None,
+            model: None,
+            type_model: None,
+            model_pin_in: None,
+            model_pin: None,
+            model_requested: None,
         }
     }
 
@@ -382,6 +402,7 @@ impl TaskSpec {
             }
             self.permission_mode = Some(mode);
             self.effort = Some(self.effort.unwrap_or(t.effort));
+            self.type_model = t.model.clone();
             self.strict_type = t.strict;
             self.type_label = Some(t.label.clone());
             if self.agent.is_none() {
@@ -410,6 +431,7 @@ impl TaskSpec {
                         tools,
                         skills: (!verified.skills.is_empty()).then_some(verified.skills),
                         disallowed_tools: (!disallowed.is_empty()).then_some(disallowed),
+                        model: None,
                     };
                     let mut one = serde_json::Map::new();
                     one.insert(t.role.clone(), serde_json::to_value(&role).map_err(|_| CliError::invalid(ReasonCode::RoleFailed))?);
@@ -450,6 +472,46 @@ impl TaskSpec {
             return Err(CliError::invalid(ReasonCode::TooLong));
         }
         Ok(())
+    }
+
+    /// Decides the model (design 4) and replaces an unsupported one (design 11). Called by the shell after
+    /// `prepare_with`, once it knows the raw `model:` of the file agent `claude --agent` will use. Inline roles get
+    /// the same value in the role JSON and `--model`.
+    pub fn apply_model(&mut self, file_model: Option<&str>, ctx: &crate::model_select::FallbackCtx<'_>) -> Result<(), CliError> {
+        use crate::model_select as ms;
+        let runner = if self.inline_role.is_none() && self.agent.is_some() { ms::Runner::FileAgent(file_model) } else { ms::Runner::Inline };
+        let pin = match &self.model_pin_in {
+            Some(p) => {
+                ms::check_pin(p, runner).map_err(CliError::invalid)?;
+                p.clone()
+            }
+            None => ms::resolve(self.model.as_deref(), runner, self.type_model.as_deref()).map_err(CliError::invalid)?,
+        };
+        let (pin, requested) = ms::apply_fallback(&pin, runner, ctx).map_err(CliError::invalid)?;
+        if let (Some(json), Some(role)) = (&self.inline_roles_json, &self.inline_role) {
+            let mut v: serde_json::Value = serde_json::from_str(json).map_err(|_| CliError::invalid(ReasonCode::RoleFailed))?;
+            let obj = v.get_mut(role).and_then(serde_json::Value::as_object_mut).ok_or(CliError::invalid(ReasonCode::RoleFailed))?;
+            match &pin.role {
+                Some(m) => {
+                    obj.insert("model".into(), serde_json::Value::String(m.clone()));
+                }
+                None => {
+                    obj.remove("model");
+                }
+            }
+            self.inline_roles_json = Some(v.to_string());
+        }
+        self.model_pin = Some(pin);
+        self.model_requested = requested;
+        if !self.args_fit() {
+            return Err(CliError::invalid(ReasonCode::TooLong));
+        }
+        Ok(())
+    }
+
+    /// `--model=<v>` as one token, if a value is passed (design 2).
+    pub fn model_args(&self) -> Vec<OsString> {
+        self.model_pin.as_ref().and_then(|p| p.arg.as_ref()).map(|m| vec![format!("--model={m}").into()]).unwrap_or_default()
     }
 
     /// The whole argument vector stays under the CLI size cap.
@@ -506,6 +568,9 @@ impl TaskSpec {
         if self.task_type.as_deref().is_some_and(|k| !crate::team_config::valid_key(k)) {
             return Err(CliError::invalid(ReasonCode::TaskTypeFormat));
         }
+        if self.model.as_deref().is_some_and(|m| !crate::model_select::valid_choice(m)) {
+            return Err(CliError::invalid(ReasonCode::ModelNameFormat));
+        }
         Ok(())
     }
 
@@ -550,6 +615,7 @@ impl TaskSpec {
         if let Some(effort) = self.effort {
             args.push(format!("--effort={}", effort.as_cli()).into());
         }
+        args.extend(self.model_args());
         if let Some(w) = &self.worktree_name {
             args.push(format!("--worktree={w}").into());
         }
@@ -633,6 +699,13 @@ impl ClaudeCli {
             cmd.env("PATH", path);
         }
         cmd
+    }
+
+    /// `claude --help` for the model list (model-select design 1): fixed argument, the given cwd (the app data folder),
+    /// 5 s, 256 KB. Calls no model.
+    pub fn help_text(&self, cwd: &Path) -> Result<String, CliError> {
+        let out = run(self.command().current_dir(cwd).arg("--help"), Duration::from_secs(5), 256 * 1024, Keep::Head)?;
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     }
 
     pub fn list_agents(&self) -> Result<Vec<AgentSession>, CliError> {
@@ -898,7 +971,7 @@ impl ResumeSpec {
             report_settings: spec.report_settings.clone(),
             system_prompt: spec.system_text(),
             guard: None,
-            model_args: Vec::new(),
+            model_args: spec.model_args(),
         })
     }
 
@@ -1704,5 +1777,174 @@ if read -r line; then echo "STDIN=data"; else echo "STDIN=eof"; fi"#);
             assert!(env.contains("PATH=/usr/bin:/bin"), "{env}");
             assert!(!env.contains("CANARY"), "{env}");
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod model_args {
+    use super::*;
+    use crate::model_select::{self as ms, FallbackCtx, Known, Layer, ModelPin};
+    use crate::team_config as tc;
+
+    fn stored_with_type_model(key: &str, model: &str) -> String {
+        let d = tc::defaults();
+        let mut input = tc::TeamInput {
+            rules: d.rules.iter().map(|r| tc::RuleInput { id: r.id.clone(), text: r.text.clone(), extra: r.extra.clone() }).collect(),
+            types: d.types.iter().map(|t| t.def.clone()).collect(),
+            refine: None,
+            preferred: Vec::new(),
+        };
+        input.types.iter_mut().find(|t| t.key == key).unwrap().model = Some(model.into());
+        serde_json::to_string(&tc::diff(&input, &[]).unwrap()).unwrap()
+    }
+
+    fn known() -> Known {
+        Known { cli: vec!["fable".into(), "opus".into(), "sonnet".into()], priced: crate::pricing::PriceTable::bundled().models.iter().map(|m| m.prefix.clone()).collect(), ..Known::default() }
+    }
+
+    fn run(mut spec: TaskSpec, team: Option<&str>, file: Option<&str>) -> Result<(TaskSpec, Vec<String>), CliError> {
+        let home = tempfile::tempdir().unwrap();
+        spec.prepare_with(home.path(), 0, team, &crate::loadout::Env::default())?;
+        let (k, list) = (known(), ms::Allowlist::none());
+        spec.apply_model(file, &FallbackCtx { known: &k, list: &list, default_value: Some("sonnet"), default_pinnable: true })?;
+        let args = spec.bg_args().into_iter().map(|a| a.into_string().unwrap()).collect();
+        Ok((spec, args))
+    }
+
+    fn role_model(args: &[String]) -> Option<String> {
+        let json = args.iter().find_map(|a| a.strip_prefix("--agents="))?;
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        v.as_object()?.values().next()?.get("model").and_then(|m| m.as_str()).map(str::to_string)
+    }
+
+    fn base(dir: &std::path::Path) -> TaskSpec {
+        TaskSpec::basic(dir.into(), "p".into(), None, None)
+    }
+
+    #[test]
+    fn task_value_goes_in_once_before_the_prompt() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, args) = run(TaskSpec { model: Some("haiku".into()), task_type: Some("dev".into()), ..base(dir.path()) }, None, None).unwrap();
+        assert_eq!(args.iter().filter(|a| a.starts_with("--model")).collect::<Vec<_>>(), ["--model=haiku"]);
+        let sep = args.iter().position(|a| a == "--").unwrap();
+        assert!(args.iter().position(|a| a == "--model=haiku").unwrap() < sep);
+        assert_eq!(role_model(&args).as_deref(), Some("haiku"), "role JSON and --model agree");
+    }
+
+    #[test]
+    fn nothing_chosen_means_no_model_anywhere() {
+        let dir = tempfile::tempdir().unwrap();
+        let (spec, args) = run(TaskSpec { task_type: Some("dev".into()), ..base(dir.path()) }, None, None).unwrap();
+        assert!(!args.iter().any(|a| a.starts_with("--model")));
+        assert_eq!(role_model(&args), None);
+        assert_eq!(spec.model_pin.unwrap().layer, Layer::Cli);
+    }
+
+    #[test]
+    fn type_default_and_task_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let team = stored_with_type_model("review", "sonnet");
+        let (spec, args) = run(TaskSpec { task_type: Some("review".into()), ..base(dir.path()) }, Some(&team), None).unwrap();
+        assert!(args.contains(&"--model=sonnet".to_string()));
+        assert_eq!(role_model(&args).as_deref(), Some("sonnet"));
+        assert_eq!(spec.model_pin.unwrap().layer, Layer::Type);
+        let (spec, args) = run(TaskSpec { task_type: Some("review".into()), model: Some("opus".into()), ..base(dir.path()) }, Some(&team), None).unwrap();
+        assert!(args.contains(&"--model=opus".to_string()) && !args.contains(&"--model=sonnet".to_string()));
+        assert_eq!(role_model(&args).as_deref(), Some("opus"));
+        assert_eq!(spec.model_pin.unwrap().layer, Layer::Task);
+    }
+
+    #[test]
+    fn file_agents_follow_their_file_unless_the_task_picks_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let persona = TaskSpec { agent: Some("design-critic".into()), ..base(dir.path()) };
+        let (spec, args) = run(persona.clone(), None, Some("opus")).unwrap();
+        assert!(args.contains(&"--model=opus".to_string()), "the file's value is passed so a resume reproduces it");
+        assert_eq!(spec.model_pin.unwrap().layer, Layer::Agent);
+        // Spike 1.1: --model wins over the file, so a task value on top is passed.
+        let (spec, args) = run(TaskSpec { model: Some("sonnet".into()), ..persona.clone() }, None, Some("opus")).unwrap();
+        assert!(args.contains(&"--model=sonnet".to_string()));
+        assert_eq!(spec.model_pin.unwrap().layer, Layer::Task);
+        let (_, args) = run(TaskSpec { model: Some("sonnet".into()), ..persona }, None, None).unwrap();
+        assert!(args.contains(&"--model=sonnet".to_string()));
+    }
+
+    #[test]
+    fn bad_values_are_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(TaskSpec { model: Some("-p".into()), ..base(dir.path()) }.validate().is_err());
+        assert!(TaskSpec { model: Some("inherit".into()), ..base(dir.path()) }.validate().is_err());
+        let from_ui: TaskSpec = serde_json::from_str(&format!(r#"{{"cwd":{:?},"prompt":"p","name":null,"permissionMode":null,"model":"opus --dangerously-skip-permissions"}}"#, dir.path())).unwrap();
+        assert!(from_ui.validate().is_err());
+    }
+
+    #[test]
+    fn unsupported_values_fall_back_and_are_recorded() {
+        let dir = tempfile::tempdir().unwrap();
+        let team = stored_with_type_model("dev", "claude-opus-3-9");
+        let (spec, args) = run(TaskSpec { task_type: Some("dev".into()), ..base(dir.path()) }, Some(&team), None).unwrap();
+        assert!(args.contains(&"--model=opus".to_string()), "{args:?}");
+        assert_eq!(role_model(&args).as_deref(), Some("opus"));
+        assert_eq!(spec.model_requested.as_deref(), Some("claude-opus-3-9"));
+        let (spec, args) = run(TaskSpec { task_type: Some("dev".into()), model: Some("acme-large-2".into()), ..base(dir.path()) }, None, None).unwrap();
+        assert!(!args.iter().any(|a| a.starts_with("--model")) && role_model(&args).is_none());
+        assert_eq!(spec.model_requested.as_deref(), Some("acme-large-2"));
+        let (spec, args) = run(TaskSpec { model: Some("claude-haiku-4-5-20251001".into()), ..base(dir.path()) }, None, None).unwrap();
+        assert!(args.contains(&"--model=claude-haiku-4-5-20251001".to_string()));
+        assert_eq!(spec.model_requested, None);
+        let (spec, args) = run(TaskSpec { agent: Some("x".into()), ..base(dir.path()) }, None, Some("claude-sonnet-3-9")).unwrap();
+        assert!(args.contains(&"--model=sonnet".to_string()), "a gone file model is replaced through --model: {args:?}");
+        assert_eq!((spec.model_pin.unwrap().layer, spec.model_requested.as_deref()), (Layer::Agent, Some("claude-sonnet-3-9")));
+    }
+
+    #[test]
+    fn resume_reproduces_the_pin_and_falls_back_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let team = stored_with_type_model("dev", "opus");
+        // Type default changed since the start: the pin wins.
+        let pin = ModelPin { layer: Layer::Type, arg: Some("sonnet".into()), role: Some("sonnet".into()) };
+        let (spec, args) = run(TaskSpec { task_type: Some("dev".into()), model_pin_in: Some(pin), ..base(dir.path()) }, Some(&team), None).unwrap();
+        assert!(args.contains(&"--model=sonnet".to_string()) && role_model(&args).as_deref() == Some("sonnet"));
+        let sid = "0f3b2a8e-1111-4222-8333-444455556666";
+        let r = ResumeSpec::from_prepared(&spec, sid, dir.path().into()).unwrap();
+        assert_eq!(r.model_args, vec![OsString::from("--model=sonnet")]);
+        // The pinned id is gone now.
+        let gone = ModelPin { layer: Layer::Task, arg: Some("claude-opus-3-1".into()), role: None };
+        let (spec, _) = run(TaskSpec { model_pin_in: Some(gone), ..base(dir.path()) }, None, None).unwrap();
+        assert_eq!(spec.model_args(), vec![OsString::from("--model=opus")]);
+        assert_eq!(spec.model_requested.as_deref(), Some("claude-opus-3-1"));
+        // An agent-layer pin is not locked.
+        let agent = ModelPin { layer: Layer::Agent, arg: None, role: None };
+        assert!(run(TaskSpec { agent: Some("x".into()), model_pin_in: Some(agent), ..base(dir.path()) }, None, Some("opus")).is_ok());
+        // A replaced agent-layer pin comes back as the same --model on every resume.
+        let replaced = ModelPin { layer: Layer::Agent, arg: Some("sonnet".into()), role: None };
+        let (spec, _) = run(TaskSpec { agent: Some("x".into()), model_pin_in: Some(replaced), ..base(dir.path()) }, None, Some("claude-sonnet-3-9")).unwrap();
+        assert_eq!(spec.model_args(), vec![OsString::from("--model=sonnet")]);
+    }
+}
+
+#[cfg(all(test, unix))]
+#[allow(clippy::unwrap_used)]
+mod help_cli {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn fake(dir: &Path, body: &str) -> ClaudeCli {
+        let p = dir.join("claude");
+        std::fs::write(&p, format!("#!/bin/sh\necho \"$@\" > \"{}/args\"\n{body}\n", dir.display())).unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        ClaudeCli::new(p, None)
+    }
+
+    #[test]
+    fn help_runs_with_one_fixed_argument_and_no_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let cli = fake(dir.path(), "printf '  --model <model>  Provide an alias (e.g. %s, %s) or a name.\\n  --name <n>  x\\n' \"'opus'\" \"'sonnet'\"");
+        let text = cli.help_text(dir.path()).unwrap();
+        assert_eq!(crate::model_select::parse_help(&text), Some(vec!["opus".to_string(), "sonnet".to_string()]));
+        assert_eq!(std::fs::read_to_string(dir.path().join("args")).unwrap().trim(), "--help", "nothing else is passed");
+        let broken = fake(dir.path(), "exit 3");
+        assert!(broken.help_text(dir.path()).is_err(), "a failed help leaves only the CLI source out");
     }
 }

@@ -21,6 +21,9 @@ import { isGateError } from "../lib/auth";
 import { START_TASK_KEY, StartingCard, newStartId, useStartingCards, type StartVars } from "./StartingCards";
 import { useT } from "../i18n/react";
 import { forgetComposer, keepComposer, recallComposer } from "../lib/composerMemory";
+import { defaultLabel, ModelPicker, priceOf, useModelOptions } from "./ModelPicker";
+import { blockedText, effortHint, itemOf, replacementText, shallowHint } from "../lib/model";
+import { ro } from "../i18n/josa";
 
 const REPO_REASON: Record<string, string> = localized({
   notRepo: "tasks.composer.repo.notRepo",
@@ -63,10 +66,12 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
   const [reportChoice, setReportChoice] = useState<boolean | null>(kept?.reportChoice ?? null);
   // "리셋되면 자동으로 이어서 하기": follows the Settings switch unless changed here (usage-limit-resume).
   const [limitChoice, setLimitChoice] = useState<boolean | null>(kept?.limitChoice ?? null);
+  // `null` = follow the agent file, the type or the CLI default (model-select design 4).
+  const [modelChoice, setModelChoice] = useState<string | null>(kept ? (kept.modelChoice ?? null) : (draft?.model ?? null));
   const closed = useRef(false);
   useEffect(() => {
-    if (!closed.current) keepComposer(memoryKey, { cwd, taskType, brief, name, modeChoice, effortChoice, sensitive, worktreeChoice, persona, remoteChoice, reportChoice, limitChoice });
-  }, [memoryKey, cwd, taskType, brief, name, modeChoice, effortChoice, sensitive, worktreeChoice, persona, remoteChoice, reportChoice, limitChoice]);
+    if (!closed.current) keepComposer(memoryKey, { cwd, taskType, brief, name, modeChoice, effortChoice, sensitive, worktreeChoice, persona, remoteChoice, reportChoice, limitChoice, modelChoice });
+  }, [memoryKey, cwd, taskType, brief, name, modeChoice, effortChoice, sensitive, worktreeChoice, persona, remoteChoice, reportChoice, limitChoice, modelChoice]);
   // Closed on purpose or started: the kept input goes.
   const onClose = () => {
     closed.current = true;
@@ -110,6 +115,38 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
   const agent = chosen?.name ?? "";
   const risky = !!chosen && (chosen.risk.hooks || chosen.risk.mcpServers || chosen.risk.dangerMode || chosen.risk.unreadable);
 
+  // Model (model-select design 4): task > agent file > type > CLI default. `--model` wins over a file agent's own
+  // model (spike 1.1), so the task value always applies.
+  // Settled folder only: the list reads files and the DB, so not on every keystroke (code review HIGH).
+  const [modelCwd, setModelCwd] = useState(cwd.startsWith("/") ? cwd : "");
+  useEffect(() => {
+    const id = setTimeout(() => setModelCwd(cwd.startsWith("/") ? cwd : ""), 500);
+    return () => clearTimeout(id);
+  }, [cwd]);
+  const models = useModelOptions(modelCwd || null);
+  const fileAgentName = agent || (preset?.agent ?? "");
+  const fileDef = fileAgentName ? (catalog.data ?? []).find((d) => d.name === fileAgentName && d.usable) : undefined;
+  const fileModel = fileDef?.model && fileDef.model !== "inherit" ? fileDef.model : null;
+  const typeModel = !fileAgentName || !fileModel ? (preset?.model ?? null) : null;
+  const baseValue = fileModel ?? typeModel;
+  const baseText = fileModel
+    ? t("common.model.defaultNow", { value: fileModel, basis: t("common.model.basis.agent") })
+    : typeModel
+      ? t("common.model.defaultNow", { value: typeModel, basis: t("common.model.basis.type") })
+      : defaultLabel(models.data, t);
+  // `--model` wins over a file agent's own model (spike 1.1), so a task value is never locked.
+  const model = modelChoice;
+  const baseItem = baseValue ? itemOf(models.data, baseValue) : undefined;
+  // What a start will really pass when nothing is chosen here: a gone base value is replaced (design 11).
+  const baseUsed = baseItem?.allow === "yes" && baseItem.replacement ? (baseItem.replacement.kind === "alias" ? baseItem.replacement.to : null) : baseValue;
+  const modelValue = model ?? baseUsed ?? models.data?.currentDefault.value ?? null;
+  const modelLayer = model ? "task" : fileModel ? "agent" : typeModel ? "type" : "cli";
+  // A stored type or agent model that is gone: what a start will use instead (design 11).
+  const baseReplacement = baseItem?.allow === "yes" ? baseItem.replacement : undefined;
+  const baseBlocked = !model && baseItem ? blockedText(baseItem) : null;
+  const basePrice = baseReplacement?.kind === "alias" ? priceOf(models.data, baseReplacement.to) : baseReplacement ? models.data?.currentDefault.price : baseValue ? priceOf(models.data, baseValue) : models.data?.currentDefault.price;
+  const chosenItem = itemOf(models.data, model);
+
   const repo = useQuery({ queryKey: ["repo", cwd], queryFn: () => api.repoCheck(cwd), enabled: !!cwd, staleTime: 30_000 });
   const repoOk = repo.data?.kind === "ok";
   // The default branch is checked out: the backend starts in a worktree anyway (delivery-guard), so the box shows it.
@@ -150,7 +187,7 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
     mutationKey: START_TASK_KEY,
     // The label is read back from the mutation cache; the start id lets the card cancel it (D-161).
     mutationFn: ({ startId }: StartVars) =>
-      api.startTask({ cwd, prompt, name: name || null, permissionMode: mode || null, agent: agent || null, taskType, effort, sensitive, worktree: useWorktree, remoteControl, brief: effective, origin, skipReport: !report, wantReport: report && evidenceStrict && status?.taskReport === false, limitOptOut: !limitBlocked && limitChoice === false }, startId),
+      api.startTask({ cwd, prompt, name: name || null, permissionMode: mode || null, agent: agent || null, taskType, effort, sensitive, worktree: useWorktree, remoteControl, brief: effective, origin, skipReport: !report, wantReport: report && evidenceStrict && status?.taskReport === false, limitOptOut: !limitBlocked && limitChoice === false, model }, startId),
     onSuccess: () => {
       markDone("firstTask");
       setBrief(EMPTY_BRIEF);
@@ -158,6 +195,7 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
       setTaskType(null);
       setModeChoice(null);
       setEffortChoice(null);
+      setModelChoice(null);
       setSensitive(false);
       setWorktreeChoice(null);
       setAckCapacity(false);
@@ -364,6 +402,11 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
             <ChevronDown size={12} className={showPreview ? "rotate-180" : ""} /> {t("tasks.composer.brief.preview")}
           </button>
           {showPreview && <pre className="max-h-48 overflow-auto rounded-md border border-line bg-sheet p-2 text-[11px] whitespace-pre-wrap text-ink-2">{prompt || t("tasks.composer.brief.previewEmpty")}</pre>}
+          {showPreview && (
+            <p className="text-[11px] text-ink-3" data-model-preview>
+              {modelValue ? t("common.model.line", { value: modelValue, layer: t(`common.model.layer.${modelLayer}`) }) : t("common.model.lineDefault", { layer: t(`common.model.layer.${modelLayer}`) })}
+            </p>
+          )}
         </div>
 
         <BriefRefiner
@@ -421,6 +464,21 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
             </select>
           </Field>
         </div>
+        <ModelPicker
+          value={model}
+          onChange={setModelChoice}
+          options={models.data}
+          onRefresh={models.refresh}
+          refreshing={models.refreshing}
+          defaultText={baseText}
+          basePrice={basePrice}
+        >
+          {!model && baseReplacement && <p className="text-xs text-ink-2">{replacementText(baseReplacement)}</p>}
+          {baseBlocked && <p className="text-xs text-ink-2">{baseBlocked}</p>}
+          {(preset?.strict || sensitive) && shallowHint(true, chosenItem?.price, basePrice) && <p className="text-xs text-ink-3">{t("common.model.shallow")}</p>}
+          {effortHint(chosenItem ? (chosenItem.resolved?.id ?? chosenItem.value) : modelValue, effort) && <p className="text-xs text-ink-3">{t("common.model.effortHint")}</p>}
+          {!model && draft?.originalModel && draft.originalModel !== modelValue && <p className="text-xs text-ink-3">{t("common.model.original", { model: draft.originalModel, ro: ro(draft.originalModel) })}</p>}
+        </ModelPicker>
 
         <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
           <Field label={t("tasks.composer.name")}>

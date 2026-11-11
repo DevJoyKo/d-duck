@@ -58,6 +58,8 @@ const loaded = defaults();
 let config = defaults();
 config.rules.push({ id: "u-ko", text: "커밋 메시지는 한국어로 쓴다", extra: "", locked: false, bundled: false, defaultText: null, changed: true, defaultChanged: false });
 config.types = config.types.map((t) => (t.key === "learn" ? { ...t, effort: "high", changed: true } : t));
+// model-select: a stored review model that is no longer supported shows its replacement line.
+config.types = config.types.map((t) => (t.key === "review" ? { ...t, model: "claude-opus-3-9", changed: true } : t));
 // "기본 장비" samples: design picks a skill and figma; research keeps a pin whose file changed (shows "없음").
 const pin = (n: string) => {
   const s = mockSkills.find((x) => x.name === n);
