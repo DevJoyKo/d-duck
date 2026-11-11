@@ -1514,11 +1514,16 @@ fn delete_task_record(app: AppHandle, state: State<'_, AppState>, id: String) ->
     }
     let conn = state.conn()?;
     // Same refusals as the 리뷰 tab's delete (review-delete): running (or an alias of it), resume planned, no listing.
-    let running = dduck_core::review_inbox::running_map(&state.agents.read().map_err(err)?);
+    let sessions = state.agents.read().map_err(err)?.clone();
+    let running = dduck_core::review_inbox::running_map(&sessions);
     let known = dduck_core::review_inbox::poll_known() && state.agents_error.read().map_err(err)?.is_none();
     dduck_core::review_inbox::delete_refusal(&conn, &id, &running, known).map_err(delete_fail)?;
     // The report folder (evidence, attachments) goes right away with the record (report-evidence 2.5).
     let gone = task_meta::delete_record_and_report(&conn, &id, reports_root(&app).as_deref()).map_err(err)?;
+    // A session the CLI still lists would come back on the board as "리뷰 없음": wrapped up, as the 리뷰 tab's delete.
+    if let Some(s) = sessions.iter().find(|s| s.id.as_deref() == Some(id.as_str())) {
+        let _ = dduck_core::task_lifecycle::add_wrapped_key(&conn, &s.key);
+    }
     let _ = ingest::scrub(&conn); // the instruction must not linger in freed pages or the WAL
     Ok(gone)
 }
@@ -3462,6 +3467,7 @@ fn delete_fail(e: dduck_core::Error) -> String {
     use dduck_core::review_inbox as ri;
     match e {
         dduck_core::Error::Config(ri::DELETE_RUNNING) => Fail::DeleteRunning.now(),
+        dduck_core::Error::Config(ri::DELETE_UNKNOWN) => Fail::DeleteUnknown.now(),
         dduck_core::Error::Config(ri::DELETE_RESUME_PENDING) => Fail::DeleteResumePending.now(),
         dduck_core::Error::Config(ri::DELETE_CHANGED) => Fail::DeleteChanged.now(),
         dduck_core::Error::Config("task id") => Fail::BadTaskId.now(),
@@ -3490,7 +3496,7 @@ async fn inbox_delete(app: AppHandle, id: String) -> Res<bool> {
         let ok = app
             .dialog()
             .message(ri::delete_confirm_text(&plan, i18n::current()))
-            .title(tr(C::DlgReviewDeleteTitle))
+            .title(ri::delete_confirm_title(&plan, i18n::current()))
             .kind(MessageDialogKind::Warning)
             .buttons(MessageDialogButtons::OkCancelCustom(tr(C::BtnDelete), tr(C::BtnCancel)))
             .blocking_show();
@@ -3498,7 +3504,7 @@ async fn inbox_delete(app: AppHandle, id: String) -> Res<bool> {
             return Ok(false);
         }
         // The task may have restarted while the dialog was open: a fresh listing, not the last poll.
-        let fresh = state.client()?.list_agents().map_err(|_| Fail::DeleteRunning.now())?;
+        let fresh = state.client()?.list_agents().map_err(|_| Fail::DeleteUnknown.now())?;
         let running = ri::running_map(&fresh);
         let listed_key = fresh.iter().find(|s| s.id.as_deref() == Some(id.as_str())).map(|s| s.key.clone());
         let mut conn = state.conn()?;
