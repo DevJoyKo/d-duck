@@ -227,6 +227,7 @@ export default {
     status: { working: "일하는 중이에요", waiting: "답을 기다려요", checking: "실행 여부 확인 중" },
     noGoal: "목표를 남기지 않은 작업이에요",
     noReport: "보고서 없음",
+    noName: "이름을 남기지 않은 작업이에요",
     openTask: "작업 보기",
     openTaskLabel: "{title}: 작업 보기",
     ended: { done: "끝냈어요", failed: "실패했어요", stopped: "멈췄어요", unknown: "끝났어요" },

@@ -229,6 +229,7 @@ export default {
     status: { working: "Working", waiting: "Waiting for your answer", checking: "Checking if it's running" },
     noGoal: "A task with no goal left",
     noReport: "No report",
+    noName: "A task with no name left",
     openTask: "View task",
     openTaskLabel: "{title}: view task",
     ended: { done: "Finished", failed: "Failed", stopped: "Stopped", unknown: "Ended" },

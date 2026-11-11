@@ -413,7 +413,7 @@ export function ReviewPage({ agents, onNavigate }: { agents: AgentsPayload | und
             </div>
           </ScopeBar>
         )}
-        {reportOff && inbox?.hasAny && (
+        {reportOff && (inbox?.hasAny || !!inbox?.noReport) && (
           <p className="text-xs text-ink-2">
             {t("report.review.reportOff")}{" "}
             <button onClick={() => onNavigate("settings")} className="underline underline-offset-2 hover:text-ink">

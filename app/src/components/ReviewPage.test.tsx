@@ -215,6 +215,41 @@ describe("리뷰 tab", () => {
     expect(window.location.hash).toBe("");
   });
 
+  it("D-196: 작업 보기 on a task the CLI still lists opens its board drawer", async () => {
+    const invoke = (await import("@tauri-apps/api/core")).invoke as unknown as Invoke;
+    const real = invoke.getMockImplementation() as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+    invoke.mockImplementation(async (c: string, a?: Record<string, unknown>) => {
+      const v = await real(c, a);
+      if (c !== "list_agents") return v;
+      const p = v as { sessions: { id: string | null; key: string; status: string }[] };
+      return { ...p, sessions: [...p.sessions, { ...p.sessions[0], key: "listed-key-9", id: "ee0c0d22", status: "done", name: "market-research" }] };
+    });
+    await boot();
+    const opened: string[] = [];
+    const on = (e: Event) => opened.push(String((e as CustomEvent).detail));
+    window.addEventListener("dduck-open-task", on);
+    try {
+      fireEvent.click(await screen.findByRole("radio", { name: "전체" }));
+      await waitFor(() => expect(cards()).toContain("ee0c0d22"));
+      const card = document.querySelector('[data-review-card="ee0c0d22"]') as HTMLElement;
+      await waitFor(() => {
+        fireEvent.click(within(card).getByRole("button", { name: /작업 보기/ }));
+        expect(opened).toContain("listed-key-9");
+      });
+      expect(window.location.hash).toBe("");
+    } finally {
+      window.removeEventListener("dduck-open-task", on);
+      invoke.mockImplementation(real);
+    }
+  });
+
+  it("D-196: with reports off and only tasks without a report, the filters and the settings hint stay", async () => {
+    await boot("?report=off&review=plain");
+    expect(await screen.findByText(/작업 보고서가 꺼져 있어요/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: "전체" }));
+    await waitFor(() => expect(cards()).toEqual(["ee0c0d22"]));
+  });
+
   it("a task card does not say 루틴", async () => {
     await boot();
     await waitFor(() => expect(cards()).toContain("9988aabb"));

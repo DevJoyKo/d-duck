@@ -16,7 +16,7 @@
 
 - [x] 2b.1 core: `rows`가 보고서 없는 `task_meta` 행도 읽음, `build`가 전체에만 합침(리뷰 전·배지·has_any 그대로), 실행 중·목록 모름 제외, 루틴과 중복 제거, `CardReport::None`·`ended`·`noReport`. 테스트: 전체에만 나옴·배지 그대로·표시 거절·지시 원문 없음·목록 모름 제외
 - [x] 2b.2 webview: "보고서 없음" 칩·끝난 상태 줄·"작업 보기"(보드 서랍 또는 지난 작업 행), 리뷰했어요·보고서 열기 없음, 빈 화면·보고서 꺼짐 조건, mock, vitest
-- [ ] 2b.3 검증(전체 검사·스크린샷), 테스트 리뷰(qa-verifier + design-critic) 반영
+- [x] 2b.3 검증(전체 검사·스크린샷), 테스트 리뷰(qa-verifier + design-critic) 반영 — QA PASS(LOW 2), design MEDIUM 2(꺼짐 안내, 서랍 경로 테스트)·LOW 반영
 
 ## 3. 검증·리뷰
 
