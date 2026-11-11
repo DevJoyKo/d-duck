@@ -14,7 +14,8 @@
 #
 # Order (design decision 0): build -> dSYM -> sign (inside out) -> notarize+staple app -> DMG in a temp dir ->
 # sign+notarize+staple DMG -> verify -> only then replace bundle/dmg, publish/dmg and /Applications.
-# Any failure before the last step leaves those three untouched; the temp dir is removed by the trap.
+# Any failure before the last step leaves those three untouched; the temp dir and any half-made copy in the three
+# locations (*.partial, .D.Duck.app.new) are removed by the trap.
 #
 # Test hooks (app/scripts/test-release-local.sh): DDUCK_SKIP_BUILD=1 uses the app already in bundle/macos;
 # DDUCK_APPLICATIONS replaces /Applications as the install location. Defaults are the normal behavior.
@@ -59,10 +60,11 @@ case "$(uname -m)" in
 esac
 FIXED_DMG="$BUNDLE/dmg/D.Duck_${VERSION}_${ARCH}.dmg"
 SHARE_DMG="$PUBLISH/D.Duck-latest_${ARCH}.dmg"
+NEW_APP="$INSTALL_DIR/.D.Duck.app.new"   # staged copy, swapped in only after it is complete and verified
 
 TMP_ROOT="${TMPDIR:-/tmp}"
 WORK="$(mktemp -d "${TMP_ROOT%/}/dduck-release.XXXXXX")"
-cleanup() { rm -rf "$WORK"; }
+cleanup() { rm -rf "$WORK" "$NEW_APP"; rm -f "$FIXED_DMG.partial" "$SHARE_DMG.partial"; }
 trap cleanup EXIT
 
 # --- 1. Build ---------------------------------------------------------------------------------------------------
@@ -102,7 +104,7 @@ sign_developer_id() {
   local app="$1" f
   # Loose Mach-O files anywhere in the bundle (today only Contents/MacOS/dduck), deepest first.
   find "$app/Contents" -type f | by_depth_desc | while IFS= read -r f; do
-    if file -b "$f" | grep -q 'Mach-O'; then
+    if [[ "$(file -b "$f")" == *Mach-O* ]]; then  # no `| grep -q`: under pipefail its early exit can SIGPIPE file
       echo "sign: ${f#"$app"/}" >&2
       codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$f"
     fi
@@ -130,39 +132,59 @@ fi
 codesign --verify --deep --strict "$APP"
 
 # --- Notarization helper ----------------------------------------------------------------------------------------
-# notarize <file>: submit, wait up to $NOTARY_TIMEOUT, succeed only on "Accepted".
-json_field() { plutil -extract "$1" raw -o - "$2" 2>/dev/null || true; }
+# notarize <file>: submit without waiting so the submission id is printed at once (an interrupted wait no longer loses
+# it), then `notarytool wait` up to $NOTARY_TIMEOUT, then `notarytool info` for the status. Succeeds only on "Accepted".
+# plutil prints its parse error on stdout, so only its output on success counts.
+json_field() { local v; v="$(plutil -extract "$1" raw -o - "$2" 2>/dev/null)" || v=""; printf '%s' "$v"; }
+# Keep the last one-line JSON object of a notarytool run; otherwise try the whole output as one document.
+last_json() { grep '^{.*}$' "$1" | tail -n 1 >"$2" || true; [ -s "$2" ] || cp "$1" "$2"; }
+notary_hint() {
+  echo "Submission $1. Check it with:" >&2
+  echo "  xcrun notarytool info $1 --keychain-profile \"$NOTARY_PROFILE\"" >&2
+  echo "  xcrun notarytool log $1 --keychain-profile \"$NOTARY_PROFILE\"" >&2
+  echo "  xcrun notarytool history --keychain-profile \"$NOTARY_PROFILE\"" >&2
+}
 notarize() {
-  local file="$1" name out rc=0 id status
+  local file="$1" name rc=0 id status
   name="$(basename "$1")"
-  out="$WORK/notary-$name.json"
-  echo "notarize: $(basename "$file") (waiting up to $NOTARY_TIMEOUT)" >&2
-  xcrun notarytool submit "$file" --keychain-profile "$NOTARY_PROFILE" \
-    --wait --timeout "$NOTARY_TIMEOUT" --output-format json >"$WORK/notary.raw" || rc=$?
-  # Keep the last one-line JSON object (the final status); otherwise try the whole output as one document.
-  grep '^{.*}$' "$WORK/notary.raw" | tail -n 1 >"$out" || true
-  [ -s "$out" ] || cp "$WORK/notary.raw" "$out"
-  id="$(json_field id "$out")"
-  status="$(json_field status "$out")"
+  echo "notarize: submitting $name" >&2
+  xcrun notarytool submit "$file" --keychain-profile "$NOTARY_PROFILE" --output-format json \
+    >"$WORK/submit-$name.raw" 2>"$WORK/submit-$name.err" || rc=$?
+  last_json "$WORK/submit-$name.raw" "$WORK/submit-$name.json"
+  id="$(json_field id "$WORK/submit-$name.json")"
+  [[ "$id" =~ ^[0-9A-Za-z-]+$ ]] || id=""   # notarytool ids are UUIDs; anything else is not an id
   if [ -z "$id" ]; then
-    cat "$WORK/notary.raw" >&2
-    die "notarytool submit failed (exit $rc) before a submission id was returned"
+    cat "$WORK/submit-$name.raw" "$WORK/submit-$name.err" >&2
+    echo "If the upload went through anyway, it is listed by: xcrun notarytool history --keychain-profile \"$NOTARY_PROFILE\"" >&2
+    die "notarytool submit failed (exit $rc) for $name: no submission id was returned."
   fi
+  echo "notarize: submission $id for $name (waiting up to $NOTARY_TIMEOUT)" >&2
+  if [ "$rc" -ne 0 ]; then
+    cat "$WORK/submit-$name.err" >&2
+    notary_hint "$id"
+    die "notarytool submit exited $rc for $name (submission $id)"
+  fi
+  rc=0
+  xcrun notarytool wait "$id" --timeout "$NOTARY_TIMEOUT" --keychain-profile "$NOTARY_PROFILE" --output-format json \
+    >"$WORK/wait-$name.raw" 2>&1 || rc=$?
+  xcrun notarytool info "$id" --keychain-profile "$NOTARY_PROFILE" --output-format json \
+    >"$WORK/info-$name.raw" 2>"$WORK/info-$name.err" || true
+  last_json "$WORK/info-$name.raw" "$WORK/info-$name.json"
+  status="$(json_field status "$WORK/info-$name.json")"
   echo "notarize: submission $id status ${status:-unknown}" >&2
   case "$status" in
-    Accepted)
-      [ "$rc" -eq 0 ] || die "notarytool exited $rc although status is Accepted (submission $id)"
-      ;;
+    Accepted) ;;
     Invalid | Rejected)
       echo "--- notarytool log $id ---" >&2
       xcrun notarytool log "$id" --keychain-profile "$NOTARY_PROFILE" >&2 || true
-      die "notarization $status for $(basename "$file") (submission $id)"
+      notary_hint "$id"
+      die "notarization $status for $name (submission $id)"
       ;;
     *)
-      echo "Notarization did not finish within $NOTARY_TIMEOUT. Check it later with:" >&2
-      echo "  xcrun notarytool info $id --keychain-profile \"$NOTARY_PROFILE\"" >&2
-      echo "  xcrun notarytool log $id --keychain-profile \"$NOTARY_PROFILE\"" >&2
-      die "notarization not finished for $(basename "$file") (submission $id, status ${status:-unknown})"
+      cat "$WORK/wait-$name.raw" "$WORK/info-$name.err" >&2
+      echo "Notarization did not finish (wait exit $rc, limit $NOTARY_TIMEOUT)." >&2
+      notary_hint "$id"
+      die "notarization not finished for $name (submission $id, status ${status:-unknown})"
       ;;
   esac
 }
@@ -172,7 +194,7 @@ notarize() {
 if [ "$MODE" = notarized ]; then
   ditto -c -k --keepParent "$APP" "$WORK/D.Duck.zip"
   notarize "$WORK/D.Duck.zip"
-  xcrun stapler staple "$APP"
+  xcrun stapler staple "$APP" || die "stapling the ticket to the app failed"
 fi
 
 # --- 5. DMG in the temp dir -------------------------------------------------------------------------------------
@@ -189,7 +211,7 @@ hdiutil verify "$TMP_DMG" -quiet
 if [ "$MODE" = notarized ]; then
   codesign --force --timestamp --sign "$SIGN_ID" "$TMP_DMG"
   notarize "$TMP_DMG"
-  xcrun stapler staple "$TMP_DMG"
+  xcrun stapler staple "$TMP_DMG" || die "stapling the ticket to the DMG failed"
 fi
 
 # --- 7. Verify --------------------------------------------------------------------------------------------------
@@ -202,17 +224,26 @@ if [ "$MODE" = notarized ]; then
   spctl -a -vv -t open --context context:primary-signature "$TMP_DMG" 2>"$WORK/spctl-dmg.txt" \
     || { cat "$WORK/spctl-dmg.txt" >&2; die "Gatekeeper rejected the DMG"; }
   cat "$WORK/spctl-dmg.txt" >&2
+  grep -q 'source=Notarized Developer ID' "$WORK/spctl-dmg.txt" || die "DMG is not reported as Notarized Developer ID"
   xcrun stapler validate "$APP" || die "no stapled ticket on the app"
   xcrun stapler validate "$TMP_DMG" || die "no stapled ticket on the DMG"
 else
-  echo "note: ad-hoc signed, NOT notarized. On another Mac the first open needs right-click > Open" \
-    "(or System Settings > Privacy & Security > Open Anyway). Set DDUCK_SIGN_IDENTITY and DDUCK_NOTARY_PROFILE to notarize." >&2
+  echo "note: ad-hoc signed, NOT notarized. On another Mac the first open is blocked; allow it in" \
+    "System Settings > Privacy & Security > Open Anyway. Set DDUCK_SIGN_IDENTITY and DDUCK_NOTARY_PROFILE to notarize." >&2
 fi
 
 # --- 8. Promote: bundle/dmg, publish/dmg, /Applications ---------------------------------------------------------
-mkdir -p "$BUNDLE/dmg" "$PUBLISH"
-cp -f "$TMP_DMG" "$FIXED_DMG.partial" && mv -f "$FIXED_DMG.partial" "$FIXED_DMG"
-cp -f "$TMP_DMG" "$SHARE_DMG.partial" && mv -f "$SHARE_DMG.partial" "$SHARE_DMG"
+# Stage every copy next to its target first (same volume, so the final mv is a rename). A failed or unverified copy
+# stops here with all three locations as they were; the trap removes the staged copies.
+install_kept() { die "$* The installed app and both DMGs were left as they were."; }
+rm -rf "$NEW_APP"
+ditto "$APP" "$NEW_APP" || install_kept "copying the app to $INSTALL_DIR failed."
+codesign --verify --deep --strict "$NEW_APP" || install_kept "the copy in $INSTALL_DIR does not verify."
+mkdir -p "$BUNDLE/dmg" "$PUBLISH" || install_kept "cannot create the DMG folders."
+cp -f "$TMP_DMG" "$FIXED_DMG.partial" || install_kept "copying the DMG to $BUNDLE/dmg failed."
+cp -f "$TMP_DMG" "$SHARE_DMG.partial" || install_kept "copying the DMG to $PUBLISH failed."
+mv -f "$FIXED_DMG.partial" "$FIXED_DMG"
+mv -f "$SHARE_DMG.partial" "$SHARE_DMG"
 
 # Anything else in bundle/dmg or publish/dmg is an older build: to the Trash.
 for f in "$BUNDLE/dmg"/*.dmg "$PUBLISH"/*.dmg; do
@@ -220,11 +251,21 @@ for f in "$BUNDLE/dmg"/*.dmg "$PUBLISH"/*.dmg; do
   [ "$f" = "$FIXED_DMG" ] || [ "$f" = "$SHARE_DMG" ] || mv "$f" ~/.Trash/ 2>/dev/null || true
 done
 
-# Install: quit, swap, relaunch. The replaced app goes to the Trash.
+# Install: quit, swap, relaunch. The replaced app goes to the Trash; if the swap fails it is put back.
 osascript -e 'quit app "D.Duck"' >/dev/null 2>&1 || true
 sleep 2
-if [ -d "$INSTALL_DIR/D.Duck.app" ]; then mv "$INSTALL_DIR/D.Duck.app" ~/.Trash/"D.Duck.app-$(date +%Y%m%d-%H%M%S)"; fi
-ditto "$APP" "$INSTALL_DIR/D.Duck.app"
+OLD_IN_TRASH=""
+if [ -d "$INSTALL_DIR/D.Duck.app" ]; then
+  OLD_IN_TRASH="$HOME/.Trash/D.Duck.app-$(date +%Y%m%d-%H%M%S)"
+  mv "$INSTALL_DIR/D.Duck.app" "$OLD_IN_TRASH" \
+    || die "could not move the installed app to the Trash; it was left as it was (the DMGs are already updated)."
+fi
+if ! mv "$NEW_APP" "$INSTALL_DIR/D.Duck.app"; then
+  if [ -n "$OLD_IN_TRASH" ] && mv "$OLD_IN_TRASH" "$INSTALL_DIR/D.Duck.app"; then
+    die "could not move the new app into $INSTALL_DIR; the previous app was put back."
+  fi
+  die "could not move the new app into $INSTALL_DIR; the previous app is in the Trash: ${OLD_IN_TRASH:-none}"
+fi
 open "$INSTALL_DIR/D.Duck.app"
 
 shasum -a 256 "$SHARE_DMG"
