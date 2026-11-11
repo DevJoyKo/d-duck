@@ -694,6 +694,13 @@ impl ClaudeCli {
         cmd
     }
 
+    /// `claude --help` for the model list (model-select design 1): fixed argument, the given cwd (the app data folder),
+    /// 5 s, 256 KB. Calls no model.
+    pub fn help_text(&self, cwd: &Path) -> Result<String, CliError> {
+        let out = run(self.command().current_dir(cwd).arg("--help"), Duration::from_secs(5), 256 * 1024, Keep::Head)?;
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    }
+
     pub fn list_agents(&self) -> Result<Vec<AgentSession>, CliError> {
         let out = run(self.command().args(["agents", "--json", "--all"]), Duration::from_secs(5), 4 * 1024 * 1024, Keep::Head)?;
         parse_agents(&out.stdout)
@@ -1832,5 +1839,30 @@ mod model_args {
         // An agent-layer pin is not locked.
         let agent = ModelPin { layer: Layer::Agent, arg: None, role: None };
         assert!(run(TaskSpec { agent: Some("x".into()), model_pin_in: Some(agent), ..base(dir.path()) }, None, Some("opus")).is_ok());
+    }
+}
+
+#[cfg(all(test, unix))]
+#[allow(clippy::unwrap_used)]
+mod help_cli {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn fake(dir: &Path, body: &str) -> ClaudeCli {
+        let p = dir.join("claude");
+        std::fs::write(&p, format!("#!/bin/sh\necho \"$@\" > \"{}/args\"\n{body}\n", dir.display())).unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        ClaudeCli::new(p, None)
+    }
+
+    #[test]
+    fn help_runs_with_one_fixed_argument_and_no_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let cli = fake(dir.path(), "printf '  --model <model>  Provide an alias (e.g. %s, %s) or a name.\\n  --name <n>  x\\n' \"'opus'\" \"'sonnet'\"");
+        let text = cli.help_text(dir.path()).unwrap();
+        assert_eq!(crate::model_select::parse_help(&text), Some(vec!["opus".to_string(), "sonnet".to_string()]));
+        assert_eq!(std::fs::read_to_string(dir.path().join("args")).unwrap().trim(), "--help", "nothing else is passed");
+        let broken = fake(dir.path(), "exit 3");
+        assert!(broken.help_text(dir.path()).is_err(), "a failed help leaves only the CLI source out");
     }
 }

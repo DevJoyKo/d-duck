@@ -1126,7 +1126,7 @@ mod tests {
         assert!(!rejects_model("Error: model blocked by availableModels", "opus"));
         assert!(!rejects_model("Workspace not trusted", "opus"));
         assert!(!rejects_model("model sonnet not found", "opus"), "another model");
-        assert!(!CLI_REJECT_RETRY_MEASURED);
+        const { assert!(!CLI_REJECT_RETRY_MEASURED) };
     }
 
     #[test]

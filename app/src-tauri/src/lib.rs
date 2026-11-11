@@ -9,6 +9,7 @@ mod ext_items_cmds;
 mod limit_cmds;
 mod login_cmds;
 mod memory_cmds;
+mod model_cmds;
 mod projects_cmds;
 mod report_save_cmds;
 mod delivery_cmds;
@@ -2186,6 +2187,8 @@ async fn save_team_config(app: AppHandle, input: dduck_core::team_config::TeamIn
         if !problems.is_empty() {
             return Err(problems.join("\n"));
         }
+        // Type models must pass the allowlist (model-select design 5, fail closed).
+        model_cmds::check_team_models(&app, &tc::merge(&stored))?;
         let risky = tc::risky_changes(&tc::load(before.as_deref()), &tc::merge(&stored));
         if !risky.is_empty() {
             let _guard = state.confirm_lock.try_lock().map_err(|_| ReasonCode::ConfirmOpen.now())?;
@@ -2555,6 +2558,11 @@ async fn start_task(app: AppHandle, mut spec: TaskSpec, start_id: Option<String>
         if spec.sensitive && persona_risk.is_some() {
             return Err(CliError::invalid(ReasonCode::SensitivePersona));
         }
+        // The model (model-select design 4·11): the file agent's own `model:` read from the file `claude --agent` uses,
+        // the allowlist (fail closed) and the fallback for an unsupported value — before any dialog.
+        let file_model = spec.agent.as_deref().filter(|_| spec.inline_role.is_none()).and_then(|n| model_cmds::agent_file_model(&app.state::<AppState>(), n, &spec.cwd));
+        let parts = model_cmds::fallback_parts(&app, &spec.cwd);
+        spec.apply_model(file_model.as_deref(), &parts.ctx())?;
         // A draft built from Claude's web-search-based advice: show the whole brief natively before it runs.
         if spec.origin == Some(dduck_core::claude_cli::Origin::InsightClaude) {
             let state = app.state::<AppState>();
@@ -2665,6 +2673,9 @@ async fn start_task(app: AppHandle, mut spec: TaskSpec, start_id: Option<String>
             Err(CliError::UntrustedWorkspace { stderr_tail }) => trust_then_retry(&app, &client, &spec, stderr_tail),
             other => other,
         };
+        // A refusal that reads like the model's: one hint line, no retry until spike 1.2 (design 11).
+        let model_value = spec.model_pin.as_ref().and_then(|p| p.arg.clone()).or(file_model.clone());
+        let started = started.map_err(|e| model_cmds::hint_rejected(e, model_value.as_deref()));
         steps.lap("claude_bg");
         // Cancelled while `claude --bg` ran: stop what it started, so nothing keeps running behind the user's back.
         if let Ok(id) = &started {
@@ -2715,7 +2726,8 @@ async fn start_task(app: AppHandle, mut spec: TaskSpec, start_id: Option<String>
                 };
                 let result = task_meta::record_start(&conn, &rec)
                     .and_then(|()| task_meta::record_guard(&conn, id, delivery.ctx.guard, delivery.default_branch.as_deref(), delivery.default_head.as_deref()))
-                    .and_then(|()| spec.lang.map_or(Ok(()), |l| task_meta::record_lang(&conn, id, l)));
+                    .and_then(|()| spec.lang.map_or(Ok(()), |l| task_meta::record_lang(&conn, id, l)))
+                    .and_then(|()| spec.model_pin.as_ref().map_or(Ok(()), |p| task_meta::record_model(&conn, id, p, spec.model_requested.as_deref())));
                 match result {
                     Ok(()) => {
                         let _ = task_meta::set_limit_fields(&conn, id, spec.remote_name.is_some(), limit_auto_ok);
@@ -3841,6 +3853,8 @@ pub fn run() {
             permission_scopes,
             save_permissions,
             save_agent_tools,
+            model_cmds::model_options,
+            model_cmds::save_agent_model,
             save_agent_loadout,
             loadout_options,
             explain_permission,

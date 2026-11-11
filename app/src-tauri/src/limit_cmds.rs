@@ -158,7 +158,13 @@ fn resume(app: &AppHandle, c: &Claim, manual: Option<ManualApproval>) -> Result<
     // Delivery scope recomputed now (delivery-guard), before `prepare` so the team rules carry the local-only line:
     // a folder ticked "로컬만" since the start gets the new scope, and a scope that cannot be computed refuses.
     spec.guard_ctx = Some(resume_guard(&state, &cwd, mode.is_dangerous())?);
+    // The start's model arguments, reproduced (model-select design 10); an older task has none.
+    spec.model_pin_in = state.conn().ok().and_then(|c| task_meta::model_pin(&c, &src.bg_id).ok().flatten());
     spec.prepare_with(&home_dir(), chrono_now_ms(), team.as_deref(), &env).map_err(|_| Reason::RiskChanged)?;
+    // Allowlist re-check and the fallback for a pinned model that is gone (design 11). A block = button only.
+    let file_model = spec.agent.as_deref().filter(|_| spec.inline_role.is_none()).and_then(|n| crate::model_cmds::agent_file_model(&state, n, &spec.cwd));
+    let parts = crate::model_cmds::fallback_parts(app, &spec.cwd);
+    spec.apply_model(file_model.as_deref(), &parts.ctx()).map_err(|_| Reason::RiskChanged)?;
     if let (Some(id), Some(root)) = (src.report_id.as_deref(), reports_root(app)) {
         use dduck_core::task_report as tr;
         if let Ok(dir) = tr::prepare_dir(&root, id) {
@@ -196,6 +202,10 @@ fn resume(app: &AppHandle, c: &Claim, manual: Option<ManualApproval>) -> Result<
                 if let Ok(conn) = state.conn() {
                     let _ = task_meta::alias(&conn, &c.bg_id, &id, chrono_now_ms());
                 }
+            }
+            // What this resume really passed (a replaced model included), so the next one reproduces it.
+            if let (Some(pin), Ok(conn)) = (spec.model_pin.as_ref(), state.conn()) {
+                let _ = task_meta::record_model(&conn, &id, pin, spec.model_requested.as_deref());
             }
             Ok(())
         }
