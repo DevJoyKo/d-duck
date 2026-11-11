@@ -884,4 +884,19 @@ mod tests {
         assert_eq!((last.total, last.items.len()), (300, 10), "page 30 opens (was refused past page 21)");
         assert!(build(rows(&conn).unwrap(), &root, &HashMap::new(), &Query { offset: MAX_ROWS + 1, ..q }).is_err());
     }
+
+    #[test]
+    fn the_routine_keep_rule_drops_the_oldest_card_and_record_deletion_keeps_routine_cards() {
+        let conn = crate::db::open_in_memory().unwrap();
+        routine(&conn, 1, "루틴");
+        for n in 0..=task_report::KEEP_PER_ROUTINE {
+            run(&conn, 1, &format!("ab{n:06x}"), "done", Some(&format!("{n:032x}")), now() + n);
+        }
+        let ids: Vec<String> = rows(&conn).unwrap().into_iter().map(|r| r.bg_id).collect();
+        assert_eq!(ids.len(), task_report::KEEP_PER_ROUTINE as usize, "21st report: the oldest card goes, reviewed or not");
+        assert!(!ids.contains(&"ab000000".to_string()));
+        rec(&conn, "aaaa0001", "/tmp", "dev", Some(&id(200)), now(), None, None);
+        crate::task_meta::delete_all(&conn).unwrap();
+        assert_eq!(rows(&conn).unwrap().len(), task_report::KEEP_PER_ROUTINE as usize, "routine cards stay; the routine owns them");
+    }
 }

@@ -58,8 +58,9 @@ pub fn lane_of(failed: bool, rec: Option<&Facts>, external_wrapped: bool, since:
     match rec {
         Some(f) => {
             // Wrapped up first: a task record cannot be wrapped while it waits for review, so this only keeps a
-            // routine run that was wrapped up (by session key) before it became a review target off the 리뷰 대기 lane.
-            if f.wrapped || external_wrapped {
+            // routine run wrapped up before it became a review target (carried over by `note_ended`) off 리뷰 대기.
+            // A session key is not looked at for a record, as before.
+            if f.wrapped {
                 Some(Lane::Done)
             } else if f.has_report && !f.reviewed && f.created_at >= since {
                 Some(Lane::ReviewWait)
@@ -205,14 +206,23 @@ pub fn note_ended(conn: &Connection, sessions: &[AgentSession]) -> Result<usize,
         let Some(id) = s.id.as_deref().filter(|id| crate::task_meta::valid_bg_id(id)) else { continue };
         changed += stmt.execute(params![id, ended_code(s.status)])?;
     }
-    let external: HashSet<String> = wrapped_keys(conn)?.into_iter().collect();
-    if !external.is_empty() {
+    let mut keys = wrapped_keys(conn)?;
+    if !keys.is_empty() {
         let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX));
-        for s in sessions.iter().filter(|s| ended(s) && external.contains(&s.key)) {
+        let before = keys.len();
+        for s in sessions.iter().filter(|s| ended(s)) {
             let Some(id) = s.id.as_deref().filter(|id| crate::task_meta::valid_bg_id(id)) else { continue };
+            if !keys.contains(&s.key) {
+                continue;
+            }
             if let Some((Owner::Routine(_), true)) = review_inbox::owner(conn, id)? {
                 changed += set_wrapped(conn, id, Some(now_ms))?;
+                // Moved, not copied: the run now holds it, so 되돌리기 on the run is not undone by the key next poll.
+                keys.retain(|k| k != &s.key);
             }
+        }
+        if keys.len() != before {
+            put_wrapped_keys(conn, &keys)?;
         }
     }
     Ok(changed)
@@ -1388,16 +1398,35 @@ mod tests {
         routine_run(&conn, "bba9b3f7", Some(&rid(41)), SINCE + 5);
         put_wrapped_keys(&conn, &["sess-old".to_string()]).unwrap();
         let listed = [session("sess-old", Some("bba9b3f7"), SessionStatus::Stopped)];
-        // Before the carry-over: the key alone keeps it off 리뷰 대기.
-        assert_eq!(lanes(&conn, &listed, SINCE).unwrap().get("sess-old"), Some(&Lane::Done));
         assert!(note_ended(&conn, &listed).unwrap() >= 1);
         assert!(facts(&conn, "bba9b3f7").unwrap().unwrap().wrapped, "carried over to the run");
+        assert!(!wrapped_keys(&conn).unwrap().contains(&"sess-old".to_string()), "moved off the key list");
+        assert_eq!(lanes(&conn, &listed, SINCE).unwrap().get("sess-old"), Some(&Lane::Done));
         let none = HashMap::new();
         assert_eq!(review_inbox::pending_count(&conn, &none, SINCE).unwrap(), 0, "not on the badge");
         assert_eq!(board(&conn, &[], SINCE, MAX_CARDS).unwrap().review_wait.total, 0, "nor in 리뷰 대기 once it leaves the listing");
+        // 리뷰했어요 → 되돌리기 → next poll: back in 리뷰 전, not wrapped again by the old key (test review FAIL).
+        review_inbox::mark(&conn, "bba9b3f7", &none, true, SINCE + 20).unwrap();
+        assert!(review_inbox::unmark(&conn, "bba9b3f7").unwrap());
+        note_ended(&conn, &listed).unwrap();
+        assert!(!facts(&conn, "bba9b3f7").unwrap().unwrap().wrapped);
+        assert_eq!(review_inbox::pending_count(&conn, &none, SINCE).unwrap(), 1);
+        assert_eq!(lanes(&conn, &listed, SINCE).unwrap().get("sess-old"), Some(&Lane::ReviewWait));
         // A key nobody wrapped carries nothing over.
         routine_run(&conn, "dda9b3f7", Some(&rid(42)), SINCE + 6);
         note_ended(&conn, &[session("sess-new", Some("dda9b3f7"), SessionStatus::Done)]).unwrap();
         assert!(!facts(&conn, "dda9b3f7").unwrap().unwrap().wrapped);
+    }
+
+    #[test]
+    fn a_session_key_is_still_ignored_for_a_task_record() {
+        let conn = crate::db::open_in_memory().unwrap();
+        rec(&conn, "aaaa1111", "/tmp", Some(&rid(1)), SINCE + 1, false);
+        put_wrapped_keys(&conn, &["sess-t".to_string()]).unwrap();
+        let listed = [session("sess-t", Some("aaaa1111"), SessionStatus::Done)];
+        note_ended(&conn, &listed).unwrap();
+        assert_eq!(lanes(&conn, &listed, SINCE).unwrap().get("sess-t"), Some(&Lane::ReviewWait), "lane = badge");
+        assert_eq!(review_inbox::pending_count(&conn, &HashMap::new(), SINCE).unwrap(), 1);
+        assert!(wrapped_keys(&conn).unwrap().contains(&"sess-t".to_string()), "only routine runs take the key over");
     }
 }

@@ -16,4 +16,4 @@
 
 - [x] 3.1 설계 리뷰(design-critic + security-privacy-reviewer) 반영 — HIGH 2·MEDIUM 4·LOW 7 문서 반영
 - [x] 3.2 `cargo test -p dduck-core`·clippy·tsc·vitest·lint, mock 스크린샷(라이트 1440·다크 900) — core 581·vitest 563·clippy·tsc·lint 통과
-- [ ] 3.3 테스트 리뷰(qa-verifier + design-critic) 반영
+- [x] 3.3 테스트 리뷰(qa-verifier + design-critic) 반영 — FAIL 1(되돌리기 뒤 키로 재정리) → 키를 옮김+회귀 테스트, MEDIUM 시나리오 테스트 3개 추가, LOW lane_of 키 무시 복원·문서 정정
