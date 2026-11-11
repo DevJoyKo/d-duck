@@ -23,6 +23,14 @@ fn main() {
         let dir = std::env::args().nth(2).map(std::path::PathBuf::from);
         guard_exit(dir.is_some_and(|d| d.is_absolute() && dduck_core::insights::guard_allows(&input, &d)));
     }
+    // The news run (news-tab, D-204): WebFetch only, exact official pages, counted in the app-owned dir (arg 2).
+    if std::env::args().nth(1).as_deref() == Some(dduck_core::news::GUARD_FLAG) {
+        use std::io::Read;
+        let mut input = String::new();
+        let _ = std::io::stdin().take(1024 * 1024).read_to_string(&mut input);
+        let dir = std::env::args().nth(2).map(std::path::PathBuf::from);
+        guard_exit(dir.is_some_and(|d| d.is_absolute() && dduck_core::news::guard_allows(&input, &d)));
+    }
     // The brief-refine run (brief-grilling): no tool exists there, and this hook denies any call anyway.
     if std::env::args().nth(1).as_deref() == Some(dduck_core::brief_refine::GUARD_FLAG) {
         use std::io::Read;

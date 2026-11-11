@@ -10,6 +10,7 @@ mod limit_cmds;
 mod login_cmds;
 mod memory_cmds;
 mod model_cmds;
+mod news_cmds;
 mod projects_cmds;
 mod report_save_cmds;
 mod delivery_cmds;
@@ -3605,6 +3606,7 @@ fn spawn_scheduler(app: AppHandle) {
             let _ = routines::close_interrupted(&conn);
         }
         limit_cmds::on_start(&app);
+        news_cmds::on_start();
         loop {
             let _ = std::panic::catch_unwind(AssertUnwindSafe(|| {
                 let state = app.state::<AppState>();
@@ -3620,6 +3622,7 @@ fn spawn_scheduler(app: AppHandle) {
                     let _ = app.emit("routines-updated", ());
                 }
                 limit_cmds::on_tick(&app);
+                news_cmds::on_tick(&app);
             }));
             std::thread::sleep(SCHEDULER_EVERY);
         }
@@ -3880,6 +3883,12 @@ pub fn run() {
             refine_cancel,
             usage_insights_last,
             usage_insights_delete,
+            news_cmds::news_list,
+            news_cmds::news_fetch,
+            news_cmds::news_cancel,
+            news_cmds::news_mark_seen,
+            news_cmds::news_set_daily,
+            news_cmds::news_open_source,
             open_insight_link,
             session_timeline,
             session_raw,

@@ -9,7 +9,7 @@
 
 ## 2. shell
 
-- [ ] 2.1 `news_cmds.rs`: 명령 6개, 실행 공용 함수(가드 자체 검사, cwd 정리, busy·취소), 수동 확인 창, 매일 확인 창, `on_tick`, `news-updated` 이벤트, `main.rs` 가드 모드, 등록
+- [x] 2.1 `news_cmds.rs`: 명령 6개, 실행 공용 함수(가드 자체 검사, cwd 정리, busy·취소), 수동 확인 창, 매일 확인 창, `on_tick`, `news-updated` 이벤트, `main.rs` 가드 모드, 등록
 
 ## 3. webview
 
