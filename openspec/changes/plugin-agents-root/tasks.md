@@ -7,4 +7,4 @@
 ## 2. 검증
 
 - [x] 2.1 cargo test·clippy·tsc·vitest·lint 통과, 실제 사용자 데이터로 mattpocock 형식 오류 카드가 사라짐 확인(agents_probe)
-- [ ] 2.2 리뷰(qa-verifier + design-critic), 결과를 decisions.md 리뷰 기록에
+- [x] 2.2 리뷰(qa-verifier + design-critic), 결과를 decisions.md 리뷰 기록에
