@@ -88,8 +88,8 @@ core `model_select::options(env) -> ModelOptions`. 입력은 순수 데이터(`O
 `prepare_with` 끝에서 `model_select::resolve(task, agent_file, type_default) -> Resolved { value: Option<String>, layer }`를 부른다. 결과를 `TaskSpec`의 backend-only 필드(`resolved_model`, `model_layer`)에 담는다.
 - **인라인 역할**(번들·추가 유형): 값이 있으면 역할 JSON `model`과 `--model`을 **같은 값**으로 둘 다 넣는다. 그러면 `--agent`와 `--model` 중 무엇이 이기든 결과가 같다.
 - **파일 에이전트**(페르소나 또는 유형의 "내 에이전트"): 셸이 `agents_catalog::resolve_for_cwd(defs, name, cwd)`로 `claude --agent`가 실제로 쓸 정의를 고른다. 그 파일에서 frontmatter `model` **원문**을 다시 읽는다. `AgentDef.model`은 표시용(`display_safe` 40자)이라 쓰지 않는다. `primary`도 쓰지 않는다. 원문이 `valid_model`을 통과하지 못하거나 `inherit`이면 "모델 없음"으로 본다(리뷰 반영 D-154).
-  - 작업 값이 없으면 `--model`을 넣지 않는다. 파일 값이 있으면 CLI가 쓰고, 없으면 유형 값을 `--model`로 넣는다.
-  - 작업 값이 있고 파일에 `model`이 있으면 `--model=<작업 값>`을 넣는다. 실측 1.1(Claude Code 2.1.322, 2026-11-11)에서 `--model`이 이긴다고 확인했다: `model: haiku` 사용자 에이전트를 `--agent`로, `--model sonnet`과 함께 시작한 세션(74f796a9)의 메인 대화가 `claude-sonnet-5-5`로 돌았다. 그래서 컴파일 상수 `FILE_AGENT_MODEL_OVERRIDE_VERIFIED`를 true로 바꿨고, 잠금은 없어졌다. CLI가 바뀌어 false로 되돌리면 이 조합은 다시 거부되고 Composer가 잠긴다(D-141 `AUTO_RESUME_SHIPPED`와 같은 방식).
+  - 작업 값이 없고 파일 값이 있으면 그 값을 `--model=<파일 값>`으로 명시해 넣는다(층 = agent). 실측 1.1에서 `--model`이 이기고 재개에 이어지지 않으므로, 기록된 값으로 재개를 그대로 재현하기 위해서다(파일이 나중에 바뀌어도 같음, 코드 리뷰 MEDIUM). 파일 값이 없으면 유형 값을 `--model`로 넣는다.
+  - 작업 값이 있고 파일에 `model`이 있으면 `--model=<작업 값>`을 넣는다. 실측 1.1(Claude Code 2.1.322, 2026-11-11)에서 `--model`이 이긴다고 확인했다: `model: haiku` 사용자 에이전트를 `--agent`로, `--model sonnet`과 함께 시작한 세션(74f796a9)의 메인 대화가 `claude-sonnet-5-5`로 돌았다. 그래서 컴파일 상수 `FILE_AGENT_MODEL_OVERRIDE_VERIFIED`를 true로 바꿨고, 잠금은 없어졌다. CLI가 바뀌어 false로 되돌리면 이 조합은 Rust에서 다시 거부된다(Composer 잠금 UI는 지웠으므로 그때 되살려야 한다)(D-141 `AUTO_RESUME_SHIPPED`와 같은 방식).
 - **CLI 기본값**: 아무 층에도 값이 없으면 `--model`도 역할 `model`도 없다.
 - 엄격 유형(배포·보안·QA, `FIXED_STRICT`)도 모델을 고를 수 있다. 모델은 권한·도구를 바꾸지 않으므로 엄격 불변식(도구·페르소나 위험)과 무관하다.
   - 대신 엄격 유형에서 기본값보다 단가가 낮은 모델을 고르면 미리보기에 "검토가 얕아질 수 있어요" 한 줄을 보인다.
@@ -179,7 +179,7 @@ core `model_select::options(env) -> ModelOptions`. 입력은 순수 데이터(`O
 - 같은 계열 별칭이 막히면 기본값을 본다. 이때 기본값의 계열이 요청 계열보다 높거나(haiku < sonnet < opus < fable) 계열을 모르면 거부한다("대신 쓸 모델이 없어 시작하지 않았어요 · 더 비싼 모델로는 바꾸지 않아요"). 계열을 모르는 요청은 비교할 계열이 없어서 규칙 3이 적용되지 않는다. 대신 대체 사실이 작업 상세에 남는다(보안 리뷰 MEDIUM, 사용자 요구 2를 따름).
 - 대체 값도 `valid_model`을 통과해야 한다. `--model=<값>` 한 토큰 형식은 그대로다.
 
-**파일 에이전트** 실측 1.1(Claude Code 2.1.322, 2026-11-11)에서 `--model`이 `--agent`의 모델을 이긴다고 확인했다(결정 4). 그래서 에이전트 파일의 `model:`이 지원되지 않으면 다른 층과 같은 규칙으로 대체하고, 대체 값을 `--model=`로 넣는다. 계열을 모르면 기본값의 값을 알 때만 그 값을 `--model`로 넣는다. `--model`을 빼면 CLI가 파일 값을 다시 쓰기 때문이다. 기본값을 모르면 거부한다("대신 쓸 모델이 없어 시작하지 않았어요…"). 허용 목록 검사는 그대로다. 파일 값이 정책에 막히면 대체 없이 거부한다. `FILE_AGENT_MODEL_OVERRIDE_VERIFIED`를 false로 되돌리면 이전처럼 거부한다("에이전트 파일의 모델을 쓸 수 없어요…").
+**파일 에이전트** 실측 1.1(Claude Code 2.1.322, 2026-11-11)에서 `--model`이 `--agent`의 모델을 이긴다고 확인했다(결정 4). 그래서 에이전트 파일의 `model:`이 지원되지 않으면 다른 층과 같은 규칙으로 대체하고, 대체 값을 `--model=`로 넣는다. 계열을 모르면 기본값이 env·settings에서 온 값이고(최근 기록 추정은 쓰지 않음) 허용 목록을 통과할 때만 그 값을 `--model`로 넣는다. `--model`을 빼면 CLI가 파일 값을 다시 쓰기 때문이다. 아니면 거부한다("대신 쓸 모델이 없어 시작하지 않았어요…"). 허용 목록 검사는 그대로다. 파일 값이 정책에 막히면 대체 없이 거부한다. `FILE_AGENT_MODEL_OVERRIDE_VERIFIED`를 false로 되돌리면 이전처럼 거부한다("에이전트 파일의 모델을 쓸 수 없어요…").
 
 **CLI 거부** 1.2 실측 전에는 **다시 시작하지 않는다.** `rejects_model(stderr_tail, value)`은 만들어 두되, 재시도는 상수 `CLI_REJECT_RETRY_MEASURED = false` 뒤에 둔다. 실패한 `--bg`가 worktree·세션·훅을 남겼는지 모르고, 정책 거부 문구와 섞일 수 있으며, 네이티브 승인을 바뀐 인자에 다시 써야 하기 때문이다(보안 리뷰 HIGH·MEDIUM, 설계 리뷰 MAJOR). 지금은 거부 문구가 맞으면 실패 메시지 끝에 "이 모델을 쓸 수 없는 것 같아요 · 다른 모델을 골라 주세요" 한 줄을 더하고, 다음 시작부터는 그 값이 지원 판정에서 빠지지 않는다(저장하지 않음). 문구 판정은 `availableModels`·`policy`·`organization`·`managed`·`permission`·`access`가 있으면 거부로 보지 않는다. stderr는 판정에만 쓰고 DB·timing·로그에 넣지 않는다.
 - 대안: CLI의 `--fallback-model <model>`(도움말 2.1.322: "when the default model is overloaded or not available"). `--bg`에서의 동작과 "default model"의 뜻이 측정되지 않았다. 1.2에서 함께 재고, 맞으면 대체 별칭을 이 옵션으로도 넘긴다(허용 목록을 통과한 값만).
@@ -190,7 +190,7 @@ core `model_select::options(env) -> ModelOptions`. 입력은 순수 데이터(`O
 | 작업·유형(인라인 역할) | `--model`과 역할 `model`을 같은 대체 값으로(기본값이면 둘 다 없음) |
 | 작업·유형(파일 에이전트 위) | `--model`만 대체 값으로. 기본값이면 `--model` 없음 |
 | 에이전트 파일 `model:` | `--model=<대체 별칭>`, 계열을 모르면 `--model=<알려진 기본값>`, 둘 다 없으면 거부 |
-| 재개 `ModelPin` | `arg`·`role`을 같은 규칙으로 대체한다. 층은 그대로 둔다. `layer = agent`이면 파일 원문을 다시 읽어 위 행을 적용한다 |
+| 재개 `ModelPin` | `arg`·`role`을 같은 규칙으로 대체한다. 층은 그대로 둔다. `layer = agent`이면 기록된 `--model` 값을 재현하고, 값이 없는 이전 기록만 파일 원문을 다시 읽는다. 둘 다 위 행 규칙으로 대체한다 |
 
 **기록** `task_meta.model_requested TEXT`, `task_meta.model_fallback TEXT`(`unsupported`만, 1.2 뒤 `cli_rejected`). 버전 번호를 쓰지 않는다. `migrate` 끝의 멱등 단계가 `pragma table_info`로 열이 없을 때만 `ADD COLUMN`한다. 그래서 PR #5의 v16과 순서가 어떻든 부딪히지 않는다(리뷰 HIGH). `model_requested`는 `valid_model`을 통과한 값만 저장한다(100자 이하). `model_arg`·`role_model`은 늘 **실제로 넘긴 값**이다. 그래서 재개는 대체된 값을 그대로 재현한다. 재개에서 다시 대체하면 두 열을 새 값으로 바꾸고, `model_requested`는 비어 있을 때만 채운다.
 

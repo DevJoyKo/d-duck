@@ -36,7 +36,7 @@
   - (확인: spec "작업별 모델"·"모델 우선순위" 시나리오마다 `bg_args` 테스트)
 - [x] 2.8 DB: `task_meta.model_layer`·`model_arg`·`role_model` nullable 컬럼(0.2에서 정한 번호), 시작 때 실제로 넘긴 값을 기록한다. 요청과 다른 모델 비교 함수(결정 9: 메인 대화 첫 행, `<synthetic>` 제외, 계열·접두사 비교, 비교 불가 값 제외). (확인: 마이그레이션 테스트, 비교 표 테스트) — 완료: v13 열 기록(`record_model`·`model_pin`), 비교는 `record_detail.model_other`
 
-- [x] 2.9 대체(design 결정 11, D-197): `Known`·`supported`(계열·문서 별칭, 도움말, 설정 값(`availableModels` 제외), 최근 7일 기록, 단가표 접두사 또는 `-YYYYMMDD`), `family_of`(별칭·`opusplan`·id 낱말), `fallback`(같은 계열 별칭 → 기본값, 더 비싼 계열 금지, 대체 값 허용 목록 검사(안내 문구 붙은 Yes는 막힘), 파일 에이전트 모델은 1.1 전 거부, 요청 값이 막히면 대체 없이 거부), `rejects_model`(stderr 문구), `options`의 저장 값 항목에 `replacement`. `TaskSpec`·`ResumeSpec`에 대체 적용(층별 표). DB 멱등 열 추가(`model_requested`·`model_fallback`, 번호 없음)와 기록·읽기. (확인: spec "지원되지 않는 모델은 자동으로 대체한다" 시나리오마다 단위 테스트, 마이그레이션 테스트) — 완료: `supported`·`family_of`·`fallback`·`fix`·`apply_fallback`·`rejects_model`, DB는 번호 없는 멱등 열 추가
+- [x] 2.9 대체(design 결정 11, D-197): `Known`·`supported`(계열·문서 별칭, 도움말, 설정 값(`availableModels` 제외), 최근 7일 기록, 단가표 접두사 또는 `-YYYYMMDD`), `family_of`(별칭·`opusplan`·id 낱말), `fallback`(같은 계열 별칭 → 기본값, 더 비싼 계열 금지, 대체 값 허용 목록 검사(안내 문구 붙은 Yes는 막힘), 파일 에이전트 모델은 1.1 뒤 `--model`로 대체, 요청 값이 막히면 대체 없이 거부), `rejects_model`(stderr 문구), `options`의 저장 값 항목에 `replacement`. `TaskSpec`·`ResumeSpec`에 대체 적용(층별 표). DB 멱등 열 추가(`model_requested`·`model_fallback`, 번호 없음)와 기록·읽기. (확인: spec "지원되지 않는 모델은 자동으로 대체한다" 시나리오마다 단위 테스트, 마이그레이션 테스트) — 완료: `supported`·`family_of`·`fallback`·`fix`·`apply_fallback`·`rejects_model`, DB는 번호 없는 멱등 열 추가
 
 ## 3. 셸
 - [x] 3.1 `model_options` 명령: `claude --help`를 앱 데이터 폴더 cwd·5초 제한·256KB 상한으로 실행하고, (CLI 경로, 버전, cwd)로 캐시한다. `refresh`면 캐시를 비운다. cwd 검사, 최근 사용 SQL(30일·12개), 관리 설정 루트는 `permissions::default_managed_roots`를 쓴다. (확인: 가짜 CLI 통합 테스트 — 도움말 실패 시 `cliRead: false`이고 나머지 출처는 유지, 모델 호출 인자 없음) — 완료: `model_cmds::model_options`, 가짜 CLI 테스트 `help_cli`
@@ -57,7 +57,7 @@
   - (확인: vitest, 스크린샷)
 - [x] 4.4 Composer에 붙인다. — 완료
   - "모델"을 생각 깊이 옆에 둔다. 기본값 줄은 지금 층(유형·에이전트·CLI)을 보인다.
-  - 파일 에이전트 잠금 문구, 미리보기 "모델: … · 층", effort·엄격 힌트를 넣는다.
+  - (1.1 뒤 잠금 없음) 미리보기 "모델: … · 층", effort·엄격 힌트를 넣는다.
   - `startTask`에 `model`을 보낸다. 다시 맡기기·초안은 `model_layer = task`일 때만 모델 칸을 채우고, 아니면 기본값과 "원래 작업은 X로 돌았어요" 한 줄을 보인다.
   - (확인: vitest, 스크린샷)
 - [x] 4.5 작업 상세에 "모델: … · 층"과 요청과 다른 모델 알림 한 줄을 넣는다. 기록이 없는 이전 작업은 "기록 없음"이다. (확인: vitest, mock) — 완료(지난 작업 펼침)

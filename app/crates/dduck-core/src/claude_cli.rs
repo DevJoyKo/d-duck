@@ -1732,7 +1732,7 @@ mod model_args {
         let home = tempfile::tempdir().unwrap();
         spec.prepare_with(home.path(), 0, team, &crate::loadout::Env::default())?;
         let (k, list) = (known(), ms::Allowlist::none());
-        spec.apply_model(file, &FallbackCtx { known: &k, list: &list, default_value: Some("sonnet") })?;
+        spec.apply_model(file, &FallbackCtx { known: &k, list: &list, default_value: Some("sonnet"), default_pinnable: true })?;
         let args = spec.bg_args().into_iter().map(|a| a.into_string().unwrap()).collect();
         Ok((spec, args))
     }
@@ -1785,7 +1785,7 @@ mod model_args {
         let dir = tempfile::tempdir().unwrap();
         let persona = TaskSpec { agent: Some("design-critic".into()), ..base(dir.path()) };
         let (spec, args) = run(persona.clone(), None, Some("opus")).unwrap();
-        assert!(!args.iter().any(|a| a.starts_with("--model")), "the CLI reads the file");
+        assert!(args.contains(&"--model=opus".to_string()), "the file's value is passed so a resume reproduces it");
         assert_eq!(spec.model_pin.unwrap().layer, Layer::Agent);
         // Spike 1.1: --model wins over the file, so a task value on top is passed.
         let (spec, args) = run(TaskSpec { model: Some("sonnet".into()), ..persona.clone() }, None, Some("opus")).unwrap();
@@ -1842,6 +1842,10 @@ mod model_args {
         // An agent-layer pin is not locked.
         let agent = ModelPin { layer: Layer::Agent, arg: None, role: None };
         assert!(run(TaskSpec { agent: Some("x".into()), model_pin_in: Some(agent), ..base(dir.path()) }, None, Some("opus")).is_ok());
+        // A replaced agent-layer pin comes back as the same --model on every resume.
+        let replaced = ModelPin { layer: Layer::Agent, arg: Some("sonnet".into()), role: None };
+        let (spec, _) = run(TaskSpec { agent: Some("x".into()), model_pin_in: Some(replaced), ..base(dir.path()) }, None, Some("claude-sonnet-3-9")).unwrap();
+        assert_eq!(spec.model_args(), vec![OsString::from("--model=sonnet")]);
     }
 }
 

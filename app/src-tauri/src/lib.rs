@@ -2188,7 +2188,7 @@ async fn save_team_config(app: AppHandle, input: dduck_core::team_config::TeamIn
             return Err(problems.join("\n"));
         }
         // Type models must pass the allowlist (model-select design 5, fail closed).
-        model_cmds::check_team_models(&app, &tc::merge(&stored))?;
+        model_cmds::check_team_models(&app, &tc::load(before.as_deref()), &tc::merge(&stored))?;
         let risky = tc::risky_changes(&tc::load(before.as_deref()), &tc::merge(&stored));
         if !risky.is_empty() {
             let _guard = state.confirm_lock.try_lock().map_err(|_| ReasonCode::ConfirmOpen.now())?;

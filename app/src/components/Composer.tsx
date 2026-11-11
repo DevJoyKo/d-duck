@@ -117,7 +117,13 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
 
   // Model (model-select design 4): task > agent file > type > CLI default. `--model` wins over a file agent's own
   // model (spike 1.1), so the task value always applies.
-  const models = useModelOptions(cwd.startsWith("/") ? cwd : null);
+  // Settled folder only: the list reads files and the DB, so not on every keystroke (code review HIGH).
+  const [modelCwd, setModelCwd] = useState(cwd.startsWith("/") ? cwd : "");
+  useEffect(() => {
+    const id = setTimeout(() => setModelCwd(cwd.startsWith("/") ? cwd : ""), 500);
+    return () => clearTimeout(id);
+  }, [cwd]);
+  const models = useModelOptions(modelCwd || null);
   const fileAgentName = agent || (preset?.agent ?? "");
   const fileDef = fileAgentName ? (catalog.data ?? []).find((d) => d.name === fileAgentName && d.usable) : undefined;
   const fileModel = fileDef?.model && fileDef.model !== "inherit" ? fileDef.model : null;

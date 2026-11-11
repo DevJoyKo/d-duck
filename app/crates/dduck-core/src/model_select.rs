@@ -465,7 +465,7 @@ pub fn options(env: &OptionsEnv, prices: &PriceTable) -> ModelOptions {
     }
     let current_default = current_default(env, &items, prices);
     let known = Known::from_env(env, prices);
-    let ctx = FallbackCtx { known: &known, list: &list, default_value: current_default.value.as_deref() };
+    let ctx = FallbackCtx { known: &known, list: &list, default_value: current_default.value.as_deref(), default_pinnable: matches!(current_default.basis, "env" | "settings") };
     // Every allowed value that is not supported any more, a stored one or a model last seen 8–30 days ago.
     for i in items.iter_mut().filter(|i| i.allow == Allow::Yes) {
         if !supported(&i.value, &known) {
@@ -606,7 +606,9 @@ pub fn resolve(task: Option<&str>, runner: Runner<'_>, type_default: Option<&str
             match (task, file, type_default) {
                 (Some(_), Some(_), _) if !FILE_AGENT_MODEL_OVERRIDE_VERIFIED => Err(LOCKED),
                 (Some(t), _, _) => Ok(ModelPin { layer: Layer::Task, arg: Some(t.to_string()), role: None }),
-                (None, Some(_), _) => Ok(ModelPin { layer: Layer::Agent, arg: None, role: None }),
+                // `--model` wins over `--agent` (spike 1.1) and is not kept across `--resume`: the file's value is passed
+                // explicitly so a resume reproduces it even if the file changes later.
+                (None, Some(f), _) => Ok(ModelPin { layer: Layer::Agent, arg: Some(f.to_string()), role: None }),
                 (None, None, Some(d)) => Ok(ModelPin { layer: Layer::Type, arg: Some(d), role: None }),
                 (None, None, None) => Ok(ModelPin { layer: Layer::Cli, arg: None, role: None }),
             }
@@ -767,6 +769,9 @@ pub struct FallbackCtx<'a> {
     pub list: &'a Allowlist,
     /// What the CLI uses with no `--model` (`current_default`), if known.
     pub default_value: Option<&'a str>,
+    /// `default_value` comes from env or settings, not a guess from recent use: only then may it be passed as
+    /// `--model` (for a file agent, where leaving `--model` out keeps the file's value).
+    pub default_pinnable: bool,
 }
 
 /// Replacement for an unsupported value. The requested value must pass the allowlist first: a blocked value is
@@ -807,31 +812,39 @@ pub fn fix(value: Option<&str>, ctx: &FallbackCtx<'_>) -> Result<Fixed, RC> {
 }
 
 /// The pin a start or resume really passes, with the value asked for when something was replaced. Inline roles keep
-/// the role `model` equal to `--model`. A file agent whose own `model:` is unsupported is refused until spike 1.1
-/// shows that `--model` wins over `--agent` (design 11).
+/// the role `model` equal to `--model`. A file agent's own `model:` (recorded or read from the file) goes in `--model`,
+/// replaced like any other layer when unsupported; `--model` wins over `--agent` (spike 1.1, design 11).
 pub fn apply_fallback(pin: &ModelPin, runner: Runner<'_>, ctx: &FallbackCtx<'_>) -> Result<(ModelPin, Option<String>), RC> {
-    let arg = fix(pin.arg.as_deref(), ctx)?;
     match runner {
         Runner::Inline => {
+            let arg = fix(pin.arg.as_deref(), ctx)?;
             let role = if pin.role == pin.arg { arg.clone() } else { fix(pin.role.as_deref(), ctx)? };
             let requested = arg.requested.clone().or(role.requested.clone());
             Ok((ModelPin { layer: pin.layer, arg: arg.value, role: role.value }, requested))
         }
         Runner::FileAgent(file) => {
-            let file = file.filter(|f| valid_choice(f));
-            if let (None, Some(f)) = (&pin.arg, file) {
+            // The agent's own model: the recorded value (a resume) or the file's. Leaving `--model` out would let the
+            // CLI use the file value again, so even "the default" must be a concrete, trusted value here.
+            let own = if pin.layer == Layer::Agent { pin.arg.as_deref().or(file.filter(|f| valid_choice(f))) } else { None };
+            if let Some(f) = own {
                 check_allowed(ctx.list, f)?;
-                if !supported(f, ctx.known) {
-                    if !FILE_AGENT_MODEL_OVERRIDE_VERIFIED {
-                        return Err(AGENT_UNSUPPORTED);
-                    }
-                    let to = match fallback(f, ctx)? {
-                        Replacement::Alias { to } => to,
-                        _ => ctx.default_value.filter(|d| valid_choice(d)).map(str::to_string).ok_or(NO_FALLBACK)?,
-                    };
-                    return Ok((ModelPin { layer: pin.layer, arg: Some(to), role: None }, Some(f.to_string())));
+                if supported(f, ctx.known) {
+                    return Ok((ModelPin { layer: pin.layer, arg: Some(f.to_string()), role: None }, None));
                 }
+                if !FILE_AGENT_MODEL_OVERRIDE_VERIFIED {
+                    return Err(AGENT_UNSUPPORTED);
+                }
+                let to = match fallback(f, ctx)? {
+                    Replacement::Alias { to } => to,
+                    _ => {
+                        let d = ctx.default_value.filter(|d| ctx.default_pinnable && valid_choice(d)).ok_or(NO_FALLBACK)?;
+                        check_allowed(ctx.list, d).map_err(|_| NO_FALLBACK)?;
+                        d.to_string()
+                    }
+                };
+                return Ok((ModelPin { layer: pin.layer, arg: Some(to), role: None }, Some(f.to_string())));
             }
+            let arg = fix(pin.arg.as_deref(), ctx)?;
             Ok((ModelPin { layer: pin.layer, arg: arg.value, role: None }, arg.requested))
         }
     }
@@ -1011,8 +1024,9 @@ mod tests {
         assert_eq!(resolve(Some("opus"), Runner::Inline, Some("sonnet")), Ok(ModelPin { layer: Layer::Task, arg: Some("opus".into()), role: Some("opus".into()) }));
         assert_eq!(resolve(None, Runner::Inline, Some("sonnet")), Ok(ModelPin { layer: Layer::Type, arg: Some("sonnet".into()), role: Some("sonnet".into()) }));
         assert_eq!(resolve(None, Runner::Inline, None), Ok(ModelPin { layer: Layer::Cli, arg: None, role: None }));
-        // File agents: the file wins over the type, and a task value on top is locked until spike 1.1.
-        assert_eq!(resolve(None, Runner::FileAgent(Some("opus")), Some("haiku")), Ok(ModelPin { layer: Layer::Agent, arg: None, role: None }));
+        // File agents: the file wins over the type; a task value on top wins over the file (spike 1.1).
+        // The file's value is passed as --model (it wins over --agent and is not kept across --resume, spike 1.1).
+        assert_eq!(resolve(None, Runner::FileAgent(Some("opus")), Some("haiku")), Ok(ModelPin { layer: Layer::Agent, arg: Some("opus".into()), role: None }));
         assert_eq!(resolve(None, Runner::FileAgent(None), Some("haiku")), Ok(ModelPin { layer: Layer::Type, arg: Some("haiku".into()), role: None }));
         // Spike 1.1: --model wins over the file's model, so a task value on a file agent is passed.
         assert_eq!(resolve(Some("sonnet"), Runner::FileAgent(Some("opus")), None), Ok(ModelPin { layer: Layer::Task, arg: Some("sonnet".into()), role: None }));
@@ -1079,7 +1093,7 @@ mod tests {
     fn fallback_rules() {
         let k = known();
         let none = Allowlist::none();
-        let ctx = FallbackCtx { known: &k, list: &none, default_value: Some("opus") };
+        let ctx = FallbackCtx { known: &k, list: &none, default_value: Some("opus"), default_pinnable: true };
         // Same family alias, without [1m].
         assert_eq!(fix(Some("claude-opus-3-9[1m]"), &ctx), Ok(Fixed { value: Some("opus".into()), requested: Some("claude-opus-3-9[1m]".into()) }));
         // Unknown family: the default.
@@ -1106,7 +1120,7 @@ mod tests {
     fn fallback_by_layer() {
         let k = known();
         let none = Allowlist::none();
-        let ctx = FallbackCtx { known: &k, list: &none, default_value: Some("sonnet") };
+        let ctx = FallbackCtx { known: &k, list: &none, default_value: Some("sonnet"), default_pinnable: true };
         let inline = ModelPin { layer: Layer::Type, arg: Some("claude-opus-3-9".into()), role: Some("claude-opus-3-9".into()) };
         assert_eq!(apply_fallback(&inline, Runner::Inline, &ctx), Ok((ModelPin { layer: Layer::Type, arg: Some("opus".into()), role: Some("opus".into()) }, Some("claude-opus-3-9".into()))));
         let to_default = ModelPin { layer: Layer::Task, arg: Some("acme-large-2".into()), role: Some("acme-large-2".into()) };
@@ -1126,7 +1140,14 @@ mod tests {
         // Policy still refuses an unsupported file model before any replacement.
         let only_haiku = allowlist(&ManagedRead { keys: vec![keys(r#"{"availableModels":["haiku"]}"#)], unreadable: false }, &[]);
         assert_eq!(apply_fallback(&agent, Runner::FileAgent(Some("claude-sonnet-3-9")), &FallbackCtx { list: &only_haiku, ..ctx }), Err(BLOCKED_MANAGED));
-        assert_eq!(apply_fallback(&agent, Runner::FileAgent(Some("opus")), &ctx), Ok((agent.clone(), None)));
+        assert_eq!(apply_fallback(&agent, Runner::FileAgent(Some("opus")), &ctx), Ok((ModelPin { arg: Some("opus".into()), ..agent.clone() }, None)));
+        // A recorded agent pin is reproduced, not re-read from an edited file.
+        let recorded = ModelPin { layer: Layer::Agent, arg: Some("haiku".into()), role: None };
+        assert_eq!(apply_fallback(&recorded, Runner::FileAgent(Some("opus")), &ctx).unwrap().0.arg.as_deref(), Some("haiku"));
+        // A default guessed from recent use is never pinned; a blocked default is no target.
+        assert_eq!(apply_fallback(&agent, Runner::FileAgent(Some("acme-large-2")), &FallbackCtx { default_pinnable: false, ..ctx }), Err(NO_FALLBACK));
+        let narrow = allowlist(&ManagedRead { keys: vec![keys(r#"{"availableModels":["acme-large-2","haiku"]}"#)], unreadable: false }, &[]);
+        assert_eq!(apply_fallback(&agent, Runner::FileAgent(Some("acme-large-2")), &FallbackCtx { list: &narrow, ..ctx }), Err(NO_FALLBACK), "default sonnet is outside the list");
         let blocked = allowlist(&ManagedRead { keys: vec![keys(r#"{"availableModels":["sonnet"]}"#)], unreadable: false }, &[]);
         assert_eq!(apply_fallback(&agent, Runner::FileAgent(Some("opus")), &FallbackCtx { list: &blocked, ..ctx }), Err(BLOCKED_MANAGED));
     }

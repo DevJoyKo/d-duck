@@ -12,7 +12,7 @@ use dduck_core::model_select::{self as ms, Allowlist, Known, ModelOptions, Optio
 use dduck_core::{agents_catalog, settings};
 use tauri::{AppHandle, Manager};
 
-use crate::{AppState, Res, app_data_dir, chrono_now_ms, err, fresh_catalog_for, permission_project};
+use crate::{AppState, Res, app_data_dir, catalog_roots, chrono_now_ms, err, fresh_catalog_for, permission_project};
 
 /// Aliases from `claude --help`, keyed by the CLI path and its file time (a CLI update changes it).
 type HelpCache = Option<(PathBuf, Option<SystemTime>, Option<Vec<String>>)>;
@@ -33,8 +33,11 @@ fn help_aliases(app: &AppHandle, refresh: bool) -> Option<Vec<String>> {
     let dir = app_data_dir(app).ok()?;
     let _ = std::fs::create_dir_all(&dir);
     let parsed = client.help_text(&dir).ok().and_then(|t| ms::parse_help(&t));
-    if let Ok(mut cache) = HELP.lock() {
-        *cache = Some((client.path.clone(), stamp, parsed.clone()));
+    // A failed or unparsable help is not cached: the next open tries again (code review LOW).
+    if parsed.is_some() {
+        if let Ok(mut cache) = HELP.lock() {
+            *cache = Some((client.path.clone(), stamp, parsed.clone()));
+        }
     }
     parsed
 }
@@ -57,8 +60,9 @@ pub(crate) fn options_env(app: &AppHandle, cwd: Option<&Path>, refresh: bool) ->
     let mut custom: Vec<String> = Vec::new();
     let team = state.conn().ok().and_then(|c| settings::team_config(&c).ok().flatten());
     custom.extend(dduck_core::team_config::load(team.as_deref()).types.iter().filter_map(|t| t.def.model.clone()));
-    if let Ok(defs) = fresh_catalog_for(&state, cwd) {
-        for d in &defs {
+    // Read-only discovery: the shared catalog cache (save guards compare against it) is left alone (code review HIGH).
+    if let Ok(roots) = catalog_roots(&state) {
+        for d in &agents_catalog::discover_for(&roots, cwd) {
             if let Some(m) = d.file.as_deref().and_then(read_file_model) {
                 custom.push(m);
             }
@@ -89,7 +93,7 @@ fn read_file_model(path: &Path) -> Option<String> {
 
 /// The model of the definition `claude --agent=<name>` will use in `cwd` (design 4), read from the file itself.
 pub(crate) fn agent_file_model(state: &AppState, name: &str, cwd: &Path) -> Option<String> {
-    let defs = fresh_catalog_for(state, Some(cwd)).ok()?;
+    let defs = agents_catalog::discover_for(&catalog_roots(state).ok()?, Some(cwd));
     agents_catalog::resolve_for_cwd(&defs, name, cwd).and_then(|d| d.file.as_deref()).and_then(read_file_model)
 }
 
@@ -98,11 +102,13 @@ pub(crate) struct FallbackParts {
     pub known: Known,
     pub list: Allowlist,
     pub default_value: Option<String>,
+    /// The default comes from env or settings (not guessed from recent use), so it may be passed as `--model`.
+    pub default_pinnable: bool,
 }
 
 impl FallbackParts {
     pub fn ctx(&self) -> ms::FallbackCtx<'_> {
-        ms::FallbackCtx { known: &self.known, list: &self.list, default_value: self.default_value.as_deref() }
+        ms::FallbackCtx { known: &self.known, list: &self.list, default_value: self.default_value.as_deref(), default_pinnable: self.default_pinnable }
     }
 }
 
@@ -110,7 +116,8 @@ pub(crate) fn fallback_parts(app: &AppHandle, cwd: &Path) -> FallbackParts {
     let state = app.state::<AppState>();
     let env = options_env(app, Some(cwd), false);
     let o = ms::options(&env, &state.prices);
-    FallbackParts { known: Known::from_env(&env, &state.prices), list: env.allowlist(), default_value: o.current_default.value }
+    let default_pinnable = matches!(o.current_default.basis, "env" | "settings");
+    FallbackParts { known: Known::from_env(&env, &state.prices), list: env.allowlist(), default_value: o.current_default.value, default_pinnable }
 }
 
 /// The model list for the pickers (design 7). `refresh` re-runs `claude --help`.
@@ -137,11 +144,12 @@ pub(crate) async fn save_agent_model(app: AppHandle, id: String, project: Option
             }
         }
         let proj = permission_project(&state, project.as_deref())?;
+        // The webview's list first: what it showed is what the id must still point at.
+        let cached = state.catalog.read().map_err(err)?.iter().find(|d| d.id == id).and_then(|d| d.file.clone());
         if let Some(m) = model.as_deref() {
             let env = options_env(&app, proj.as_deref(), false);
             ms::check_allowed(&env.allowlist(), m).map_err(|r| r.now())?;
         }
-        let cached = state.catalog.read().map_err(err)?.iter().find(|d| d.id == id).and_then(|d| d.file.clone());
         let defs = fresh_catalog_for(&state, proj.as_deref())?;
         let def = defs.iter().find(|d| d.id == id).cloned();
         if cached.is_none() || cached != def.as_ref().and_then(|d| d.file.clone()) {
@@ -165,12 +173,18 @@ pub(crate) async fn save_agent_model(app: AppHandle, id: String, project: Option
     .map_err(err)?
 }
 
-/// Type models in a team config about to be saved: each one must pass the allowlist (fail closed, design 5).
-pub(crate) fn check_team_models(app: &AppHandle, merged: &dduck_core::team_config::Merged) -> Res<()> {
-    let env = options_env(app, None, false);
-    let list = env.allowlist();
+/// Type models changed by a team-config save must pass the allowlist (fail closed, design 5). Unchanged ones are
+/// left to the start check, so a policy change elsewhere never blocks saving unrelated edits.
+pub(crate) fn check_team_models(app: &AppHandle, before: &dduck_core::team_config::Merged, merged: &dduck_core::team_config::Merged) -> Res<()> {
+    let state = app.state::<AppState>();
+    let config_dir = state.config.read().ok().map(|c| c.path.clone());
+    let user = config_dir.as_ref().and_then(|d| ms::read_settings(&d.join("settings.json")));
+    let managed = ms::read_managed(&crate::delivery_cmds::managed_sources(&state));
+    let others: Vec<&ms::SettingsKeys> = user.iter().collect();
+    let list = ms::allowlist(&managed, &others);
     for t in &merged.types {
-        if let Some(m) = &t.def.model {
+        let was = before.types.iter().find(|b| b.def.key == t.def.key).and_then(|b| b.def.model.as_ref());
+        if let Some(m) = t.def.model.as_ref().filter(|m| Some(*m) != was) {
             ms::check_allowed(&list, m).map_err(|r| format!("{} · {}", dduck_core::text::display_safe(&t.def.label, 20), r.now()))?;
         }
     }
