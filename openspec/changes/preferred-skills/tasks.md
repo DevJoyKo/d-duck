@@ -16,5 +16,5 @@
 - [x] 3.3 README.md·README.ko.md 가드레일 절 한 줄. (확인: 읽기)
 
 ## 4. 검증·리뷰
-- [ ] 4.1 `cargo test -p dduck-core`, clippy, tsc, vitest, lint. mock 1436에서 스크린샷 라이트 1440·다크 900.
+- [x] 4.1 `cargo test -p dduck-core`, clippy, tsc, vitest, lint. mock 1436에서 스크린샷 라이트 1440·다크 900.
 - [ ] 4.2 테스트 리뷰: qa-verifier + design-critic + brand-reviewer. BLOCKER/HIGH/FAIL 해결.
