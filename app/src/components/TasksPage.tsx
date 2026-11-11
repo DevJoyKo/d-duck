@@ -29,6 +29,7 @@ import { reportChip } from "../lib/report";
 import { YELLOW } from "../lib/yellow";
 import { Button, Empty, PageHeader, Sheet } from "./ui";
 import { StartingCards } from "./StartingCards";
+import { recordLines, reworkModel } from "../lib/model";
 import { useT } from "../i18n/react";
 
 const KIND_LABEL: Record<AgentSession["kind"], string> = localized({ background: "tasks.kind.background", interactive: "tasks.kind.interactive", other: "tasks.kind.misc" });
@@ -259,6 +260,15 @@ function HistoryRow({ r, focus = false, onDraft, onDeleted }: { r: TaskRecord; f
           ) : (
             <p className="text-xs text-ink-3">{detail.isPending ? t("tasks.loading") : t("tasks.history.noPrompt")}</p>
           )}
+          {detail.data && (
+            <div className="space-y-0.5" data-model-record>
+              {recordLines(detail.data).map((l) => (
+                <p key={l} className="text-xs text-ink-3">
+                  {l}
+                </p>
+              ))}
+            </div>
+          )}
           {detail.data?.prompt && r.cwd && (
             <Button
               onClick={() =>
@@ -269,6 +279,7 @@ function HistoryRow({ r, focus = false, onDraft, onDeleted }: { r: TaskRecord; f
                   name: r.name ?? undefined,
                   // Keeps the plan-only rule of a draft from Claude's advice (the backend also checks the brief).
                   origin: detail.data?.origin ?? undefined,
+                  ...reworkModel(detail.data),
                 })
               }
             >

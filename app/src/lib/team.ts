@@ -53,6 +53,8 @@ export interface TeamType {
   skills: SkillPin[];
   /** "기본 장비" MCP servers: only these are used. Empty = every server (or none with a tool list). */
   mcpAllow: string[];
+  /** Default model (model-select); absent = the CLI default. */
+  model?: string | null;
   bundled: boolean;
   changed: boolean;
   defaultChanged: boolean;

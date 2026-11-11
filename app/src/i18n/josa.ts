@@ -20,3 +20,17 @@ export function ro(word: string, lang: Lang = currentLang()): string {
   else euro = last === "g" && w.endsWith("ng");
   return euro ? "으로" : "로";
 }
+
+/** "을" or "를" after `word`, read the same way as `ro` (a final consonant, ㄹ included, → 을). "" in English. */
+export function eul(word: string, lang: Lang = currentLang()): string {
+  if (lang !== "ko") return "";
+  const w = word.replace(/[^\p{L}\p{N}]+$/u, "").toLowerCase();
+  const last = w.slice(-1);
+  if (!last) return "를";
+  const code = last.charCodeAt(0);
+  let batchim: boolean;
+  if (code >= 0xac00 && code <= 0xd7a3) batchim = (code - 0xac00) % 28 !== 0;
+  else if ("013678".includes(last)) batchim = true;
+  else batchim = "mnltp".includes(last) || (last === "g" && w.endsWith("ng")); // 소넷을 · 앱을
+  return batchim ? "을" : "를";
+}

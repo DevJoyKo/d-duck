@@ -273,6 +273,7 @@ export default {
     name: "Name",
     key: "Key",
     keyHint: "Lowercase letters, can't change after saving",
+    model: "Default model",
     effort: "Default thinking effort",
     updated: "An app update changed this type's defaults. Press \"Reset to default\" to use the new ones.",
     role: "Role",
