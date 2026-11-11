@@ -1686,6 +1686,8 @@ mod tests {
         let m = load(Some(old));
         assert_eq!(m.preferred, vec![mattpocock()]);
         assert!(load(None).preferred == vec![mattpocock()]);
+        assert_eq!(load(Some(r#"{"preferred":null}"#)).preferred, vec![mattpocock()], "null reads as never set");
+        assert_eq!(merge(&Stored::default()).preferred, vec![mattpocock()], "a full reset stores nothing");
     }
 
     #[test]

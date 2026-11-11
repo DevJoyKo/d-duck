@@ -45,3 +45,9 @@
 - MEDIUM "기본값인데 플러그인이 없다" 테스트: 1.1에 추가.
 - LOW 멤버 상한: 스펙 시나리오에 "10개까지, 외 N개" 명시.
 - LOW mock 저장 폴백 `input.preferred ?? []`: 2.1에서 기본값으로 고친다.
+
+## 테스트 리뷰 반영 (qa-verifier: 시나리오 9 PASS·1 수동 확인, FAIL·BLOCKER·HIGH 0)
+
+- MEDIUM 이전에 일부러 비운 사용자: 설계 3에서 수용한 그대로.
+- LOW 테스트 공백: 저장값 `"preferred":null`과 전체 초기화(`Stored::default`)가 기본값으로 읽히는지 core 테스트에 더했다. AgentSettings 통합(비우기→저장→다시 읽기)은 core 왕복 테스트와 화면 단위 테스트로 나눠 덮는 것으로 수용.
+- LOW mock의 "설치되지 않음" 샘플: 기본값 mattpocock-skills가 mock 옵션에 없어서 같은 표시가 보인다. 3항목 샘플은 기본값 화면을 보이려고 뺐다.
