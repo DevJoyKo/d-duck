@@ -314,6 +314,15 @@ pub(crate) fn plugin_skills(root: &Path, manifest: &serde_json::Value, plugin: &
     }
 }
 
+/// A plugin's agent folders as Claude Code reads them: the default `agents/` plus every manifest `agents` path inside
+/// the install folder. Never any other folder that happens to be named `agents` (e.g. `docs/agents/`).
+pub(crate) fn plugin_agent_dirs(root: &Path) -> Vec<PathBuf> {
+    // manifest_paths keeps paths whose canonical form stays under the root, so compare against the canonical root.
+    let Ok(root) = root.canonicalize() else { return Vec::new() };
+    let manifest = read_manifest(&root);
+    dedupe([vec![root.join("agents")], manifest_paths(manifest.get("agents"), &root)].concat()).into_iter().filter(|d| real_dir(d)).collect()
+}
+
 fn manifest_paths(v: Option<&serde_json::Value>, root: &Path) -> Vec<PathBuf> {
     let list: Vec<&str> = match v {
         Some(serde_json::Value::String(s)) => vec![s.as_str()],
