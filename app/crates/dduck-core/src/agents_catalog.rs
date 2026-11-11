@@ -424,30 +424,34 @@ pub fn discover(roots: &Roots) -> Vec<AgentDef> {
     }
     if let Some(cache) = real_dir_under(&roots.config_dir, &["plugins", "cache"]) {
         let start = Instant::now();
-        // Layout: cache/<marketplace>/<plugin>/<version>/…/agents. Only the newest version of each plugin counts.
+        // Layout: cache/<marketplace>/<plugin>/<version>. Only the newest version of each plugin counts, and only the
+        // agent folders Claude Code reads (`agents/` at the plugin root plus plugin.json `agents` paths): a folder named
+        // `agents` deeper in the plugin (docs/agents/…) is documentation, not agent definitions.
         let mut latest: std::collections::BTreeMap<(String, String), (std::time::SystemTime, PathBuf)> = Default::default();
-        for e in walkdir::WalkDir::new(&cache).follow_links(false).max_depth(6).into_iter().filter_map(Result::ok).take(MAX_PLUGIN_ENTRIES) {
-            if start.elapsed() > PLUGIN_BUDGET {
-                break;
-            }
-            if !(e.file_type().is_dir() && e.file_name() == "agents") {
-                continue;
-            }
-            let Ok(rel) = e.path().strip_prefix(&cache) else { continue };
-            let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().to_string()).collect();
-            if parts.len() < 3 {
-                continue;
-            }
-            let version_dir = cache.join(&parts[0]).join(&parts[1]).join(&parts[2]);
-            let when = std::fs::symlink_metadata(&version_dir).and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH);
-            let key = (parts[0].clone(), parts[1].clone());
-            if latest.get(&key).is_none_or(|(t, _)| when > *t) {
-                latest.insert(key, (when, e.path().to_path_buf()));
+        let mut seen = 0usize;
+        let dirs = |p: &Path| -> Vec<std::fs::DirEntry> {
+            std::fs::read_dir(p).map(|r| r.filter_map(Result::ok).filter(|e| e.file_type().is_ok_and(|t| t.is_dir())).collect()).unwrap_or_default()
+        };
+        'scan: for m in dirs(&cache) {
+            for p in dirs(&m.path()) {
+                for v in dirs(&p.path()) {
+                    seen += 1;
+                    if seen > MAX_PLUGIN_ENTRIES || start.elapsed() > PLUGIN_BUDGET {
+                        break 'scan;
+                    }
+                    let when = v.metadata().and_then(|x| x.modified()).unwrap_or(std::time::UNIX_EPOCH);
+                    let key = (m.file_name().to_string_lossy().to_string(), p.file_name().to_string_lossy().to_string());
+                    if latest.get(&key).is_none_or(|(t, _)| when > *t) {
+                        latest.insert(key, (when, v.path()));
+                    }
+                }
             }
         }
-        for ((_, plugin), (_, dir)) in latest {
+        for ((_, plugin), (_, root)) in latest {
             if valid_name(&plugin) {
-                scan_dir(&dir, Source::Plugin, None, Some(&plugin), &mut out);
+                for dir in crate::plugins::plugin_agent_dirs(&root) {
+                    scan_dir(&dir, Source::Plugin, None, Some(&plugin), &mut out);
+                }
             }
         }
     }
@@ -962,6 +966,30 @@ mod tests {
         assert!(needs_permission_warning(OK, &OK.replace("tools: Read, Grep\n", "tools: Read, Grep\nhooks:\n  a: b\n")));
         assert!(needs_permission_warning(OK, &OK.replace("name: design-critic", "\"tools\": Bash")));
         assert!(needs_permission_warning(OK, "본문만"));
+    }
+
+    #[test]
+    fn plugin_agents_come_only_from_the_folders_claude_code_reads() {
+        // mattpocock-skills ships docs/agents/triage-labels.md (a doc, no frontmatter): it must not show as a broken agent.
+        let tmp = tempfile::tempdir().unwrap();
+        let (r, _proj) = roots(tmp.path());
+        let root = r.config_dir.join("plugins/cache/claude-plugins-official/kit/1.0.0");
+        for d in ["agents", "docs/agents", "extra/agents"] {
+            std::fs::create_dir_all(root.join(d)).unwrap();
+        }
+        std::fs::write(root.join("agents/reviewer.md"), OK).unwrap();
+        std::fs::write(root.join("docs/agents/triage-labels.md"), "# Triage Labels\n\nnot an agent\n").unwrap();
+        std::fs::write(root.join("extra/agents/helper.md"), "---\nname: helper\ndescription: listed in plugin.json\n---\n").unwrap();
+        let plugin_names = |r: &Roots| -> Vec<String> {
+            discover(r).into_iter().filter(|d| d.source == Source::Plugin).map(|d| d.name).collect()
+        };
+        assert_eq!(plugin_names(&r), ["kit:design-critic"], "root agents/ only; docs/agents and unlisted folders are skipped");
+        std::fs::create_dir_all(root.join(".claude-plugin")).unwrap();
+        std::fs::write(root.join(".claude-plugin/plugin.json"), r#"{"name":"kit","agents":["./extra/agents"]}"#).unwrap();
+        let mut names = plugin_names(&r);
+        names.sort();
+        assert_eq!(names, ["kit:design-critic", "kit:helper"], "plugin.json agents paths count too");
+        assert!(discover(&r).iter().all(|d| !(d.source == Source::Plugin && d.malformed)), "no doc file shows as a broken agent");
     }
 
     #[test]
