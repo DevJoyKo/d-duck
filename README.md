@@ -142,16 +142,10 @@ Guardrails are enforced in layers (CLI deny rules, a hook, and git settings). So
 
 ## Install
 
-> **Status: early (v0.1.0).** Apple Silicon Macs only for now. The UI comes in Korean and English. Switch it from the sidebar or in Settings. The app is ad-hoc signed, not notarized.
+> **Status: early (v0.1.1).** Apple Silicon Macs only for now. The UI comes in Korean and English. Switch it from the sidebar or in Settings. The app is signed with a Developer ID and notarized by Apple, so it opens without a warning.
 
 1. Download the latest `.dmg` from [Releases](https://github.com/DevJoyKo/d-duck/releases) and drag **D.Duck** into Applications.
-2. On first launch, macOS says it can't verify the developer. Open **System Settings → Privacy & Security** and click **Open Anyway**, or run:
-
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/D.Duck.app
-   ```
-
-3. You need [Claude Code](https://docs.claude.com/en/docs/claude-code) installed. If you're not logged in, D.Duck shows a button that opens the browser login.
+2. You need [Claude Code](https://docs.claude.com/en/docs/claude-code) installed. If you're not logged in, D.Duck shows a button that opens the browser login.
 
 ## Build from source
 
@@ -187,7 +181,7 @@ D.Duck was itself built the way it asks you to work. Every feature starts as an 
 ## Roadmap
 
 - Rework requests straight from the review screen
-- Notarized builds, plus Intel, Linux, and Windows
+- Intel, Linux, and Windows builds
 
 ## Contributing
 
