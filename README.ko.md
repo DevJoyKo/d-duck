@@ -142,16 +142,10 @@ Claude Code 에이전트 팀에게 실제 일을 맡기면서도 권한 통제�
 
 ## 설치
 
-> **상태: 초기 버전(v0.1.0).** 지금은 Apple Silicon Mac만 지원합니다. UI는 한국어와 영어를 지원하며 사이드바나 설정에서 바꿉니다. 앱은 ad-hoc 서명이고 공증(notarize)은 받지 않았습니다.
+> **상태: 초기 버전(v0.1.1).** 지금은 Apple Silicon Mac만 지원합니다. UI는 한국어와 영어를 지원하며 사이드바나 설정에서 바꿉니다. 앱은 Developer ID로 서명하고 Apple 공증(notarize)을 받아 경고 없이 열립니다.
 
 1. [Releases](https://github.com/DevJoyKo/d-duck/releases)에서 최신 `.dmg`를 받아 **D.Duck**을 Applications로 끌어다 놓습니다.
-2. 첫 실행 시 macOS가 개발자를 확인할 수 없다고 표시합니다. **시스템 설정 → 개인정보 보호 및 보안**에서 **무시하고 열기**를 누르거나 아래 명령을 실행합니다.
-
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/D.Duck.app
-   ```
-
-3. [Claude Code](https://docs.claude.com/en/docs/claude-code)가 설치되어 있어야 합니다. 로그인하지 않았다면 D.Duck이 브라우저 로그인 버튼을 표시합니다.
+2. [Claude Code](https://docs.claude.com/en/docs/claude-code)가 설치되어 있어야 합니다. 로그인하지 않았다면 D.Duck이 브라우저 로그인 버튼을 표시합니다.
 
 ## 소스로 빌드
 
@@ -187,7 +181,7 @@ D.Duck은 앱이 권하는 방식대로 만들었습니다. 모든 기능은 [Op
 ## 로드맵
 
 - 리뷰 화면에서 바로 재작업 요청
-- 공증 빌드, 그리고 Intel, Linux, Windows 지원
+- Intel, Linux, Windows 지원
 
 ## 기여하기
 
