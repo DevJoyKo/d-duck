@@ -1,7 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Lock } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { api, type Plugin, type PluginItem, type PluginOutcome, failure, shown, type Shown } from "../lib/api";
+import { api, type Plugin, type PluginItem, type PluginOutcome, failure, shown } from "../lib/api";
+import { type Note, noteFor } from "../lib/pluginNotes";
+import { useBulk } from "../lib/pluginBulk";
+import { PluginBulkCheck, useBulkLine } from "./PluginBulk";
 import { ConnectorIcon } from "../lib/connectorIcons";
 import { dateTime } from "../lib/format";
 import { t } from "../i18n";
@@ -12,52 +15,6 @@ import { transportLabel } from "../lib/mcpNames";
 
 const SCOPE_KEY = { user: "user", project: "project", local: "local", managed: "managed", other: "unknown" } as const satisfies Record<Plugin["scope"], string>;
 const scopeLabel = (s: Plugin["scope"]) => t(`extensions.plugins.scope.${SCOPE_KEY[s]}`);
-
-type Note = { tone: "ok" | "warn" | "error"; text: Shown };
-
-function noteFor(
-  p: Plugin,
-  o: PluginOutcome,
-  verb: "toggle" | "update",
-): Note | null {
-  switch (o.kind) {
-    case "done":
-      return {
-        tone: "ok",
-        text: t(verb === "update" ? "extensions.plugins.note.updated" : p.enabled ? "extensions.plugins.note.turnedOff" : "extensions.plugins.note.turnedOn"),
-      };
-    case "needsApproval":
-      return {
-        tone: "warn",
-        text: t("extensions.plugins.note.needsApproval", { id: p.id }),
-      };
-    case "locked":
-      return {
-        tone: "warn",
-        text: t("extensions.plugins.note.locked"),
-      };
-    case "unchanged":
-      return {
-        tone: "warn",
-        text:
-          verb === "update"
-            ? t("extensions.plugins.note.unchangedUpdate")
-            : t("extensions.plugins.note.unchangedToggle"),
-      };
-    case "timeout":
-      return {
-        tone: "error",
-        text: t("extensions.plugins.note.timeout"),
-      };
-    case "failed":
-      return {
-        tone: "error",
-        text: t("extensions.plugins.note.failed"),
-      };
-    case "cancelled":
-      return null;
-  }
-}
 
 function Toggle({
   checked,
@@ -303,9 +260,13 @@ export function PluginRow({ p, actions, expanded, onExpand, badges, items }: { p
   const { notes, after, toggle, update, busyId } = actions;
   const n = notes[p.id];
   const busy = busyId === p.id;
+  // While a batch runs (or waits for its confirmation), single updates and toggles are off (plugin-bulk-update).
+  const frozen = useBulk().phase !== "idle";
+  const line = useBulkLine(p);
   return (
     <>
       <div className="flex items-center gap-3 px-4 py-3">
+        <PluginBulkCheck p={p} busy={busyId !== undefined} />
         <button aria-expanded={expanded} aria-label={t(expanded ? "extensions.plugins.row.collapse" : "extensions.plugins.row.expand", { name: p.name })} onClick={onExpand} className="flex min-w-0 flex-1 items-center gap-3 text-left">
           <ChevronRight size={14} className={`shrink-0 text-ink-3 transition-transform ${expanded ? "rotate-90" : ""}`} />
           <ConnectorIcon name={p.name} host={null} />
@@ -325,28 +286,30 @@ export function PluginRow({ p, actions, expanded, onExpand, badges, items }: { p
             </span>
           </span>
         </button>
-        <UpdateCell p={p} pending={busy && update.isPending} busy={busyId !== undefined} onUpdate={() => update.mutate(p, after(p, "update"))} />
+        <UpdateCell p={p} pending={busy && update.isPending} busy={busyId !== undefined || frozen} onUpdate={() => update.mutate(p, after(p, "update"))} />
         <div className="flex w-14 shrink-0 flex-col items-center gap-0.5">
           <span className="flex items-center gap-1">
             {p.locked && <Lock size={11} className="text-ink-3" aria-hidden />}
             <Toggle
               label={t(p.enabled ? "extensions.plugins.row.turnOff" : "extensions.plugins.row.turnOn", { name: p.name })}
               checked={busy && toggle.isPending ? toggle.variables.on : p.enabled}
-              disabled={!!p.locked || busyId !== undefined}
+              disabled={!!p.locked || busyId !== undefined || frozen}
               onChange={(v) => toggle.mutate({ p, on: v }, after(p, "toggle", v))}
             />
           </span>
           <span className="text-[11px] text-ink-3">{p.enabled ? t("extensions.plugins.row.on") : t("extensions.plugins.row.off")}</span>
         </div>
       </div>
-      {(p.locked || n) && (
-        <div className="space-y-1 px-4 pb-3 pl-[76px] text-xs">
+      {(p.locked || n || line) && (
+        <div className="space-y-1 px-4 pb-3 pl-[104px] text-xs">
           {p.locked && (
             <p className="flex items-center gap-1 text-ink-3">
               <Lock size={11} /> {p.locked}
             </p>
           )}
-          {n && (
+          {line ? (
+            <p className={line.tone === "ok" ? "text-ok" : line.tone === "error" ? "text-danger" : line.tone === "warn" ? "text-ink" : "text-ink-3"}>{line.text}</p>
+          ) : n && (
             <p role={n.tone === "error" ? "alert" : "status"} className={n.tone === "ok" ? "text-ok" : n.tone === "error" ? "text-danger" : "text-ink"}>
               {shown(n.text)}
             </p>

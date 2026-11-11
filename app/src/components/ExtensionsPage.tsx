@@ -16,6 +16,8 @@ import type { ExtChip } from "../lib/nav";
 import { AddMenu, AddSheet, type AddMode } from "./AddSheet";
 import { AuthoringEditor } from "./AuthoringEditor";
 import { pluginHelp, PluginRow, Uses, usePluginActions } from "./PluginsPage";
+import { PluginBulkBar } from "./PluginBulk";
+import { useBulk } from "../lib/pluginBulk";
 import { useProject, useScope } from "./ProjectContext";
 import { ScopeBar } from "./ScopeBar";
 import { Badge, Button, Empty, PageBody, PageHeader, Segmented, Sheet, fieldClass } from "./ui";
@@ -466,6 +468,7 @@ export function ExtensionsPage({ initialChip }: { initialChip?: ExtChip | null }
     refetchInterval: 15_000,
   });
   const actions = usePluginActions();
+  const bulk = useBulk();
   const { current } = useProject();
   const [only, setOnly] = useState<"global" | "project">("global");
   const scope = only === "project" && current && !current.offReason ? "project" : "global";
@@ -612,6 +615,9 @@ export function ExtensionsPage({ initialChip }: { initialChip?: ExtChip | null }
         </div>
         {chip === "workflow" && info.data?.workflowsDisabled && (
           <p className="rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 text-xs text-ink">{t("extensions.page.workflowsDisabled")}</p>
+        )}
+        {(chip === "all" || chip === "plugin" || bulk.phase !== "idle" || bulk.counts) && plugins.data && (
+          <PluginBulkBar plugins={order ? [...plugins.data].sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id)) : plugins.data} busy={actions.busyId !== undefined} onSettled={() => qc.invalidateQueries({ queryKey: ["plugins"] })} />
         )}
         {hiddenProject > 0 && <p className="text-xs text-ink-3">{t("extensions.page.hiddenProject", { count: hiddenProject })}</p>}
         {copied && (
