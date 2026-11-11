@@ -4,6 +4,15 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyLanguage } from "../i18n/language";
 
+/** "새 작업" stays disabled until get_status says the CLI is there; clicking it earlier does nothing (flaky on slow CI). */
+async function enabledButton(name: string) {
+  return waitFor(() => {
+    const b = screen.getAllByRole("button", { name }).find((x) => !(x as HTMLButtonElement).disabled);
+    expect(b).toBeTruthy();
+    return b!;
+  });
+}
+
 vi.mock("@tauri-apps/api/core", async () => {
   const real = await vi.importActual<typeof import("../mock/core")>("../mock/core");
   return { invoke: vi.fn(real.invoke) };
@@ -28,7 +37,7 @@ const nav = (name: string) => within(screen.getByRole("navigation")).getByRole("
 describe("작업 시키기 draft", () => {
   it("keeps the typed brief after going to Settings and back, with or without a language change", async () => {
     await boot("tasks");
-    fireEvent.click(await screen.findByRole("button", { name: "새 작업" }));
+    fireEvent.click(await enabledButton("새 작업"));
     const goal = (await screen.findByLabelText("목표 (필수)")) as HTMLTextAreaElement;
     fireEvent.change(goal, { target: { value: "로그인 버그 고치기" } });
     fireEvent.click(nav("설정"));
