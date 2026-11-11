@@ -9,6 +9,7 @@ import { projectHandlers } from "./projects";
 import { mcpHandlers } from "./mcp";
 import { loadoutHandlers } from "./loadout";
 import { modelHandlers } from "./model";
+import { newsHandlers } from "./news";
 import { mockArtifactPreview, mockArtifacts } from "./artifacts";
 import { mockNoCli, onboardingHandlers } from "./onboarding";
 import { mockTaskReport } from "./report";
@@ -613,6 +614,7 @@ const handlers: Record<string, (a: Record<string, unknown>) => unknown> = {
   ...mcpHandlers,
   ...loadoutHandlers,
   ...modelHandlers,
+  ...newsHandlers,
   ...onboardingHandlers,
   ...reviewHandlers,
   ...evidenceHandlers,
@@ -625,7 +627,7 @@ const handlers: Record<string, (a: Record<string, unknown>) => unknown> = {
 export async function invoke<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   await new Promise((r) => setTimeout(r, 30));
   // The backend gate (claude-login): one error shape for every gated command, matched by code in the UI.
-  if (mockLoggedOut() && ["start_task", "start_authoring_task", "refine_brief", "usage_insights_claude", "run_routine_now", "limit_resume_now", "cloud_routines", "update_cloud_routine"].includes(cmd)) {
+  if (mockLoggedOut() && ["start_task", "start_authoring_task", "refine_brief", "usage_insights_claude", "news_fetch", "run_routine_now", "limit_resume_now", "cloud_routines", "update_cloud_routine"].includes(cmd)) {
     throw { kind: "login_required" };
   }
   if (mockNotClaudeAi() && ["cloud_routines", "update_cloud_routine"].includes(cmd)) throw { kind: "claude_ai_required" };

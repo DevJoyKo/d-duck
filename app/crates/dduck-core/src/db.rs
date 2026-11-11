@@ -7,7 +7,7 @@ use rusqlite::Connection;
 use crate::Error;
 
 #[cfg(test)]
-const SCHEMA_VERSION: i64 = 16;
+const SCHEMA_VERSION: i64 = 17;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS ingest_files (
@@ -317,6 +317,16 @@ const SCHEMA_V16: &str = "ALTER TABLE routine_runs ADD COLUMN reviewed_at INTEGE
 ALTER TABLE routine_runs ADD COLUMN wrapped_at INTEGER;
 CREATE INDEX IF NOT EXISTS routine_runs_bg ON routine_runs(bg_id);";
 
+/// news-tab (D-204): checked Claude Code feature explainers per language and which ones were opened. Only the checked
+/// fields are kept: no fetched page, prompt or raw answer.
+const SCHEMA_V17: &str = "CREATE TABLE IF NOT EXISTS news_items (
+    id TEXT NOT NULL, lang TEXT NOT NULL, title TEXT NOT NULL, version TEXT, date TEXT NOT NULL,
+    category TEXT NOT NULL, summary TEXT NOT NULL, what TEXT NOT NULL, when_to_use TEXT NOT NULL,
+    best_practice TEXT NOT NULL, source_url TEXT NOT NULL, first_seen_ms INTEGER NOT NULL,
+    PRIMARY KEY (id, lang)
+);
+CREATE TABLE IF NOT EXISTS news_seen (id TEXT NOT NULL, lang TEXT NOT NULL, seen_ms INTEGER NOT NULL, PRIMARY KEY (id, lang));";
+
 pub const SETTING_ARTIFACTS_BACKFILL: &str = "artifacts_backfill";
 
 /// Staged migrations, each in one transaction with its version bump. Upgrading an existing v1 DB marks a one-time
@@ -392,6 +402,9 @@ fn migrate(conn: &Connection) -> Result<(), Error> {
     if version < 16 {
         conn.execute_batch(&format!("BEGIN IMMEDIATE; {SCHEMA_V16} PRAGMA user_version = 16; COMMIT;"))?;
     }
+    if version < 17 {
+        conn.execute_batch(&format!("BEGIN IMMEDIATE; {SCHEMA_V17} PRAGMA user_version = 17; COMMIT;"))?;
+    }
     ensure_columns(conn)?;
     Ok(())
 }
@@ -441,7 +454,7 @@ mod tests {
         for t in [
             "ingest_files", "sessions", "cost_segments", "api_calls", "tool_calls", "command_invocations",
             "subagents", "session_observations", "settings", "api_calls_ts", "tool_calls_ts", "artifacts", "routines",
-            "routine_runs", "tool_errors", "compactions",
+            "routine_runs", "tool_errors", "compactions", "news_items", "news_seen",
         ] {
             assert!(names.iter().any(|n| n == t), "missing {t}");
         }
@@ -573,6 +586,19 @@ mod tests {
         assert_eq!(v, SCHEMA_VERSION);
         let e: Option<String> = conn.query_row("SELECT ended_status FROM task_meta", [], |r| r.get(0)).unwrap();
         assert_eq!(e, None);
+    }
+
+    #[test]
+    fn upgrading_v16_adds_the_news_tables() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        conn.execute_batch("DROP TABLE news_items; DROP TABLE news_seen;").unwrap();
+        conn.pragma_update(None, "user_version", 16).unwrap();
+        migrate(&conn).unwrap();
+        let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+        assert_eq!(v, 17);
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM news_items", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0);
     }
 
     #[test]

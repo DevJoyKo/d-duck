@@ -13,6 +13,7 @@ import koRoutines from "./ko/routines";
 import koAuth from "./ko/auth";
 import koTour from "./ko/tour";
 import koErrors from "./ko/errors";
+import koNews from "./ko/news";
 import enCommon from "./en/common";
 import enNav from "./en/nav";
 import enSettings from "./en/settings";
@@ -26,6 +27,7 @@ import enRoutines from "./en/routines";
 import enAuth from "./en/auth";
 import enTour from "./en/tour";
 import enErrors from "./en/errors";
+import enNews from "./en/news";
 import { currentLang, localeOf, type Lang } from "./language";
 import type { ArgsFor, At, Message, Paths, Plural, Shape, Tree } from "./types";
 
@@ -42,6 +44,7 @@ export const ko = {
   routines: koRoutines,
   auth: koAuth,
   tour: koTour,
+  news: koNews,
   errors: koErrors,
 } as const;
 
@@ -60,6 +63,7 @@ export const en = {
   routines: enRoutines,
   auth: enAuth,
   tour: enTour,
+  news: enNews,
   errors: enErrors,
 } satisfies Shape<Messages>;
 

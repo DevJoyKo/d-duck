@@ -16,6 +16,7 @@ import { normalizePage, type ExtChip, type NavTarget, type Page } from "./lib/na
 import { TasksPage } from "./components/TasksPage";
 import { ReviewPage } from "./components/ReviewPage";
 import { UsagePage } from "./components/UsagePage";
+import { NewsPage } from "./components/NewsPage";
 import { TourDeck, TourToast } from "./components/TourDeck";
 import { StartChecklist } from "./components/StartChecklist";
 import { closeTour, dismissToast, loadOnboarding, openTour, useOnboarding } from "./lib/onboarding";
@@ -140,6 +141,7 @@ function Shell() {
         />
         <main className="min-w-0 flex-1 overflow-auto">
           <LoginBanner cliMissing={status.data !== undefined && !status.data.cli} />
+          {page === "news" && <NewsPage />}
           {page === "usage" && <UsagePage onNavigate={navigate} onDraft={openDraft} />}
           {page === "tasks" && <TasksPage status={status.data} agents={agents.data} selected={selectedSession} onSelect={setSelectedSession} draft={draft} onDraft={setDraft} onOpenReview={() => navigate("review")} />}
           {page === "agents" && (

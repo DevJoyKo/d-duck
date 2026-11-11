@@ -263,6 +263,19 @@ table! {
             "{days}-day totals: counts and shares (as ranges) for {models} models, {tools} tools, {skills} skills and {subagents} subagents, cache ratio, session length spread, Claude Code version, and in-app check names ({bytes} bytes)",
         ),
         InsightsCost => ("약 $0.05–0.20 (최대 $0.30, API 환산)", "About $0.05–0.20 (up to $0.30, API equivalent)"),
+        // ---- news ----
+        DlgNewsTitle => ("소식 가져오기", "Fetch news"),
+        DlgNewsBody => (
+            "설치된 Claude CLI로 Claude Code 공식 변경 기록과 문서(code.claude.com, github.com/anthropics/claude-code의 CHANGELOG)만 읽어 새 기능 설명을 받아요. 프로젝트·대화·코드·경로는 보내지 않아요.\n\n보낼 내용: 앱 언어({lang}), 이미 받은 소식 id {count}개\n\n예상 비용: {cost}\nAPI 환산: 구독이면 실제 청구액이 아니라 API 단가로 바꾼 값이에요.",
+            "Reads only the official Claude Code changelog and docs (code.claude.com and the CHANGELOG at github.com/anthropics/claude-code) through the installed Claude CLI and gets explainers of new features back. Projects, conversations, code and paths aren't sent.\n\nWhat's sent: the app language ({lang}) and the ids of {count} news items you already have\n\nEstimated cost: {cost}\nAPI equivalent: on a subscription this is the API price, not what you're billed.",
+        ),
+        NewsCost => ("약 $0.10–0.30 (상한 $0.40, 조금 넘을 수 있어요, API 환산)", "About $0.10–0.30 (limit $0.40, may go slightly over, API equivalent)"),
+        DlgNewsDailyTitle => ("매일 소식 가져오기", "Fetch news daily"),
+        DlgNewsDailyBody => (
+            "앱이 켜져 있는 동안 하루 한 번, 확인 창 없이 소식을 가져와요. 첫 실행은 24시간 뒤예요.\n\n한 번에 약 $0.40까지예요(조금 넘을 수 있어요). 최근 30일 합계가 $12에 닿으면 멈추고, 한 번에 $0.60을 넘으면 스스로 꺼져요. API 환산 값이에요.\n\n소식 탭에서 언제든 끌 수 있어요. 켤까요?",
+            "Fetches news once a day while the app is open, without asking each time. The first run is 24 hours from now.\n\nEach run is capped at about $0.40 (it may go slightly over). It stops when the last 30 days add up to $12, and turns itself off if one run goes over $0.60. These are API-equivalent amounts.\n\nYou can turn it off any time in the News tab. Turn it on?",
+        ),
+        BtnFetch => ("가져오기", "Fetch"),
         // ---- brief refine ----
         DlgRefineTitle => ("요구사항 다듬기", "Refine the brief"),
         DlgRefineBody => (
@@ -603,6 +616,12 @@ table! {
     Fail {
         CliNotFound => ("Claude CLI를 찾을 수 없어요", "Couldn't find the Claude CLI"),
         AlreadyAnalyzing => ("이미 분석 중이에요", "Already analyzing"),
+        NewsBusy => ("이미 소식을 가져오는 중이에요", "Already fetching news"),
+        NewsBudget => ("예산 상한($0.40)에 닿아 멈췄어요", "Stopped at the budget limit ($0.40)"),
+        NewsTurns => ("읽기·응답 횟수 상한에 닿아 멈췄어요", "Stopped at the read and response limit"),
+        NewsTimeout => ("240초 안에 끝나지 않아 멈췄어요", "Stopped because it didn't finish within 240 seconds"),
+        NewsMalformed => ("답의 형식이 맞지 않아 아무것도 저장하지 않았어요", "The answer wasn't in the expected format, so nothing was saved"),
+        NewsNoSource => ("열 수 있는 원문 주소가 없어요", "There's no source link that can be opened"),
         GuardUnchecked => ("보안 가드를 확인하지 못해 실행하지 않았어요", "Couldn't check the safety guard, so nothing ran"),
         NonceFailed => ("난수를 만들지 못했어요", "Couldn't make a random value"),
         HttpsOnly => ("https 링크만 열 수 있어요", "Only https links can be opened"),

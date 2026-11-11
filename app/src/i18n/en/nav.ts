@@ -16,6 +16,7 @@ export default {
     mcp: "MCP",
     permissions: "Permissions",
     memory: "Memory",
+    news: "News",
     usage: "Usage",
     settings: "Settings",
   },

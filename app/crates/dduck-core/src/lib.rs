@@ -58,6 +58,7 @@ pub mod loadout;
 pub mod mcp_list;
 pub mod memory;
 pub mod model_select;
+pub mod news;
 pub mod plugin_bulk;
 pub mod plugins;
 pub mod preferred;
