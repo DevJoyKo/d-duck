@@ -115,8 +115,8 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
   const agent = chosen?.name ?? "";
   const risky = !!chosen && (chosen.risk.hooks || chosen.risk.mcpServers || chosen.risk.dangerMode || chosen.risk.unreadable);
 
-  // Model (model-select design 4): task > agent file > type > CLI default. A file agent with its own model locks
-  // the task value until spike 1.1 (FILE_AGENT_MODEL_OVERRIDE_VERIFIED in Rust).
+  // Model (model-select design 4): task > agent file > type > CLI default. `--model` wins over a file agent's own
+  // model (spike 1.1), so the task value always applies.
   const models = useModelOptions(cwd.startsWith("/") ? cwd : null);
   const fileAgentName = agent || (preset?.agent ?? "");
   const fileDef = fileAgentName ? (catalog.data ?? []).find((d) => d.name === fileAgentName && d.usable) : undefined;
@@ -128,8 +128,8 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
     : typeModel
       ? t("common.model.defaultNow", { value: typeModel, basis: t("common.model.basis.type") })
       : defaultLabel(models.data, t);
-  const modelLocked = !!fileModel;
-  const model = modelLocked ? null : modelChoice;
+  // `--model` wins over a file agent's own model (spike 1.1), so a task value is never locked.
+  const model = modelChoice;
   const baseItem = baseValue ? itemOf(models.data, baseValue) : undefined;
   // What a start will really pass when nothing is chosen here: a gone base value is replaced (design 11).
   const baseUsed = baseItem?.allow === "yes" && baseItem.replacement ? (baseItem.replacement.kind === "alias" ? baseItem.replacement.to : null) : baseValue;
@@ -466,10 +466,8 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
           refreshing={models.refreshing}
           defaultText={baseText}
           basePrice={basePrice}
-          disabled={modelLocked}
         >
-          {modelLocked && <p className="text-xs text-ink-3">{t("common.model.agentFixed", { model: fileModel ?? "" })}</p>}
-          {!model && baseReplacement && <p className="text-xs text-ink-2">{replacementText(baseReplacement, !!fileModel)}</p>}
+          {!model && baseReplacement && <p className="text-xs text-ink-2">{replacementText(baseReplacement)}</p>}
           {baseBlocked && <p className="text-xs text-ink-2">{baseBlocked}</p>}
           {(preset?.strict || sensitive) && shallowHint(true, chosenItem?.price, basePrice) && <p className="text-xs text-ink-3">{t("common.model.shallow")}</p>}
           {effortHint(chosenItem ? (chosenItem.resolved?.id ?? chosenItem.value) : modelValue, effort) && <p className="text-xs text-ink-3">{t("common.model.effortHint")}</p>}

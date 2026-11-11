@@ -102,7 +102,6 @@ function AgentModel({ d, onSaved }: { d: AgentDef; onSaved: () => void }) {
         refreshing={models.refreshing}
         defaultText={d.model === "inherit" ? tr("common.model.defaultInherit") : defaultLabel(models.data, tr)}
         basePrice={models.data?.currentDefault.price}
-        fileAgent
         disabled={!editable || busy}
       >
         {!editable && <p className="text-xs text-ink-3">{tr("common.model.readOnly")}</p>}

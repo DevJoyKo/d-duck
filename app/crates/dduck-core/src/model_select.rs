@@ -13,9 +13,11 @@ use std::sync::LazyLock;
 
 use crate::pricing::PriceTable;
 
-/// `--agent=<file agent with model:>` + `--model=` — which one wins is not documented. Stays `false` until spike 1.1
-/// measures it; until then that combination is refused (design 4).
-pub const FILE_AGENT_MODEL_OVERRIDE_VERIFIED: bool = false;
+/// `--agent=<file agent with model:>` + `--model=`: `--model` wins (spike 1.1, Claude Code 2.1.322, 2026-11-11: a
+/// `model: haiku` agent with `--model sonnet` ran on claude-sonnet-5-5). While `true`, a task value may sit on top of
+/// a file agent and an unsupported file `model:` is replaced through `--model` (design 4·11). Set it back to `false`
+/// if a CLI version changes that: the combination is then refused again.
+pub const FILE_AGENT_MODEL_OVERRIDE_VERIFIED: bool = true;
 
 /// The only `env` names read from settings and the app's own environment (design 1). Everything else in `env`
 /// (tokens, keys) is never looked at.
@@ -1012,7 +1014,8 @@ mod tests {
         // File agents: the file wins over the type, and a task value on top is locked until spike 1.1.
         assert_eq!(resolve(None, Runner::FileAgent(Some("opus")), Some("haiku")), Ok(ModelPin { layer: Layer::Agent, arg: None, role: None }));
         assert_eq!(resolve(None, Runner::FileAgent(None), Some("haiku")), Ok(ModelPin { layer: Layer::Type, arg: Some("haiku".into()), role: None }));
-        assert_eq!(resolve(Some("sonnet"), Runner::FileAgent(Some("opus")), None), Err(LOCKED));
+        // Spike 1.1: --model wins over the file's model, so a task value on a file agent is passed.
+        assert_eq!(resolve(Some("sonnet"), Runner::FileAgent(Some("opus")), None), Ok(ModelPin { layer: Layer::Task, arg: Some("sonnet".into()), role: None }));
         assert_eq!(resolve(Some("sonnet"), Runner::FileAgent(None), None), Ok(ModelPin { layer: Layer::Task, arg: Some("sonnet".into()), role: None }));
         assert_eq!(resolve(Some("sonnet"), Runner::FileAgent(Some("inherit")), None).map(|p| p.layer), Ok(Layer::Task), "inherit = no model");
         // Stored values are re-checked.
@@ -1020,7 +1023,7 @@ mod tests {
         assert_eq!(resolve(Some("-p"), Runner::Inline, None), Err(BAD_FORMAT));
         let pin = ModelPin { layer: Layer::Type, arg: Some("sonnet".into()), role: Some("sonnet".into()) };
         assert_eq!(check_pin(&pin, Runner::FileAgent(Some("opus"))), Ok(()), "only task pins hit the lock");
-        assert_eq!(check_pin(&ModelPin { layer: Layer::Task, ..pin.clone() }, Runner::FileAgent(Some("opus"))), Err(LOCKED));
+        assert_eq!(check_pin(&ModelPin { layer: Layer::Task, ..pin.clone() }, Runner::FileAgent(Some("opus"))), Ok(()), "no lock after spike 1.1");
         assert_eq!(check_pin(&ModelPin { layer: Layer::Task, arg: Some("opus x".into()), role: None }, Runner::Inline), Err(BAD_STORED));
         assert_eq!(Layer::parse("agent"), Some(Layer::Agent));
     }
@@ -1111,9 +1114,18 @@ mod tests {
         // File agent: a task/type value on top is replaced in --model only.
         let on_file = ModelPin { layer: Layer::Type, arg: Some("claude-sonnet-3-9".into()), role: None };
         assert_eq!(apply_fallback(&on_file, Runner::FileAgent(None), &ctx).unwrap().0.arg.as_deref(), Some("sonnet"));
-        // The file's own model: refused until spike 1.1.
+        // The file's own model: replaced through --model, which wins over --agent (spike 1.1).
         let agent = ModelPin { layer: Layer::Agent, arg: None, role: None };
-        assert_eq!(apply_fallback(&agent, Runner::FileAgent(Some("claude-sonnet-3-9")), &ctx), Err(AGENT_UNSUPPORTED));
+        assert_eq!(
+            apply_fallback(&agent, Runner::FileAgent(Some("claude-sonnet-3-9")), &ctx),
+            Ok((ModelPin { layer: Layer::Agent, arg: Some("sonnet".into()), role: None }, Some("claude-sonnet-3-9".into())))
+        );
+        // Unknown family: the known default goes in --model (an empty --model would leave the file's model on).
+        assert_eq!(apply_fallback(&agent, Runner::FileAgent(Some("acme-large-2")), &ctx).unwrap().0.arg.as_deref(), Some("sonnet"));
+        assert_eq!(apply_fallback(&agent, Runner::FileAgent(Some("acme-large-2")), &FallbackCtx { default_value: None, ..ctx }), Err(NO_FALLBACK));
+        // Policy still refuses an unsupported file model before any replacement.
+        let only_haiku = allowlist(&ManagedRead { keys: vec![keys(r#"{"availableModels":["haiku"]}"#)], unreadable: false }, &[]);
+        assert_eq!(apply_fallback(&agent, Runner::FileAgent(Some("claude-sonnet-3-9")), &FallbackCtx { list: &only_haiku, ..ctx }), Err(BLOCKED_MANAGED));
         assert_eq!(apply_fallback(&agent, Runner::FileAgent(Some("opus")), &ctx), Ok((agent.clone(), None)));
         let blocked = allowlist(&ManagedRead { keys: vec![keys(r#"{"availableModels":["sonnet"]}"#)], unreadable: false }, &[]);
         assert_eq!(apply_fallback(&agent, Runner::FileAgent(Some("opus")), &FallbackCtx { list: &blocked, ..ctx }), Err(BLOCKED_MANAGED));

@@ -31,7 +31,6 @@ describe("model lines", () => {
     expect(replacementText({ kind: "alias", to: "opus" })).toBe("지원되지 않는 모델 · opus로 대체돼요");
     expect(replacementText({ kind: "default" })).toBe("지원되지 않는 모델 · 기본값으로 대체돼요");
     expect(replacementText({ kind: "none" })).toBe("지원되지 않는 모델 · 대신 쓸 모델이 없어요");
-    expect(replacementText({ kind: "alias", to: "opus" }, true)).toBe("지원되지 않는 모델 · 다른 모델로 바꿔 주세요");
     expect(replacementText(undefined)).toBeNull();
     expect(recordLines({ modelLayer: "type", modelUsed: "opus", modelRequested: "claude-opus-3-9" })).toEqual(["모델: opus · 유형 설정", "요청한 claude-opus-3-9를 쓸 수 없어 opus로 실행했어요"]);
     expect(recordLines({ modelLayer: "task", modelUsed: null, modelRequested: "acme-large-2" })[1]).toBe("요청한 acme-large-2를 쓸 수 없어 기본값으로 실행했어요");

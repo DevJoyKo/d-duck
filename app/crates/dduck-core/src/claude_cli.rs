@@ -1781,14 +1781,16 @@ mod model_args {
     }
 
     #[test]
-    fn file_agents_follow_their_file_and_lock_a_task_value() {
+    fn file_agents_follow_their_file_unless_the_task_picks_one() {
         let dir = tempfile::tempdir().unwrap();
         let persona = TaskSpec { agent: Some("design-critic".into()), ..base(dir.path()) };
         let (spec, args) = run(persona.clone(), None, Some("opus")).unwrap();
         assert!(!args.iter().any(|a| a.starts_with("--model")), "the CLI reads the file");
         assert_eq!(spec.model_pin.unwrap().layer, Layer::Agent);
-        let locked = run(TaskSpec { model: Some("sonnet".into()), ..persona.clone() }, None, Some("opus"));
-        assert!(matches!(locked, Err(CliError::InvalidInput { .. })));
+        // Spike 1.1: --model wins over the file, so a task value on top is passed.
+        let (spec, args) = run(TaskSpec { model: Some("sonnet".into()), ..persona.clone() }, None, Some("opus")).unwrap();
+        assert!(args.contains(&"--model=sonnet".to_string()));
+        assert_eq!(spec.model_pin.unwrap().layer, Layer::Task);
         let (_, args) = run(TaskSpec { model: Some("sonnet".into()), ..persona }, None, None).unwrap();
         assert!(args.contains(&"--model=sonnet".to_string()));
     }
@@ -1816,8 +1818,9 @@ mod model_args {
         let (spec, args) = run(TaskSpec { model: Some("claude-haiku-4-5-20251001".into()), ..base(dir.path()) }, None, None).unwrap();
         assert!(args.contains(&"--model=claude-haiku-4-5-20251001".to_string()));
         assert_eq!(spec.model_requested, None);
-        let agent = run(TaskSpec { agent: Some("x".into()), ..base(dir.path()) }, None, Some("claude-sonnet-3-9"));
-        assert!(matches!(agent, Err(CliError::InvalidInput { .. })), "file model: refused until spike 1.1");
+        let (spec, args) = run(TaskSpec { agent: Some("x".into()), ..base(dir.path()) }, None, Some("claude-sonnet-3-9")).unwrap();
+        assert!(args.contains(&"--model=sonnet".to_string()), "a gone file model is replaced through --model: {args:?}");
+        assert_eq!((spec.model_pin.unwrap().layer, spec.model_requested.as_deref()), (Layer::Agent, Some("claude-sonnet-3-9")));
     }
 
     #[test]

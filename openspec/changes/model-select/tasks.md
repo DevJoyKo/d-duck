@@ -12,7 +12,7 @@
 - [x] 0.3 설계 리뷰(대체 요구사항, D-197): design-critic + security-privacy-reviewer로 spec "지원되지 않는 모델은 자동으로 대체한다"와 design 결정 11을 검토한다. 중점: 정책 우회 불가, 더 비싼 계열 금지, CLI 거부 재시도의 안전성, DB v17 번호. BLOCKER/HIGH를 해결한다. (확인: 리뷰 결과를 PR·보고에 기록) — 완료: design-critic BLOCKER 1·HIGH 2·MAJOR 4·MINOR 2, security HIGH 1·MEDIUM 3·LOW 2를 결정 11 개정으로 반영
 
 ## 1. 확인 실행 (사용자 승인 후에만, 사용량 소모)
-- [ ] 1.1 `--agent=<model: haiku 파일 에이전트> --model=sonnet`으로 짧은 bg 작업 1개를 돌린다. 수집 기록 메인 대화 모델로 어느 쪽이 이기는지 기록한다. 같은 세션 `--resume`에서 `--model`이 유지되는지도 잰다. 결과에 따라 `FILE_AGENT_MODEL_OVERRIDE_VERIFIED`를 바꾸고, design 결정 4를 고친다. 다른 태스크는 이 결과 없이 구현한다. D-144에 따라 한도 실측 때 함께 해도 된다. (확인: decisions.md 실측 항목, 세션 id와 api_calls 모델 값)
+- [x] 1.1 `--agent=<model: haiku 파일 에이전트> --model=sonnet`으로 짧은 bg 작업 1개를 돌린다. 수집 기록 메인 대화 모델로 어느 쪽이 이기는지 기록한다. 같은 세션 `--resume`에서 `--model`이 유지되는지도 잰다. 결과에 따라 `FILE_AGENT_MODEL_OVERRIDE_VERIFIED`를 바꾸고, design 결정 4를 고친다. 다른 태스크는 이 결과 없이 구현한다. D-144에 따라 한도 실측 때 함께 해도 된다. (확인: decisions.md 실측 항목, 세션 id와 api_calls 모델 값) — 완료(2026-11-11, Claude Code 2.1.322, 코디네이터 실행): `--agent probe-haiku`(`model: haiku`) + `--model sonnet` → 메인 대화 `claude-sonnet-5-5`(세션 74f796a9-7f17-475f-ba72-f0afa3f3b179). `--model` 없이 `--resume` → 사본 1d9be74d가 `claude-opus-5-5`(기본값)로 답함, `--model`은 재개에 이어지지 않음. 목록에 있는 세션 재개는 새 bg id 사본. `FILE_AGENT_MODEL_OVERRIDE_VERIFIED = true`, 결정 4·11 개정, 파일 모델 대체를 거부에서 `--model` 대체로 바꿈
 
 - [ ] 1.2 (사용자 승인 후, 사용량 소모 가능) 단가표·도움말에 없는 id로 `claude --bg --model=<사라진 id>`를 한 번 돌려, 시작 때 거부하는지(종료 코드·stderr 문구)와 세션 안에서 거부하는지를 기록한다. 같은 실행에서 `--fallback-model=<같은 계열 별칭>`이 `--bg`에서 동작하는지, 실패한 시작이 worktree·세션을 남기는지도 잰다. 결과에 맞게 `rejects_model` 문구 목록, `CLI_REJECT_RETRY_MEASURED`, design 결정 11을 고친다. (확인: decisions.md 실측 항목)
 

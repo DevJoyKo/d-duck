@@ -23,7 +23,6 @@ export function ModelPicker({
   refreshing,
   defaultText,
   basePrice,
-  fileAgent,
   disabled,
   label,
   children,
@@ -37,8 +36,6 @@ export function ModelPicker({
   defaultText: string;
   /** Output price of "the default here", for the cost line (design 6). */
   basePrice?: number;
-  /** The value is a file agent's own `model:` (its replacement waits for spike 1.1). */
-  fileAgent?: boolean;
   disabled?: boolean;
   label?: string;
   /** Extra one-line notes from the caller. */
@@ -54,7 +51,7 @@ export function ModelPicker({
   // Warnings (blocked, replaced) read a step darker than plain notes; no yellow (one per screen).
   const lines: { text: string; warn?: boolean; title?: string }[] = [
     { text: item ? (blockedText(item) ?? "") : "", warn: true },
-    { text: item && item.allow === "yes" ? (replacementText(item.replacement, fileAgent) ?? "") : "", warn: true },
+    { text: item && item.allow === "yes" ? (replacementText(item.replacement) ?? "") : "", warn: true },
     { text: item && !item.replacement ? (costText(item.price, basePrice) ?? "") : "", title: t("common.model.costBasis") },
     { text: item?.note ?? "" },
     { text: options && !options.cliRead ? t("common.model.cliUnread") : "" },

@@ -68,10 +68,9 @@ export function blockedText(i: ModelItem): string | null {
   return i.blockedBy === "managed" ? t("common.model.blocked.managed") : t("common.model.blocked.settings");
 }
 
-/** "지원되지 않는 모델 · opus로 대체돼요" for a stored unsupported value. A file agent can't be replaced yet. */
-export function replacementText(r: Replacement | undefined, fileAgent = false): string | null {
+/** "지원되지 않는 모델 · opus로 대체돼요" for a stored unsupported value (agent files included since spike 1.1). */
+export function replacementText(r: Replacement | undefined): string | null {
   if (!r) return null;
-  if (fileAgent) return t("common.model.unsupportedAgent");
   if (r.kind === "alias") return t("common.model.unsupportedAlias", { to: r.to, ro: ro(r.to) });
   if (r.kind === "default") return t("common.model.unsupportedDefault");
   return t("common.model.unsupportedNone");

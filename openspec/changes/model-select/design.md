@@ -14,7 +14,7 @@
 | 모델 목록 명령 | 없다. `claude models --help`·`claude config --help`는 알 수 없는 하위 명령이라 메인 도움말을 그대로 낸다(메인 `--help`와 diff 없음). 하위 명령 목록에도 models·config가 없다 | `claude --help` "Commands:" 절, diff |
 | `--model` 도움말 | "Provide an alias for the latest model (e.g. 'fable', 'opus', or 'sonnet') or a model's full name." haiku·`[1m]`·opusplan은 도움말에 없다 | `claude --help` |
 | `--agents` JSON | `model` 필드를 받는다. 받는 필드는 description·tools·disallowedTools·model·permissionMode·…·effort다 | https://code.claude.com/docs/en/sub-agents |
-| `--agent`로 메인 세션 | "the main thread itself takes on that subagent's tool restrictions and model". resume하면 에이전트 모델도 복원된다. **`--model`과 둘 중 무엇이 이기는지는 문서에 없다** | sub-agents 문서 |
+| `--agent`로 메인 세션 | "the main thread itself takes on that subagent's tool restrictions and model". resume하면 에이전트 모델도 복원된다. **`--model`과 둘 중 무엇이 이기는지는 문서에 없다** → 실측 1.1(Claude Code 2.1.322, 2026-11-11): `--model`이 이긴다. `--model`은 `--resume`에 이어지지 않는다 | sub-agents 문서, 실측 1.1 |
 | 서브에이전트 `model` 값 | `sonnet`·`opus`·`haiku`·`fable`, 전체 id, `inherit` | sub-agents 문서 |
 | 별칭 | `default`(별칭 아님, 덮어쓰기 해제)·`best`·`fable`·`sonnet`·`opus`·`haiku`·`sonnet[1m]`·`opus[1m]`·`opusplan`. 어떤 id로 풀리는지는 제공자·CLI 버전에 따라 다르다 | https://code.claude.com/docs/en/model-config |
 | 모델 우선순위(CLI) | `/model` > `--model` > `ANTHROPIC_MODEL` > settings `model` > `ANTHROPIC_DEFAULT_MODEL` | model-config 문서 |
@@ -89,7 +89,7 @@ core `model_select::options(env) -> ModelOptions`. 입력은 순수 데이터(`O
 - **인라인 역할**(번들·추가 유형): 값이 있으면 역할 JSON `model`과 `--model`을 **같은 값**으로 둘 다 넣는다. 그러면 `--agent`와 `--model` 중 무엇이 이기든 결과가 같다.
 - **파일 에이전트**(페르소나 또는 유형의 "내 에이전트"): 셸이 `agents_catalog::resolve_for_cwd(defs, name, cwd)`로 `claude --agent`가 실제로 쓸 정의를 고른다. 그 파일에서 frontmatter `model` **원문**을 다시 읽는다. `AgentDef.model`은 표시용(`display_safe` 40자)이라 쓰지 않는다. `primary`도 쓰지 않는다. 원문이 `valid_model`을 통과하지 못하거나 `inherit`이면 "모델 없음"으로 본다(리뷰 반영 D-154).
   - 작업 값이 없으면 `--model`을 넣지 않는다. 파일 값이 있으면 CLI가 쓰고, 없으면 유형 값을 `--model`로 넣는다.
-  - 작업 값이 있고 파일에 `model`이 있으면 `--model`이 이겨야 한다. 이건 문서로 확인되지 않았다. 컴파일 상수 `FILE_AGENT_MODEL_OVERRIDE_VERIFIED = false` 동안에는 Rust가 이 조합을 거부하고, Composer는 고르기를 잠근다(spec 시나리오). 확인 실행 1.1 뒤에만 true로 바꾼다(D-141 `AUTO_RESUME_SHIPPED`와 같은 방식).
+  - 작업 값이 있고 파일에 `model`이 있으면 `--model=<작업 값>`을 넣는다. 실측 1.1(Claude Code 2.1.322, 2026-11-11)에서 `--model`이 이긴다고 확인했다: `model: haiku` 사용자 에이전트를 `--agent`로, `--model sonnet`과 함께 시작한 세션(74f796a9)의 메인 대화가 `claude-sonnet-5-5`로 돌았다. 그래서 컴파일 상수 `FILE_AGENT_MODEL_OVERRIDE_VERIFIED`를 true로 바꿨고, 잠금은 없어졌다. CLI가 바뀌어 false로 되돌리면 이 조합은 다시 거부되고 Composer가 잠긴다(D-141 `AUTO_RESUME_SHIPPED`와 같은 방식).
 - **CLI 기본값**: 아무 층에도 값이 없으면 `--model`도 역할 `model`도 없다.
 - 엄격 유형(배포·보안·QA, `FIXED_STRICT`)도 모델을 고를 수 있다. 모델은 권한·도구를 바꾸지 않으므로 엄격 불변식(도구·페르소나 위험)과 무관하다.
   - 대신 엄격 유형에서 기본값보다 단가가 낮은 모델을 고르면 미리보기에 "검토가 얕아질 수 있어요" 한 줄을 보인다.
@@ -149,7 +149,8 @@ core `model_select::options(env) -> ModelOptions`. 입력은 순수 데이터(`O
 - **usage-limit-resume**
   - `ResumeSpec.model: Option<String>`. `args()`는 `--resume=` 뒤에 `--model=`을 붙인다.
   - 재개는 층을 다시 계산하지 않고 **시작 때 넘긴 인자를 재현**한다(리뷰 반영 D-154). `prepare_resume`에 backend-only `ModelPin { layer, arg, role }`을 넣으면 `resolve`를 건너뛰고 `--model=`은 `model_arg`, 역할 JSON `model`은 `role_model`을 그대로 쓴다. 두 값은 `valid_model`로 다시 검사한다.
-  - 파일 에이전트+작업 값 잠금은 `layer = task`이고 지금 파일에 `model`이 있을 때만 다시 본다. 그때 걸리면 기존 `Reason::RiskChanged`(limit_cmds.rs `prepare_with` 실패)로 버튼+확인만 남는다. `agent`·`type`·`cli` 층은 작업 값을 만들지 않으므로 잠금에 걸리지 않는다.
+  - 파일 에이전트+작업 값 잠금은 상수가 false일 때만 다시 본다(지금은 true라 걸리지 않음).
+  - 실측 1.1(Claude Code 2.1.322, 2026-11-11): `--model` 없이 `--resume`한 세션(사본 1d9be74d)은 기본 모델 `claude-opus-5-5`로 답했다. `--model`은 재개에 이어지지 않으므로, 재개마다 `ModelPin`의 `--model=`을 다시 넘긴다(지금 구현). 목록에 아직 있는 세션을 재개하면 새 bg id의 사본이 생긴다("already running in the background, so this started a copy").
   - `task_meta`에 값이 없는 이전 작업(NULL)은 `--model`도 역할 `model`도 넣지 않는다.
   - 재개 직전 재확인(3.2)에 허용 목록 검사(결정 5)를 더한다. 걸리면 버튼+확인으로만 잇는다. 모델 때문에 막힌 재개(허용 목록, 대체 없음, 파일 에이전트 모델, 손상된 기록)는 지금은 모두 `Reason::RiskChanged`로 보인다. 모델 전용 이유 코드는 후속이다.
   - 기록 읽기는 `task_meta::PinRead`다. 층이 없는 이전 작업은 `layer = cli`·인자 없음으로 재현하고(층 재계산 없음), 층이 네 값이 아니면 거부한다. 값은 거르지 않고 넘겨 `check_pin`이 손상된 값을 거부한다(QA 리뷰 HIGH).
@@ -178,7 +179,7 @@ core `model_select::options(env) -> ModelOptions`. 입력은 순수 데이터(`O
 - 같은 계열 별칭이 막히면 기본값을 본다. 이때 기본값의 계열이 요청 계열보다 높거나(haiku < sonnet < opus < fable) 계열을 모르면 거부한다("대신 쓸 모델이 없어 시작하지 않았어요 · 더 비싼 모델로는 바꾸지 않아요"). 계열을 모르는 요청은 비교할 계열이 없어서 규칙 3이 적용되지 않는다. 대신 대체 사실이 작업 상세에 남는다(보안 리뷰 MEDIUM, 사용자 요구 2를 따름).
 - 대체 값도 `valid_model`을 통과해야 한다. `--model=<값>` 한 토큰 형식은 그대로다.
 
-**파일 에이전트** `--agent`와 `--model` 중 무엇이 이기는지 모르므로(결정 4), `FILE_AGENT_MODEL_OVERRIDE_VERIFIED = false` 동안에는 에이전트 파일의 `model:`이 지원되지 않으면 **거부**한다("에이전트 파일의 모델을 쓸 수 없어요 · 에이전트 설정에서 바꿔 주세요"). `--agent`가 이기면 세션이 API에서 실패하고 기록이 없어 사후 알림도 없기 때문이다(리뷰 MAJOR). 설정 화면은 같은 이유를 보인다. 1.1 뒤에 true가 되면 `--model=<대체 값>`을 넣는다. 작업·유형 값이 파일 에이전트 위에서 대체되는 경우(`--model`만 씀)는 지금 규칙(결정 4)을 그대로 따른다.
+**파일 에이전트** 실측 1.1(Claude Code 2.1.322, 2026-11-11)에서 `--model`이 `--agent`의 모델을 이긴다고 확인했다(결정 4). 그래서 에이전트 파일의 `model:`이 지원되지 않으면 다른 층과 같은 규칙으로 대체하고, 대체 값을 `--model=`로 넣는다. 계열을 모르면 기본값의 값을 알 때만 그 값을 `--model`로 넣는다. `--model`을 빼면 CLI가 파일 값을 다시 쓰기 때문이다. 기본값을 모르면 거부한다("대신 쓸 모델이 없어 시작하지 않았어요…"). 허용 목록 검사는 그대로다. 파일 값이 정책에 막히면 대체 없이 거부한다. `FILE_AGENT_MODEL_OVERRIDE_VERIFIED`를 false로 되돌리면 이전처럼 거부한다("에이전트 파일의 모델을 쓸 수 없어요…").
 
 **CLI 거부** 1.2 실측 전에는 **다시 시작하지 않는다.** `rejects_model(stderr_tail, value)`은 만들어 두되, 재시도는 상수 `CLI_REJECT_RETRY_MEASURED = false` 뒤에 둔다. 실패한 `--bg`가 worktree·세션·훅을 남겼는지 모르고, 정책 거부 문구와 섞일 수 있으며, 네이티브 승인을 바뀐 인자에 다시 써야 하기 때문이다(보안 리뷰 HIGH·MEDIUM, 설계 리뷰 MAJOR). 지금은 거부 문구가 맞으면 실패 메시지 끝에 "이 모델을 쓸 수 없는 것 같아요 · 다른 모델을 골라 주세요" 한 줄을 더하고, 다음 시작부터는 그 값이 지원 판정에서 빠지지 않는다(저장하지 않음). 문구 판정은 `availableModels`·`policy`·`organization`·`managed`·`permission`·`access`가 있으면 거부로 보지 않는다. stderr는 판정에만 쓰고 DB·timing·로그에 넣지 않는다.
 - 대안: CLI의 `--fallback-model <model>`(도움말 2.1.322: "when the default model is overloaded or not available"). `--bg`에서의 동작과 "default model"의 뜻이 측정되지 않았다. 1.2에서 함께 재고, 맞으면 대체 별칭을 이 옵션으로도 넘긴다(허용 목록을 통과한 값만).
@@ -188,18 +189,18 @@ core `model_select::options(env) -> ModelOptions`. 입력은 순수 데이터(`O
 |---|---|
 | 작업·유형(인라인 역할) | `--model`과 역할 `model`을 같은 대체 값으로(기본값이면 둘 다 없음) |
 | 작업·유형(파일 에이전트 위) | `--model`만 대체 값으로. 기본값이면 `--model` 없음 |
-| 에이전트 파일 `model:` | 1.1 전에는 거부, 뒤에는 `--model=<대체 값>` |
+| 에이전트 파일 `model:` | `--model=<대체 별칭>`, 계열을 모르면 `--model=<알려진 기본값>`, 둘 다 없으면 거부 |
 | 재개 `ModelPin` | `arg`·`role`을 같은 규칙으로 대체한다. 층은 그대로 둔다. `layer = agent`이면 파일 원문을 다시 읽어 위 행을 적용한다 |
 
 **기록** `task_meta.model_requested TEXT`, `task_meta.model_fallback TEXT`(`unsupported`만, 1.2 뒤 `cli_rejected`). 버전 번호를 쓰지 않는다. `migrate` 끝의 멱등 단계가 `pragma table_info`로 열이 없을 때만 `ADD COLUMN`한다. 그래서 PR #5의 v16과 순서가 어떻든 부딪히지 않는다(리뷰 HIGH). `model_requested`는 `valid_model`을 통과한 값만 저장한다(100자 이하). `model_arg`·`role_model`은 늘 **실제로 넘긴 값**이다. 그래서 재개는 대체된 값을 그대로 재현한다. 재개에서 다시 대체하면 두 열을 새 값으로 바꾸고, `model_requested`는 비어 있을 때만 채운다.
 
 **표시**
 - 작업 상세: `model_requested`가 있으면 "요청한 X를 쓸 수 없어 Y로 실행했어요"(Y가 없으면 "기본값으로") 한 줄. 결정 9 알림은 실제로 넘긴 값과 비교한다.
-- 설정 화면: `model_options`가 저장된 값(팀 설정 유형 모델, 이 cwd의 에이전트 파일 모델)을 "직접 입력" 출처 항목으로 넣고, 지원되지 않으면 `replacement: { kind: "alias", to } | { kind: "default" } | { kind: "none" }`을 단다. 고르기 아래에 "지원되지 않는 모델 · Y로 대체돼요"(기본값이면 "기본값으로 대체돼요") 또는 "… · 대신 쓸 모델이 없어요" 한 줄을 보인다. 파일 에이전트 상세는 1.1 전에는 "지원되지 않는 모델 · 다른 모델로 바꿔 주세요"다.
+- 설정 화면: `model_options`가 저장된 값(팀 설정 유형 모델, 이 cwd의 에이전트 파일 모델)을 "직접 입력" 출처 항목으로 넣고, 지원되지 않으면 `replacement: { kind: "alias", to } | { kind: "default" } | { kind: "none" }`을 단다. 고르기 아래에 "지원되지 않는 모델 · Y로 대체돼요"(기본값이면 "기본값으로 대체돼요") 또는 "… · 대신 쓸 모델이 없어요" 한 줄을 보인다. 파일 에이전트 상세도 같은 줄이다(실측 1.1 뒤).
 - 대체는 노랑을 쓰지 않는다. 보조 글자색 한 줄이다.
 
 ## Risks / Trade-offs
-- [`--agent`의 모델과 `--model` 중 무엇이 이기는지 문서에 없음] → 인라인 역할은 두 값을 같게 넣어 영향을 없앤다. 파일 에이전트+작업 값 조합만 상수로 잠그고, 확인 실행 1.1(사용량 소모, 사용자 승인 후, D-144처럼 다른 실측과 함께)로 연다.
+- [`--agent`의 모델과 `--model` 중 무엇이 이기는지 문서에 없음] → 실측 1.1(Claude Code 2.1.322, 2026-11-11)로 `--model`이 이긴다고 확인했다. 인라인 역할은 여전히 두 값을 같게 넣는다. CLI가 바뀌면 상수 하나로 이전 잠금으로 돌아간다.
 - [`claude --help` 문구는 계약이 아님] → 파싱 실패는 CLI 출처만 비운다. 픽스처 테스트에 2.1.319 출력 발췌를 넣는다. 도움말에 haiku가 없는 것도 그대로 받아들인다(최근 사용·직접 입력으로 보완).
 - ["최근 기록 기준" 실제 id는 추정] → 표시를 "최근 기록 기준"으로 밝힌다. 비용 줄은 이 추정으로도 계산하되 "앱 단가표 기준"을 붙인다. 틀리면 결정 9 알림이 사후에 잡는다.
 - [관리 설정을 못 읽으면 기본값만 남아 불편함] → 막는 쪽이 맞다. 이유 한 줄을 보이고 기본값은 늘 쓸 수 있다.
