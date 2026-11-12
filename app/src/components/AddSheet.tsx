@@ -28,6 +28,7 @@ import { GateLine } from "./LoginBits";
 import { useScope } from "./ProjectContext";
 import { WorkflowCheckNote } from "./AuthoringEditor";
 import { metaBlocks, useWorkflowCheck } from "../lib/workflowCheck";
+import { useModal } from "../lib/useModal";
 
 export type AddMode = "link" | "create" | "ask";
 const MODES: AddMode[] = ["link", "create", "ask"];
@@ -57,7 +58,7 @@ export function AddMenu({ onPick, pending = 0 }: { onPick: (m: AddMode) => void;
   ];
   return (
     <div ref={ref} className="relative">
-      <Button variant="primary" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+      <Button variant="primary" data-add-trigger aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         {t("extensions.add.button")}
         {pending > 0 && (
           <span className="rounded-full bg-sheet px-1.5 text-[11px] font-semibold text-ink" title={t("extensions.add.pendingTitle")}>
@@ -736,18 +737,18 @@ function AskPane({ initialKind }: { initialKind: AuthorKind }) {
 
 export function AddSheet({ mode, onMode, onClose, kind = "skill", linkOnly = false }: { mode: AddMode; onMode: (m: AddMode) => void; onClose: () => void; kind?: AuthorKind; linkOnly?: boolean }) {
   const t = useT();
-  useEffect(() => {
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    document.addEventListener("keydown", esc);
-    return () => document.removeEventListener("keydown", esc);
-  }, [onClose]);
+  // Focus in (the link field's autoFocus, else ×), Tab inside, Escape closes (sheet-focus). The menu item that opened
+  // the sheet is gone by then: focus goes back to the "추가" button.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeBtn = useRef<HTMLButtonElement>(null);
+  useModal(dialogRef, onClose, { initial: closeBtn, returnTo: () => document.querySelector<HTMLElement>("[data-add-trigger]") });
   return (
     <div className="fixed inset-0 z-30 flex justify-end bg-ink/20" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label={t("extensions.add.button")} onClick={(e) => e.stopPropagation()} className="flex h-full w-[min(760px,100vw)] flex-col border-l border-line bg-sheet shadow-e3">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={t("extensions.add.button")} onClick={(e) => e.stopPropagation()} className="flex h-full w-[min(760px,100vw)] flex-col border-l border-line bg-sheet shadow-e3">
         <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-3">
           <h2 className="mr-auto text-[15px] font-semibold">{linkOnly ? t("extensions.add.modes.link") : t("extensions.add.button")}</h2>
           {!linkOnly && <Segmented label={t("extensions.add.modes.label")} value={mode} options={MODES.map((id) => ({ id, label: t(`extensions.add.modes.${id}`) }))} onChange={onMode} />}
-          <button aria-label={t("common.actions.close")} onClick={onClose} className="rounded-md p-1 text-ink-3 hover:text-ink">
+          <button ref={closeBtn} aria-label={t("common.actions.close")} onClick={onClose} className="rounded-md p-1 text-ink-3 hover:text-ink">
             <X size={16} />
           </button>
         </div>

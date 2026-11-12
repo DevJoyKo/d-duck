@@ -5,7 +5,7 @@
 
 ## 2. Sheets
 
-- [ ] 2.1 AgentSettings, AgentsPage definition editor, AuthoringEditor and AddSheet use the hook with the initial-focus table. vitest per sheet: exact initial element; Tab wraps; close returns focus (AddSheet → AddMenu trigger). For the three dirty-guarded sheets: edit → Escape → `window.confirm` called, declining keeps the sheet open
+- [x] 2.1 AgentSettings, AgentsPage definition editor, AuthoringEditor and AddSheet use the hook with the initial-focus table. vitest per sheet: exact initial element; Tab wraps; close returns focus (AddSheet → AddMenu trigger). For the three dirty-guarded sheets: edit → Escape → `window.confirm` called, declining keeps the sheet open
 - [ ] 2.2 Usage SessionSheet and the News sheet move to the hook; their existing tests pass
 
 ## 3. Verification
