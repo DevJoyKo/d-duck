@@ -756,9 +756,9 @@ fn check_file(ctx: &Ctx, dir: &Path, name: &str, kind: Kind) -> Checked {
 /// `cwd` resolved, the target resolved under it by path component, not under `.git`, a regular file of at most
 /// 2 MB with at least `end` lines.
 fn check_repo_file(cwd: Option<&Path>, path: &str, lines: Option<[u32; 2]>) -> Status {
-    let Some(real_cwd) = cwd.and_then(|c| std::fs::canonicalize(c).ok()) else { return Status::Missing };
+    let Some(real_cwd) = cwd.and_then(|c| crate::platform::canon(c).ok()) else { return Status::Missing };
     let target = real_cwd.join(path);
-    let real = match std::fs::canonicalize(&target) {
+    let real = match crate::platform::canon(&target) {
         Ok(r) => r,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Status::Missing,
         Err(_) => return Status::Refused,
@@ -1053,7 +1053,7 @@ pub(crate) mod tests {
 
     fn setup() -> (tempfile::TempDir, PathBuf, PathBuf) {
         let t = tempfile::tempdir().unwrap();
-        let real = std::fs::canonicalize(t.path()).unwrap();
+        let real = crate::platform::canon(t.path()).unwrap();
         let rep = real.join("rep");
         std::fs::create_dir_all(rep.join(DIR)).unwrap();
         let cwd = real.join("proj");

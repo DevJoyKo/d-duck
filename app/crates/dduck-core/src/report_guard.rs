@@ -62,7 +62,7 @@ fn resolve(path: &str, cwd: Option<&Path>) -> Option<PathBuf> {
     if name == ".." || name == "." {
         return None;
     }
-    let parent = std::fs::canonicalize(p.parent()?).ok()?;
+    let parent = crate::platform::canon(p.parent()?).ok()?;
     let target = parent.join(name);
     match std::fs::symlink_metadata(&target) {
         Ok(m) if m.file_type().is_symlink() => None,
@@ -85,7 +85,7 @@ pub fn decide(stdin: &str, report_dir: &Path, bash_strict: bool) -> Decision {
     let cwd = v.get("cwd").and_then(|c| c.as_str()).map(PathBuf::from).filter(|p| p.is_absolute());
     if FILE_TOOLS.contains(&tool) {
         let Some(path) = input.and_then(|i| i.get("file_path").or_else(|| i.get("notebook_path"))).and_then(|p| p.as_str()) else { return Decision::Deny };
-        let Ok(real_dir) = std::fs::canonicalize(report_dir) else { return Decision::Deny };
+        let Ok(real_dir) = crate::platform::canon(report_dir) else { return Decision::Deny };
         return match resolve(path, cwd.as_deref()) {
             Some(t) if t.starts_with(&real_dir) && t != real_dir => Decision::Allow,
             _ => Decision::Deny,
@@ -146,7 +146,7 @@ mod tests {
     #[test]
     fn writes_only_inside_the_report_folder() {
         let t = tempfile::tempdir().unwrap();
-        let base = std::fs::canonicalize(t.path()).unwrap();
+        let base = crate::platform::canon(t.path()).unwrap();
         let rep = base.join("reports/abc");
         std::fs::create_dir_all(rep.join("evidence")).unwrap();
         let repo = base.join("repo");

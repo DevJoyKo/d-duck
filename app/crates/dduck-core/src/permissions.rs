@@ -5,6 +5,7 @@
 //! the file is parsed to check it is valid JSON, then only the `permissions` member is extracted. Saving splices the
 //! new `permissions` text into the original bytes, so every other key keeps its exact bytes, order and numbers.
 
+use crate::platform::CanonExt;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -697,9 +698,9 @@ fn real_target(path: &Path) -> Result<PathBuf, PermError> {
     let name = path.file_name().ok_or_else(|| PermError::Invalid(crate::i18n::Fail::BadPathValue.str().into()))?;
     let parent = path.parent().ok_or_else(|| PermError::Invalid(crate::i18n::Fail::BadPathValue.str().into()))?;
     let canon = match std::fs::symlink_metadata(parent) {
-        Ok(_) => parent.canonicalize().map_err(|_| PermError::Io)?,
+        Ok(_) => parent.canon().map_err(|_| PermError::Io)?,
         Err(_) => {
-            let gp = parent.parent().ok_or(PermError::Io)?.canonicalize().map_err(|_| PermError::ReadOnly(crate::i18n::Fail::FolderMissing.str().into()))?;
+            let gp = parent.parent().ok_or(PermError::Io)?.canon().map_err(|_| PermError::ReadOnly(crate::i18n::Fail::FolderMissing.str().into()))?;
             gp.join(parent.file_name().ok_or(PermError::Io)?)
         }
     };

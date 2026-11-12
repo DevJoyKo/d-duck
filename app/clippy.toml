@@ -1,2 +1,7 @@
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
+# windows-support decision 1: every canonical path goes through dduck_core::platform::canon (no `\\?\` on Windows).
+disallowed-methods = [
+    { path = "std::fs::canonicalize", reason = "use dduck_core::platform::canon" },
+    { path = "std::path::Path::canonicalize", reason = "use dduck_core::platform::canon / CanonExt" },
+]

@@ -2,6 +2,7 @@
 //! `description` of each file are read (64 KB cap, no symlinks); usage comes from `command_invocations` alone so a
 //! Skill tool call is not counted twice (design review MAJOR).
 
+use crate::platform::CanonExt;
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -232,12 +233,12 @@ pub(crate) fn workflows_in(dir: &Path, source: SkillSource, scope: Option<&Path>
 /// given folders and 8 parents each. Stops before the home folder and the root, and never returns a parent
 /// whose `.claude` is the user config folder.
 pub fn with_parents(config_dir: &Path, project_dirs: &[PathBuf]) -> Vec<PathBuf> {
-    let home = std::env::var_os("HOME").map(PathBuf::from).and_then(|h| h.canonicalize().ok());
-    let cfg = config_dir.canonicalize().ok();
+    let home = crate::platform::home().and_then(|h| h.canon().ok());
+    let cfg = config_dir.canon().ok();
     let mut seen = std::collections::BTreeSet::new();
     let mut out = Vec::new();
     for p in project_dirs.iter().take(40) {
-        let Ok(c) = p.canonicalize() else { continue };
+        let Ok(c) = p.canon() else { continue };
         if seen.insert(c.clone()) {
             out.push(c.clone());
         }
@@ -246,7 +247,7 @@ pub fn with_parents(config_dir: &Path, project_dirs: &[PathBuf]) -> Vec<PathBuf>
                 break;
             }
             let claude = a.join(".claude");
-            if !real_dir(&claude) || cfg.is_some() && claude.canonicalize().ok() == cfg {
+            if !real_dir(&claude) || cfg.is_some() && claude.canon().ok() == cfg {
                 continue;
             }
             if seen.insert(a.to_path_buf()) {
@@ -368,7 +369,7 @@ mod tests {
         let defs = discover(&cfg, std::slice::from_ref(&proj));
         let wf = defs.iter().find(|d| d.name == "pin-audit").expect("parent workflow listed");
         assert_eq!((wf.kind, wf.source), ("workflow", SkillSource::Project));
-        assert_eq!(wf.scope.as_deref(), Some(ws.canonicalize().unwrap().to_str().unwrap()));
+        assert_eq!(wf.scope.as_deref(), Some(ws.canon().unwrap().to_str().unwrap()));
         assert!(defs.iter().any(|d| d.name == "np-do"));
         // Listed once even when the parent is also a project folder itself.
         let both = discover(&cfg, &[proj.clone(), ws.clone()]);

@@ -8,6 +8,7 @@
 //! Everything injected is built here from constants; the webview never supplies rules. Scope lookups return
 //! `Result`: a caller that cannot tell the scope must refuse the start, never fall back to `draft_pr`.
 
+use crate::platform::CanonExt;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -216,7 +217,7 @@ const PROTO_KEYS: &[(&str, &str)] = &[
 
 /// Where the app keeps the local-only global git config (inside its own data folder).
 pub fn global_config_path(home: &Path) -> PathBuf {
-    home.join("Library/Application Support/dev.dduck.desktop/local-only-gitconfig")
+    crate::platform::app_data_under(home).join("local-only-gitconfig")
 }
 
 /// Writes the local-only global git config: only identity and harmless keys copied from the user's own global config
@@ -440,7 +441,7 @@ pub fn start_ctx_with(conn: &Connection, cwd: &Path, home: Option<&Path>, worktr
 /// [`start_ctx_with`] from an already-read "로컬만" list, so the caller need not hold the DB during the git reads and
 /// the hook self-test (up to 10 s) that follow (D-161).
 pub fn start_ctx_for_items(items: &[LocalOnlyItem], cwd: &Path, home: Option<&Path>, worktree_possible: bool, hook_exe: Option<&Path>, global_config: Option<&Path>) -> Result<StartCtx, &'static str> {
-    let folder = cwd.canonicalize().map_err(|_| UNREADABLE)?;
+    let folder = cwd.canon().map_err(|_| UNREADABLE)?;
     let repo = repo_info(&folder, home).map_err(|_| UNREADABLE)?;
     let guard = guard_for(&folder, repo.as_ref(), items);
     let (detected, on_default, head) = match &repo {
@@ -519,10 +520,10 @@ impl ManagedSources {
         ManagedSources { files, dropin_dirs: vec![PathBuf::from("/Library/Application Support/ClaudeCode/managed-settings.d")], plists }
     }
 
-    /// From the environment: `CLAUDE_CONFIG_DIR` or `~/.claude`, and `USER`.
+    /// From the environment: `CLAUDE_CONFIG_DIR` or `~/.claude`, and the login name.
     pub fn from_env(config_dir: Option<&Path>) -> Self {
-        let cfg = config_dir.map(Path::to_path_buf).or_else(|| std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from)).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".claude")));
-        let user = std::env::var("USER").ok();
+        let cfg = config_dir.map(Path::to_path_buf).or_else(|| std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from)).or_else(|| crate::platform::home().map(|h| h.join(".claude")));
+        let user = crate::platform::user_name();
         Self::system(cfg.as_deref(), user.as_deref())
     }
 
@@ -620,7 +621,7 @@ fn read_small(p: &Path) -> std::io::Result<String> {
 /// worktree git dir whose `commondir` is the shared one). Stops below `home` (the home folder itself is never a
 /// project root) and after 40 levels. `Ok(None)` = not inside a repository; a `.git` that cannot be read is `Err`.
 pub fn repo_info(cwd: &Path, home: Option<&Path>) -> Result<Option<RepoInfo>, Error> {
-    let home_key = home.and_then(|h| h.canonicalize().ok()).map(|h| norm_key(&h));
+    let home_key = home.and_then(|h| h.canon().ok()).map(|h| norm_key(&h));
     let mut cur = Some(cwd);
     let mut depth = 0;
     while let Some(dir) = cur {
@@ -634,14 +635,14 @@ pub fn repo_info(cwd: &Path, home: Option<&Path>) -> Result<Option<RepoInfo>, Er
                 let text = read_small(&dot)?;
                 let line = text.lines().next().unwrap_or("");
                 let target = line.strip_prefix("gitdir:").map(str::trim).filter(|t| !t.is_empty()).ok_or(Error::Config("unreadable .git file"))?;
-                let gitdir = dir.join(target).canonicalize()?;
+                let gitdir = dir.join(target).canon()?;
                 let common = match read_small(&gitdir.join("commondir")) {
                     Ok(c) => {
                         let c = c.trim();
                         if c.is_empty() {
                             return Err(Error::Config("unreadable commondir"));
                         }
-                        gitdir.join(c).canonicalize()?
+                        gitdir.join(c).canon()?
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => gitdir.clone(),
                     Err(e) => return Err(e.into()),
@@ -710,7 +711,7 @@ pub fn checked_folder(p: &Path) -> Option<PathBuf> {
     if meta.file_type().is_symlink() || !meta.is_dir() {
         return None;
     }
-    p.canonicalize().ok()
+    p.canon().ok()
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1029,7 +1030,7 @@ pub fn post_check(conn: &Connection, bg_id: &str, home: Option<&Path>, now_s: i6
         .optional()?;
     let Some((Some(cwd), Some(code), created_ms, branch, head)) = row else { return Ok(None) };
     let Some(guard) = Guard::from_code(&code) else { return Ok(None) };
-    let Ok(folder) = Path::new(&cwd).canonicalize() else { return Ok(None) };
+    let Ok(folder) = Path::new(&cwd).canon() else { return Ok(None) };
     let Some(repo) = repo_info(&folder, home)? else { return Ok(None) };
     let pushed = push_detected(&repo.common_dir, guard, branch.as_deref(), created_ms / 1000 - 1, now_s + 1)?;
     let b = branch.clone().unwrap_or_else(|| "main".into());
@@ -1725,7 +1726,7 @@ fn path_is_git(prog: &str, scan: &Scan) -> bool {
             None => base.join(prog),
         }
     };
-    match p.canonicalize() {
+    match p.canon() {
         Ok(real) => real.file_name().map(|n| n.to_string_lossy().into_owned()).is_some_and(|n| is_git_like(&n)),
         Err(_) => !prog.starts_with('/'),
     }
@@ -1958,7 +1959,7 @@ mod tests {
     #[test]
     fn app_git_never_runs_planted_fsmonitor() {
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let repo = base.join("r");
         std::fs::create_dir(&repo).unwrap();
         init_repo(&repo);
@@ -2047,7 +2048,7 @@ mod tests {
     fn start_ctx_forces_worktree_on_default_and_refuses_bad_list() {
         let conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let repo = t.path().canonicalize().unwrap().join("r");
+        let repo = t.path().canon().unwrap().join("r");
         std::fs::create_dir(&repo).unwrap();
         init_repo(&repo);
         let s = start_ctx(&conn, &repo, None, true, None).unwrap();
@@ -2347,7 +2348,7 @@ mod tests {
     #[test]
     fn hook_relative_and_linked_programs() {
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         #[cfg(unix)]
         std::os::unix::fs::symlink("/usr/bin/git", base.join("g")).unwrap();
         std::fs::write(base.join("build.sh"), "#!/bin/sh\n").unwrap();
@@ -2381,7 +2382,7 @@ mod tests {
         assert_eq!(v["env"]["GIT_CONFIG_GLOBAL"], "/dev/null");
         // A local bare remote: with the env every push form fails before any transport, and the remote stays empty.
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let remote = base.join("remote.git");
         assert!(Command::new("git").args(["init", "-q", "--bare"]).arg(&remote).status().unwrap().success());
         let work = base.join("w");
@@ -2419,7 +2420,7 @@ mod tests {
         // the protocol rules still refuse the transport. A `-c` override is denied by the hook (not tested here:
         // command-line config is the same scope as the backstop and the later one wins).
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let remote = base.join("remote.git");
         assert!(Command::new("git").args(["init", "-q", "--bare"]).arg(&remote).status().unwrap().success());
         let work = base.join("w");
@@ -2476,9 +2477,9 @@ mod tests {
     #[test]
     fn local_only_global_config_keeps_identity_only() {
         let t = tempfile::tempdir().unwrap();
-        let home = t.path().canonicalize().unwrap();
+        let home = t.path().canon().unwrap();
         std::fs::write(home.join(".gitconfig"), "[user]\n\tname = Kim \"K\"\n\temail = k@example.invalid\n[url \"x\"]\n\tpushInsteadOf = y\n[alias]\n\tp = push\n[core]\n\tsshCommand = evil\n").unwrap();
-        let path = home.join("Library/Application Support/dev.dduck.desktop/local-only-gitconfig");
+        let path = if cfg!(windows) { home.join(r"AppData\Local\dev.dduck.desktop\local-only-gitconfig") } else { home.join("Library/Application Support/dev.dduck.desktop/local-only-gitconfig") };
         assert_eq!(global_config_path(&home), path);
         write_global_config(&path, &home).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -2497,7 +2498,7 @@ mod tests {
     fn second_clone_matches_by_origin_slug() {
         let conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let mk = |name: &str| {
             let d = base.join(name);
             std::fs::create_dir(&d).unwrap();
@@ -2534,7 +2535,7 @@ mod tests {
     fn post_check_stores_alert_bits() {
         let conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let remote = base.join("remote.git");
         assert!(Command::new("git").args(["init", "-q", "--bare"]).arg(&remote).status().unwrap().success());
         let work = base.join("w");
@@ -2634,7 +2635,7 @@ mod tests {
     #[test]
     fn repo_info_worktrees_and_guard() {
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let client = base.join("client");
         std::fs::create_dir_all(client.join("packages/api")).unwrap();
         init_repo(&client);
@@ -2643,13 +2644,13 @@ mod tests {
         // External `git worktree add`
         let wt = base.join("wt");
         assert!(Command::new("git").arg("-C").arg(&client).args(["worktree", "add", "-q", "-b", "fix-1"]).arg(&wt).status().unwrap().success());
-        let wt_info = repo_info(&wt.canonicalize().unwrap(), None).unwrap().unwrap();
+        let wt_info = repo_info(&wt.canon().unwrap(), None).unwrap().unwrap();
         assert_eq!(wt_info.root, client, "worktree resolves to its main repository");
         // D.Duck worktree location
         let dd = client.join(".claude/worktrees/x");
         assert!(Command::new("git").arg("-C").arg(&client).args(["worktree", "add", "-q", "-b", "x"]).arg(&dd).status().unwrap().success());
         let items = vec![LocalOnlyItem { folder: client.to_string_lossy().into(), root: client.to_string_lossy().into(), slug: None }];
-        for cwd in [client.clone(), client.join("packages/api"), wt.canonicalize().unwrap(), dd.canonicalize().unwrap()] {
+        for cwd in [client.clone(), client.join("packages/api"), wt.canon().unwrap(), dd.canon().unwrap()] {
             let r = repo_info(&cwd, None).unwrap();
             assert_eq!(guard_for(&cwd, r.as_ref(), &items), Guard::LocalOnly, "{}", cwd.display());
         }
@@ -2681,7 +2682,7 @@ mod tests {
         let conn = crate::db::open_in_memory().unwrap();
         assert_eq!(guard_for_folder(&conn, Path::new("/x"), None).unwrap(), Guard::DraftPr);
         let t = tempfile::tempdir().unwrap();
-        let dir = t.path().canonicalize().unwrap();
+        let dir = t.path().canon().unwrap();
         add(&conn, &dir, None).unwrap();
         add(&conn, &dir, None).unwrap();
         let items = load_items(&conn).unwrap();
@@ -2699,7 +2700,7 @@ mod tests {
     #[test]
     fn checked_folder_rejects_links_and_files() {
         let t = tempfile::tempdir().unwrap();
-        let dir = t.path().canonicalize().unwrap();
+        let dir = t.path().canon().unwrap();
         let real = dir.join("real");
         std::fs::create_dir(&real).unwrap();
         std::fs::write(dir.join("f"), "x").unwrap();
@@ -2718,7 +2719,7 @@ mod tests {
         assert!(!default_moved(Some("a"), Some("a")));
         assert!(!default_moved(None, Some("a")));
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let remote = base.join("remote.git");
         assert!(Command::new("git").args(["init", "-q", "--bare"]).arg(&remote).status().unwrap().success());
         let work = base.join("work");

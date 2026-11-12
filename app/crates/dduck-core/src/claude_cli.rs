@@ -527,7 +527,7 @@ impl TaskSpec {
             self.origin = Some(Origin::InsightClaude);
         }
         let Some(origin) = self.origin else { return Ok(()) };
-        let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+        let canon = |p: &std::path::Path| crate::platform::canon(p).unwrap_or_else(|_| p.to_path_buf());
         let at_home = canon(&self.cwd) == canon(home);
         if origin != Origin::InsightClaude && !at_home {
             return Ok(());

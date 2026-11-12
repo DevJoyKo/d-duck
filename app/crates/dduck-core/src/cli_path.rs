@@ -178,7 +178,7 @@ pub fn effective_config_dir(setting: Option<&Path>, probe: &ShellProbe, home: &P
 }
 
 fn same_dir(a: &Path, b: &Path) -> bool {
-    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+    match (crate::platform::canon(a), crate::platform::canon(b)) {
         (Ok(x), Ok(y)) => x == y,
         _ => a.components().eq(b.components()),
     }
@@ -250,7 +250,7 @@ pub fn validate(candidate: &Path) -> Result<CliInfo, Rejection> {
     if !allowed.contains(&name) {
         return Err(Rejection::WrongName);
     }
-    let real = std::fs::canonicalize(candidate).map_err(|_| Rejection::NotFound)?;
+    let real = crate::platform::canon(candidate).map_err(|_| Rejection::NotFound)?;
     let meta = std::fs::metadata(&real).map_err(|_| Rejection::NotFound)?;
     if !meta.is_file() {
         return Err(Rejection::NotRegularFile);

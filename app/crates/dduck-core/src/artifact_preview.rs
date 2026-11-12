@@ -83,7 +83,7 @@ pub struct Allowed {
 impl Allowed {
     /// The real locations for this user. `None` when the home folder cannot be resolved.
     pub fn for_user(home: &Path) -> Option<Self> {
-        let home = std::fs::canonicalize(home).ok()?;
+        let home = crate::platform::canon(home).ok()?;
         Some(Allowed { home, tmp: user_tmp() })
     }
 
@@ -468,7 +468,7 @@ fn open_source(path: &Path, allowed: &Allowed) -> Result<(File, std::fs::Metadat
         return Err(PreviewError::Refused);
     }
     let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else { return Err(PreviewError::Refused) };
-    let parent = std::fs::canonicalize(parent).map_err(|e| io_reason(&e))?;
+    let parent = crate::platform::canon(parent).map_err(|e| io_reason(&e))?;
     let lexical = parent.join(name);
     if !allowed.permits(&lexical) {
         return Err(PreviewError::Refused);
@@ -593,7 +593,7 @@ mod tests {
 
     fn fx() -> Fx {
         let dir = tempfile::tempdir().unwrap();
-        let base = std::fs::canonicalize(dir.path()).unwrap();
+        let base = crate::platform::canon(dir.path()).unwrap();
         let home = base.join("home");
         std::fs::create_dir_all(home.join("proj")).unwrap();
         std::fs::create_dir_all(base.join("outside")).unwrap();

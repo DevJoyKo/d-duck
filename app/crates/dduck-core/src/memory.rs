@@ -10,6 +10,7 @@
 //! regular with one link, and writes go through the guarded save of `agents_catalog` (hash, inode, temp + rename).
 //! Secrets are only detected (kind and line), never returned or logged.
 
+use crate::platform::CanonExt;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
@@ -150,7 +151,7 @@ fn read_json(path: &Path) -> Option<serde_json::Value> {
 pub fn memory_dir(config_dir: &Path, custom: Option<&Path>, id: &str) -> Result<PathBuf, MemError> {
     if id == CUSTOM_ID {
         let c = custom.ok_or(MemError::NotFound)?;
-        let canon = c.canonicalize().map_err(|_| MemError::NotFound)?;
+        let canon = c.canon().map_err(|_| MemError::NotFound)?;
         if canon != c || !is_real_dir(c) {
             return Err(MemError::Unsafe(crate::i18n::Fail::MemDirLinked.str()));
         }
@@ -1134,7 +1135,7 @@ pub fn resolve_keys(candidates: &[PathBuf]) -> std::collections::BTreeMap<String
     let mut out: std::collections::BTreeMap<String, Option<PathBuf>> = Default::default();
     let mut seen = std::collections::BTreeSet::new();
     for c in candidates {
-        let Ok(canon) = c.canonicalize() else { continue };
+        let Ok(canon) = c.canon() else { continue };
         if !canon.is_dir() || !seen.insert(canon.clone()) {
             continue;
         }
@@ -1716,8 +1717,8 @@ mod tests {
         assert_eq!((main.on, main.off, main.empty), (2, 0, false));
         assert!(rows.iter().find(|r| r.id == "-Users-me-app").unwrap().empty);
         assert_eq!(rows.iter().find(|r| r.id.contains("worktrees")).unwrap().parent.as_deref(), Some("-Users-me"));
-        let key = project_key(&real.canonicalize().unwrap());
-        assert_eq!(resolve_keys(std::slice::from_ref(&real)).get(&key).cloned().flatten(), Some(real.canonicalize().unwrap()));
+        let key = project_key(&real.canon().unwrap());
+        assert_eq!(resolve_keys(std::slice::from_ref(&real)).get(&key).cloned().flatten(), Some(real.canon().unwrap()));
     }
 
     #[test]

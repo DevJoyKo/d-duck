@@ -505,7 +505,7 @@ fn real_dir(root: &Path, id: &str) -> Result<PathBuf, ReportError> {
             return Err(ReportError::Refused);
         }
     }
-    let real_root = std::fs::canonicalize(root).map_err(|_| ReportError::Unknown)?;
+    let real_root = crate::platform::canon(root).map_err(|_| ReportError::Unknown)?;
     Ok(real_root.join(id))
 }
 
@@ -874,7 +874,7 @@ mod tests {
 
     fn root() -> (tempfile::TempDir, PathBuf) {
         let t = tempfile::tempdir().unwrap();
-        let r = std::fs::canonicalize(t.path()).unwrap().join(DIR_NAME);
+        let r = crate::platform::canon(t.path()).unwrap().join(DIR_NAME);
         (t, r)
     }
 

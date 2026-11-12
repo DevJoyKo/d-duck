@@ -11,6 +11,7 @@
 //!   canonicalized once), files must be regular with one link, saves go through the guarded temp + rename.
 //! - Rule text is never logged, stored or put into an error. Git is never run (`memory::git_tracked`).
 
+use crate::platform::CanonExt;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
@@ -90,7 +91,7 @@ const NO_HOME_REASON: crate::i18n::Fail = crate::i18n::Fail::NoHomeRules;
 /// `Some(reason)` when `real` (canonical project folder) is the home folder or home cannot be resolved.
 /// Compared by device + inode of the canonical folders, so links and case differences do not slip through.
 fn home_refusal(real: &Path, home: Option<&Path>) -> Option<&'static str> {
-    let Some(h) = home.filter(|h| !h.as_os_str().is_empty()).and_then(|h| h.canonicalize().ok()) else { return Some(NO_HOME_REASON.str()) };
+    let Some(h) = home.filter(|h| !h.as_os_str().is_empty()).and_then(|h| h.canon().ok()) else { return Some(NO_HOME_REASON.str()) };
     match (std::fs::symlink_metadata(real), std::fs::symlink_metadata(&h)) {
         (Ok(a), Ok(b)) => {
             let ((ad, ai, _), (bd, bi, _)) = (ids(&a), ids(&b));
@@ -133,13 +134,13 @@ fn ids(_m: &std::fs::Metadata) -> (u64, u64, u64) {
 }
 
 fn base(roots: &Roots, scope: Scope) -> Option<Base> {
-    let user_settings_real = roots.config_dir.canonicalize().ok().map(|c| c.join("settings.json"));
+    let user_settings_real = roots.config_dir.canon().ok().map(|c| c.join("settings.json"));
     match scope {
         Scope::Global => {
-            let real = roots.config_dir.canonicalize().ok().filter(|c| is_real_dir(c));
+            let real = roots.config_dir.canon().ok().filter(|c| is_real_dir(c));
             let target = real.as_ref().map_or_else(|| roots.config_dir.join("settings.json"), |c| c.join("settings.json"));
             let mut layers = vec![target.clone()];
-            if let Some(p) = roots.project.as_ref().and_then(|p| p.canonicalize().ok()).filter(|p| home_refusal(p, roots.home.as_deref()).is_none()) {
+            if let Some(p) = roots.project.as_ref().and_then(|p| p.canon().ok()).filter(|p| home_refusal(p, roots.home.as_deref()).is_none()) {
                 layers.push(p.join(".claude").join("settings.json"));
                 layers.push(p.join(".claude").join("settings.local.json"));
             }
@@ -156,7 +157,7 @@ fn base(roots: &Roots, scope: Scope) -> Option<Base> {
         }
         Scope::Project => {
             let shown = roots.project.as_ref()?;
-            let real = shown.canonicalize().ok().filter(|c| is_real_dir(c))?;
+            let real = shown.canon().ok().filter(|c| is_real_dir(c))?;
             // Also refused when `<project>/.claude` is the Claude config folder itself (project-switcher).
             let env = crate::projects::Env { config_dir: &roots.config_dir, custom: None, home: roots.home.as_deref() };
             let refused = home_refusal(&real, roots.home.as_deref()).or_else(|| (!roots.config_dir.as_os_str().is_empty()).then(|| crate::projects::home_like(&real, &env)).flatten());
@@ -905,7 +906,7 @@ fn row(b: &Base, layers: &[(PathBuf, Settings)], f: &Found) -> RuleRow {
     let shown = b.shown_rules.join(&f.rel);
     let shown_s = shown.display().to_string();
     let link = f.meta.file_type().is_symlink();
-    let target = if link { f.real.canonicalize().ok() } else { None };
+    let target = if link { f.real.canon().ok() } else { None };
     let dir_link = link && target.as_ref().is_some_and(|t| t.is_dir());
     let mut candidates = vec![shown_s.clone(), f.real.display().to_string()];
     if let Some(t) = &target {
@@ -1099,7 +1100,7 @@ pub fn read(roots: &Roots, id: &str) -> Result<RuleDoc, RuleError> {
     let r = resolve(roots, id)?;
     if r.row.link && !r.row.dir_link {
         // Read-only view of the target. Nothing here can be saved.
-        let text = std::fs::canonicalize(&r.found.real).ok().as_deref().and_then(link_text).unwrap_or_default();
+        let text = crate::platform::canon(&r.found.real).ok().as_deref().and_then(link_text).unwrap_or_default();
         let fm = parse_fm(&text);
         return Ok(RuleDoc {
             body: text[fm.body_start.min(text.len())..].to_string(),
@@ -1519,7 +1520,7 @@ mod tests {
 
     fn env() -> Env {
         let tmp = tempfile::tempdir().unwrap();
-        let base = tmp.path().canonicalize().unwrap();
+        let base = tmp.path().canon().unwrap();
         let config = base.join("cfg");
         let project = base.join("proj");
         std::fs::create_dir_all(config.join("rules")).unwrap();
@@ -1608,11 +1609,11 @@ mod tests {
     #[test]
     fn links_are_read_only_but_can_be_turned_off() {
         let e = env();
-        let shared = e._tmp.path().canonicalize().unwrap().join("shared.md");
+        let shared = e._tmp.path().canon().unwrap().join("shared.md");
         std::fs::write(&shared, "---\npaths:\n  - a\n---\nsecret body\n").unwrap();
         let rules = e.project.join(".claude/rules");
         std::os::unix::fs::symlink(&shared, rules.join("security.md")).unwrap();
-        let outside_dir = e._tmp.path().canonicalize().unwrap().join("shared-dir");
+        let outside_dir = e._tmp.path().canon().unwrap().join("shared-dir");
         std::fs::create_dir(&outside_dir).unwrap();
         std::fs::write(outside_dir.join("in.md"), "x").unwrap();
         std::os::unix::fs::symlink(&outside_dir, rules.join("shared")).unwrap();
@@ -1729,7 +1730,7 @@ mod tests {
         std::fs::write(e.config.join("rules/g.md"), "g").unwrap();
         std::fs::write(e.project.join(".claude/rules/p.md"), "p").unwrap();
         // The project is the home folder (reached through a link, so the paths differ but dev+ino match).
-        let base = e._tmp.path().canonicalize().unwrap();
+        let base = e._tmp.path().canon().unwrap();
         #[cfg(unix)]
         std::os::unix::fs::symlink(&e.project, base.join("home-link")).unwrap();
         for home in [Some(e.project.clone()), cfg!(unix).then(|| base.join("home-link"))].into_iter().flatten() {
@@ -1791,7 +1792,7 @@ mod tests {
     #[test]
     fn excludes_match_the_canonical_path() {
         let e = env();
-        let base = e._tmp.path().canonicalize().unwrap();
+        let base = e._tmp.path().canon().unwrap();
         std::os::unix::fs::symlink(&e.project, base.join("plink")).unwrap();
         std::fs::write(e.project.join(".claude/rules/t.md"), "t").unwrap();
         let canonical = e.project.join(".claude/rules/t.md").display().to_string();

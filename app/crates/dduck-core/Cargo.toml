@@ -38,3 +38,7 @@ expect_used = "deny"
 
 [target."cfg(unix)".dependencies]
 libc = "0.2.191"
+
+# windows-support: canonical paths without `\\?\` (platform::canon). Already in the tree via Tauri.
+[target."cfg(windows)".dependencies]
+dunce = "1.0.5"

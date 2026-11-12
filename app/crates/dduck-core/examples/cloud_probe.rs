@@ -1,4 +1,5 @@
 //! Real check for cloud routines (D-066): guarded headless run → parse → clean. Prints names and dates only.
+use dduck_core::platform::CanonExt;
 use dduck_core::{claude_cli::ClaudeCli, cli_path, cloud_routines as cr};
 
 fn main() -> Result<(), String> {
@@ -27,7 +28,7 @@ fn main() -> Result<(), String> {
         println!("cleaned leftovers: {}", !l.exists());
     }
     cr::clean_cwd_project(&projects, &cwd);
-    println!("project folder removed: {}", !projects.join(cr::project_key(&cwd.canonicalize().map_err(|e| e.to_string())?)).exists());
+    println!("project folder removed: {}", !projects.join(cr::project_key(&cwd.canon().map_err(|e| e.to_string())?)).exists());
     let list = parsed.list.ok_or("empty")?;
     println!("{} routines, cost {:?}, {:?}", list.routines.len(), list.cost_usd, t.elapsed());
     for r in &list.routines {

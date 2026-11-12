@@ -415,6 +415,7 @@ pub fn new_nonce() -> Option<String> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    use crate::platform::CanonExt;
     use super::*;
 
     const ID: &str = "trig_01ABC";
@@ -534,9 +535,9 @@ mod tests {
     #[test]
     #[ignore = "needs the built app binary in DDUCK_BIN"]
     fn built_guard_passes_self_test() {
-        let bin = std::path::PathBuf::from(std::env::var("DDUCK_BIN").unwrap()).canonicalize().unwrap();
+        let bin = std::path::PathBuf::from(std::env::var("DDUCK_BIN").unwrap()).canon().unwrap();
         let tmp = tempfile::tempdir().unwrap();
-        let dir = tmp.path().canonicalize().unwrap().join("cloud-routines").join("once");
+        let dir = tmp.path().canon().unwrap().join("cloud-routines").join("once");
         std::fs::create_dir_all(&dir).unwrap();
         let nonce = new_nonce().unwrap();
         let e = upd();

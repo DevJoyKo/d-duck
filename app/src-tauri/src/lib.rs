@@ -18,6 +18,7 @@ mod lifecycle_cmds;
 mod timing;
 mod workflow_check_cmds;
 
+use dduck_core::platform::CanonExt;
 use dduck_core::i18n::Fail;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
@@ -177,8 +178,9 @@ impl AppState {
     }
 }
 
+/// `HOME` on macOS, `USERPROFILE` first on Windows (windows-support decision 1); empty when neither is set.
 fn home_dir() -> PathBuf {
-    std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from).unwrap_or_default()
+    dduck_core::platform::home().unwrap_or_default()
 }
 
 // ---------- ingestion worker ----------
@@ -729,7 +731,8 @@ fn app_data_dir<R: tauri::Runtime, M: Manager<R>>(app: &M) -> tauri::Result<std:
         std::fs::create_dir_all(&dir)?;
         return Ok(dir);
     }
-    app.path().app_data_dir()
+    // Windows: `%LOCALAPPDATA%`, not the roaming folder, so app data never syncs to other machines (decision 5).
+    if cfg!(windows) { app.path().app_local_data_dir() } else { app.path().app_data_dir() }
 }
 
 #[tauri::command(async)]
@@ -1800,10 +1803,10 @@ fn permission_projects(state: &AppState) -> Res<Vec<PathBuf>> {
             dirs.push(PathBuf::from(c));
         }
     }
-    let home = home_dir().canonicalize().ok();
+    let home = home_dir().canon().ok();
     let mut out: Vec<PathBuf> = Vec::new();
     for d in dirs {
-        let Ok(c) = d.canonicalize() else { continue };
+        let Ok(c) = d.canon() else { continue };
         if c.is_dir() && Some(&c) != home.as_ref() && c.parent().is_some() && !out.contains(&c) {
             out.push(c);
         }
@@ -1951,7 +1954,7 @@ fn loadout_env(state: &AppState, cwd: &std::path::Path, team: Option<&str>) -> d
     use dduck_core::loadout;
     let names: std::collections::BTreeSet<String> = dduck_core::team_config::load(team).types.iter().flat_map(|t| t.def.skills.iter().map(|s| s.name.clone())).collect();
     let Ok(cfg) = state.config.read().map(|c| c.clone()) else { return loadout::Env { mcp_unreadable: true, ..loadout::Env::default() } };
-    let canon = std::fs::canonicalize(cwd).ok();
+    let canon = dduck_core::platform::canon(cwd).ok();
     let scan = if names.is_empty() { loadout::SkillScan::default() } else { loadout::scan_skills(&cfg.path, canon.as_slice(), Some(&names)) };
     let file = dduck_core::mcp_config::user_file(&home_dir(), cfg.explicit.then_some(cfg.path.as_path()));
     let list = dduck_core::mcp_config::list(&file, canon.as_deref());
@@ -1962,7 +1965,7 @@ fn loadout_env(state: &AppState, cwd: &std::path::Path, team: Option<&str>) -> d
 /// "먼저 살펴볼 스킬·에이전트" installed for one folder (preferred-skills): the extension and agent catalog readers,
 /// with project items from `cwd` and its ancestors only and agents usable there. Read only when the list is not empty (the bundled default counts, preferred-default).
 fn preferred_for(config_dir: &std::path::Path, cwd: &std::path::Path) -> Vec<dduck_core::preferred::Available> {
-    let canon = std::fs::canonicalize(cwd).ok();
+    let canon = dduck_core::platform::canon(cwd).ok();
     let skills = dduck_core::skills_catalog::discover(config_dir, canon.as_slice());
     let roots = agents_catalog::Roots { config_dir: config_dir.to_path_buf(), project_dirs: Vec::new() };
     let agents = agents_catalog::discover_for(&roots, canon.as_deref());
@@ -2343,7 +2346,7 @@ fn deny_scopes(state: &AppState, cwd: Option<&std::path::Path>) -> Res<Vec<dduck
     let mut out = vec![p::read_scope(&config_dir.join("settings.json"))];
     out.extend(p::managed(&p::default_managed_roots(), &p::default_mdm_files()).sources);
     let mut dirs = permission_projects(state)?;
-    if let Some(c) = cwd.and_then(|c| c.canonicalize().ok()) {
+    if let Some(c) = cwd.and_then(|c| c.canon().ok()) {
         dirs.extend(c.ancestors().take(12).map(std::path::Path::to_path_buf));
     }
     for d in dirs {
@@ -2724,7 +2727,7 @@ async fn start_task(app: AppHandle, mut spec: TaskSpec, start_id: Option<String>
             }
             (Some(mode), _) => {
                 // Show exactly what will run, so a request altered in the webview cannot be approved blindly.
-                let cwd = std::fs::canonicalize(&spec.cwd).unwrap_or_else(|_| spec.cwd.clone());
+                let cwd = dduck_core::platform::canon(&spec.cwd).unwrap_or_else(|_| spec.cwd.clone());
                 let mut preview = dduck_core::text::display_safe(&spec.prompt.replace('\n', " "), 200);
                 if spec.prompt.chars().count() > 200 {
                     preview.push('…');
@@ -2933,7 +2936,7 @@ const TRUST_WAIT: Duration = Duration::from_secs(180);
 /// The folder is not trusted yet (D-047): ask, open Claude in that folder so the user can accept the trust prompt,
 /// watch Claude's config (read-only) until the folder is trusted, then start the task again.
 fn trust_then_retry(app: &AppHandle, client: &ClaudeCli, spec: &TaskSpec, stderr_tail: String) -> Result<String, CliError> {
-    let dir = std::fs::canonicalize(&spec.cwd).unwrap_or_else(|_| spec.cwd.clone());
+    let dir = dduck_core::platform::canon(&spec.cwd).unwrap_or_else(|_| spec.cwd.clone());
     let ok = app
         .dialog()
         .message(trp(C::DlgTrustBody, &P::new().text("folder", &dir.display().to_string(), 200)))
@@ -3538,7 +3541,7 @@ async fn review_inbox(app: AppHandle, project: Option<String>, filter: dduck_cor
         let scope = match project {
             Some(id) => {
                 let folder = projects_cmds::usable_folder(&state, &id)?;
-                Some(std::fs::canonicalize(folder).map_err(|_| Fail::ProjectFolderMissing.now())?)
+                Some(dduck_core::platform::canon(folder).map_err(|_| Fail::ProjectFolderMissing.now())?)
             }
             None => None,
         };

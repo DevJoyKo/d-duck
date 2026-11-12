@@ -33,7 +33,7 @@ pub struct TranscriptFile {
 
 /// `<config>/projects`, canonicalized. Returns `None` when it does not exist.
 pub fn projects_root(config_dir: &Path) -> Option<PathBuf> {
-    std::fs::canonicalize(config_dir.join("projects")).ok().filter(|p| p.is_dir())
+    crate::platform::canon(config_dir.join("projects")).ok().filter(|p| p.is_dir())
 }
 
 pub fn discover(root: &Path) -> Vec<TranscriptFile> {
@@ -61,7 +61,7 @@ pub fn classify(root: &Path, path: &Path) -> Option<TranscriptFile> {
         return None;
     }
     let rel = path.strip_prefix(root).ok()?;
-    let canonical = std::fs::canonicalize(path).ok()?;
+    let canonical = crate::platform::canon(path).ok()?;
     if canonical != root.join(rel) {
         return None;
     }

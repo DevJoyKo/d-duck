@@ -26,7 +26,7 @@ pub fn is_trusted(config_file: &Path, dir: &Path) -> Option<bool> {
     let text = std::fs::read_to_string(config_file).ok()?;
     let v: serde_json::Value = serde_json::from_str(&text).ok()?;
     let projects = v.get("projects")?.as_object()?;
-    let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    let dir = crate::platform::canon(dir).unwrap_or_else(|_| dir.to_path_buf());
     let trusted = dir.ancestors().any(|p| {
         p.to_str()
             .and_then(|k| projects.get(k))
@@ -45,7 +45,7 @@ mod tests {
     #[test]
     fn reads_trust_for_folder_and_ancestors() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(tmp.path()).unwrap();
+        let root = crate::platform::canon(tmp.path()).unwrap();
         let trusted = root.join("work");
         let child = trusted.join("app");
         let other = root.join("other");

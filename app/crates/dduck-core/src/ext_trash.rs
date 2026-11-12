@@ -6,6 +6,7 @@
 //! and a fingerprint (device, inode, content, and for a skill folder every entry's size and times) re-checked.
 //! Paths are compared as configured; only the project list and the home check are canonical (security review).
 
+use crate::platform::CanonExt;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
@@ -54,14 +55,14 @@ impl TrashRoots {
     pub fn from_configured(config_dir: PathBuf, project_dirs: &[PathBuf], home: &Path) -> Self {
         let (mut projects, mut linked) = (Vec::new(), Vec::new());
         for p in project_dirs {
-            let Ok(c) = p.canonicalize() else { continue };
+            let Ok(c) = p.canon() else { continue };
             if c == *p { projects.push(c) } else { linked.push(c) }
         }
         for v in [&mut projects, &mut linked] {
             v.sort();
             v.dedup();
         }
-        TrashRoots { config_dir, projects, home: home.canonicalize().ok(), linked }
+        TrashRoots { config_dir, projects, home: home.canon().ok(), linked }
     }
 }
 
@@ -382,7 +383,7 @@ mod tests {
 
     fn fixture() -> Fx {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canon().unwrap();
         let cfg = root.join("cfg");
         let proj = root.join("proj");
         write(&cfg.join("skills/standup/SKILL.md"), "---\nname: standup\n---\n");

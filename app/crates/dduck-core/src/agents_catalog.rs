@@ -2,6 +2,7 @@
 //!
 //! The webview only ever sees ids. Every write re-discovers, re-checks the file and is confirmed natively by the shell.
 
+use crate::platform::CanonExt;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -255,7 +256,7 @@ pub fn persona_risk(defs: &[AgentDef], config_dir: &Path, name: &str, cwd: &Path
     if !valid_name(name) {
         return None;
     }
-    let cwd = cwd.canonicalize().ok()?;
+    let cwd = cwd.canon().ok()?;
     let unreadable = Risk { unreadable: true, ..Default::default() };
     for dir in cwd.ancestors() {
         let claude = dir.join(".claude");
@@ -389,7 +390,7 @@ fn scan_dir(dir: &Path, source: Source, scope: Option<&Path>, prefix: Option<&st
 /// Catalog for one folder: also scans `cwd` and its ancestors, and marks which definitions `cwd` can use.
 pub fn discover_for(roots: &Roots, cwd: Option<&Path>) -> Vec<AgentDef> {
     let mut roots = Roots { config_dir: roots.config_dir.clone(), project_dirs: roots.project_dirs.clone() };
-    let canon = cwd.and_then(|c| c.canonicalize().ok());
+    let canon = cwd.and_then(|c| c.canon().ok());
     if let Some(c) = &canon {
         roots.project_dirs.splice(0..0, c.ancestors().take(12).map(Path::to_path_buf));
     }
@@ -408,7 +409,7 @@ pub fn discover(roots: &Roots) -> Vec<AgentDef> {
     let mut out = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
     for p in roots.project_dirs.iter().take(MAX_PROJECT_DIRS) {
-        let Ok(canon) = p.canonicalize() else { continue };
+        let Ok(canon) = p.canon() else { continue };
         if !seen.insert(canon.clone()) {
             continue;
         }
@@ -469,7 +470,7 @@ pub fn resolve_for_cwd<'a>(defs: &'a [AgentDef], name: &str, cwd: &Path) -> Opti
     if !valid_name(name) {
         return None;
     }
-    let cwd = cwd.canonicalize().ok()?;
+    let cwd = cwd.canon().ok()?;
     let mut best: Option<&AgentDef> = None;
     for d in defs.iter().filter(|d| d.name == name) {
         let usable = match d.source {
@@ -980,7 +981,7 @@ mod tests {
         put(&tmp.path().join("abs.md"), &agent("absolute"));
         assert_eq!(plugin_agents(&r), ["kit:reviewer"], "root agents/ only; docs/agents and unlisted files are skipped");
 
-        let abs = tmp.path().join("abs.md").canonicalize().unwrap();
+        let abs = tmp.path().join("abs.md").canon().unwrap();
         let manifest = format!(r#"{{"name":"kit","agents":["./extra/helper.md","./custom/agents","../outside.md","{}"]}}"#, abs.display());
         put(&root.join(".claude-plugin/plugin.json"), &manifest);
         assert_eq!(plugin_agents(&r), ["kit:helper", "kit:reviewer"], "manifest .md files count; folders, `..` and absolute paths do not");

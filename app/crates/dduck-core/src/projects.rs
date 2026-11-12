@@ -5,6 +5,7 @@
 //! again on every call; the webview never sends a path. Candidate folders that are links (canonical path differs
 //! from the one given) are left out. Nothing here is logged.
 
+use crate::platform::CanonExt;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -101,8 +102,8 @@ pub fn valid_id(id: &str) -> bool {
 
 /// The canonical folder when `p` is a real directory that is not reached through a link.
 fn real(p: &Path) -> Option<PathBuf> {
-    let c = p.canonicalize().ok()?;
-    (c == p && std::fs::symlink_metadata(&c).is_ok_and(|m| m.file_type().is_dir())).then_some(c)
+    let c = p.canon().ok()?;
+    (crate::platform::same_path(&c, p) && std::fs::symlink_metadata(&c).is_ok_and(|m| m.file_type().is_dir())).then_some(c)
 }
 
 #[cfg(unix)]
@@ -116,13 +117,13 @@ fn same_file(a: &Path, b: &Path) -> bool {
 
 #[cfg(not(unix))]
 fn same_file(a: &Path, b: &Path) -> bool {
-    matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y)
+    matches!((a.canon(), b.canon()), (Ok(x), Ok(y)) if crate::platform::same_path(&x, &y))
 }
 
 /// `Some(reason)` when a project folder must not get a project scope: it is the home folder (same device and
 /// inode), home is unknown, or its `.claude` is the Claude config folder itself.
 pub fn home_like(canon: &Path, env: &Env) -> Option<&'static str> {
-    let Some(home) = env.home.filter(|h| !h.as_os_str().is_empty()).and_then(|h| h.canonicalize().ok()) else { return Some(NO_HOME_REASON) };
+    let Some(home) = env.home.filter(|h| !h.as_os_str().is_empty()).and_then(|h| h.canon().ok()) else { return Some(NO_HOME_REASON) };
     if same_file(canon, &home) {
         return Some(HOME_REASON);
     }
@@ -191,7 +192,7 @@ pub fn known(env: &Env, candidates: &[Candidate], rule_count: impl Fn(&Path) -> 
     let mut index: HashMap<PathBuf, usize> = HashMap::new();
     let mut missing: Vec<PathBuf> = Vec::new();
     for c in candidates {
-        match c.path.canonicalize() {
+        match c.path.canon() {
             Err(_) if c.path.is_absolute() => missing.push(c.path.clone()),
             Err(_) => {}
             Ok(_) => {
@@ -289,7 +290,7 @@ mod tests {
 
     fn dir(p: &Path) -> PathBuf {
         std::fs::create_dir_all(p).ok();
-        p.canonicalize().unwrap_or_else(|_| p.to_path_buf())
+        p.canon().unwrap_or_else(|_| p.to_path_buf())
     }
 
     #[test]

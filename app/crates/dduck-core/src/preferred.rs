@@ -5,6 +5,7 @@
 //! the same patterns as loadout pins and agent names; descriptions come from third-party files, so they are cleaned
 //! (one line, no markers, length caps) and quoted as data before they reach the system prompt.
 
+use crate::platform::CanonExt;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -67,7 +68,7 @@ pub fn valid_item(i: &PreferredItem) -> bool {
         }
     }
     let scope_ok = |s: &Option<String>| match s {
-        Some(s) => s.starts_with('/') && s.chars().count() <= MAX_SCOPE_CHARS && !s.chars().any(crate::text::is_unsafe_char),
+        Some(s) => crate::platform::is_abs(s) && s.chars().count() <= MAX_SCOPE_CHARS && !s.chars().any(crate::text::is_unsafe_char),
         None => false,
     };
     match i.source.strip_prefix("plugin:") {
@@ -314,7 +315,7 @@ fn enabled_in(path: &Path) -> BTreeMap<String, bool> {
 pub fn plugin_env(config_dir: &Path, contexts: &[Option<&Path>]) -> PluginEnv {
     let cache = config_dir.join("plugins").join("cache");
     let mut caches = vec![cache.clone()];
-    if let Ok(c) = cache.canonicalize() {
+    if let Ok(c) = cache.canon() {
         if c != cache {
             caches.push(c);
         }
@@ -326,7 +327,7 @@ pub fn plugin_env(config_dir: &Path, contexts: &[Option<&Path>]) -> PluginEnv {
     let user = enabled_in(&config_dir.join("settings.json"));
     let mut on = BTreeSet::new();
     for ctx in contexts {
-        let ctx = ctx.and_then(|c| c.canonicalize().ok());
+        let ctx = ctx.and_then(|c| c.canon().ok());
         let layers: Vec<BTreeMap<String, bool>> = match &ctx {
             Some(c) => vec![enabled_in(&c.join(".claude").join("settings.local.json")), enabled_in(&c.join(".claude").join("settings.json")), user.clone()],
             None => vec![user.clone()],
@@ -337,7 +338,7 @@ pub fn plugin_env(config_dir: &Path, contexts: &[Option<&Path>]) -> PluginEnv {
                 continue;
             }
             let here = entries.iter().any(|e| match e.scope.as_deref() {
-                Some("project" | "local") => match (&ctx, e.project_path.as_deref().and_then(|p| Path::new(p).canonicalize().ok())) {
+                Some("project" | "local") => match (&ctx, e.project_path.as_deref().and_then(|p| Path::new(p).canon().ok())) {
                     (Some(c), Some(p)) => c.starts_with(p),
                     _ => false,
                 },
@@ -741,7 +742,7 @@ mod tests {
         let proj = tmp.path().join("proj");
         std::fs::create_dir_all(cfg.join("plugins/cache")).unwrap();
         std::fs::create_dir_all(proj.join(".claude")).unwrap();
-        let proj_s = proj.canonicalize().unwrap().to_string_lossy().to_string();
+        let proj_s = proj.canon().unwrap().to_string_lossy().to_string();
         std::fs::write(
             cfg.join("plugins/installed_plugins.json"),
             format!(

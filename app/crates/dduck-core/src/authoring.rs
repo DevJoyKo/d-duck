@@ -7,6 +7,7 @@
 //! - "Claude에게 부탁하기" jobs write into an app-data folder; the user reviews the result and installs it through
 //!   the same create path.
 
+use crate::platform::CanonExt;
 use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -1354,7 +1355,7 @@ pub fn job_spec(work: &Path, kind: Kind, request: &str) -> Result<crate::claude_
     if req.is_empty() || req.chars().count() > MAX_REQUEST || req.contains('\0') {
         return Err(crate::i18n::ReasonCode::RequestLength.now());
     }
-    let work = work.canonicalize().map_err(|_| crate::i18n::Fail::TaskDirMissing.str().to_string())?;
+    let work = work.canon().map_err(|_| crate::i18n::Fail::TaskDirMissing.str().to_string())?;
     let shown = work.to_string_lossy().to_string();
     if shown.chars().any(|c| c.is_control() || crate::text::is_unsafe_char(c)) {
         return Err(crate::i18n::Fail::JobDirPath.str().into());
@@ -1589,7 +1590,7 @@ mod tests {
         assert!(!args.iter().filter(|a| !a.starts_with("--disallowedTools=")).any(|a| a.starts_with("--add-dir") || a.starts_with("--allowedTools") || a.contains("Bash")), "{args:?}");
         assert!(args[..dash].iter().any(|a| a.starts_with("--disallowedTools=Bash(gh pr merge *)")));
         let sys = args.iter().find(|a| a.starts_with("--append-system-prompt=")).unwrap();
-        assert!(sys.contains("commands/<이름>.md") && sys.contains(&work.canonicalize().unwrap().to_string_lossy().to_string()) && !sys.contains("스탠드업"));
+        assert!(sys.contains("commands/<이름>.md") && sys.contains(&work.canon().unwrap().to_string_lossy().to_string()) && !sys.contains("스탠드업"));
         assert!(job_spec(&work, Kind::Skill, "  ").is_err());
         assert!(job_spec(&tmp.path().join("missing"), Kind::Skill, "x").is_err());
     }
@@ -1902,7 +1903,7 @@ mod tests {
         let user = Target { base: cfg.clone(), project: false };
         let cmd = fill(Kind::Command, "standup", "스탠드업");
         let p = create_item(&user, Kind::Command, "standup", &cmd).unwrap();
-        assert_eq!(p, cfg.canonicalize().unwrap().join("commands/standup.md"));
+        assert_eq!(p, cfg.canon().unwrap().join("commands/standup.md"));
         assert_eq!(create_item(&user, Kind::Command, "standup", "x").unwrap_err(), "이미 있는 이름이에요");
         assert_eq!(std::fs::read_to_string(&p).unwrap(), cmd);
         let skill = fill(Kind::Skill, "pr-writer", "PR 설명");
@@ -2008,7 +2009,7 @@ mod tests {
         std::os::unix::fs::symlink("/etc/hosts", src.join("hosts")).ok();
         let user = t.path().join("config");
         std::fs::create_dir_all(&user).ok();
-        let target = Target { base: user.canonicalize().unwrap_or_else(|_| unreachable!()), project: false };
+        let target = Target { base: user.canon().unwrap_or_else(|_| unreachable!()), project: false };
         let before = std::fs::read_to_string(src.join("SKILL.md")).unwrap_or_default();
         let made = copy_item(&src.join("SKILL.md"), Kind::Skill, "example-plugin:frontend-design", "frontend-design-custom", &target).unwrap_or_else(|e| panic!("{e}"));
         let text = std::fs::read_to_string(&made).unwrap_or_default();

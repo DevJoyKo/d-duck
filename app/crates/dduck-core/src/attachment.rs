@@ -819,7 +819,7 @@ mod tests {
     fn images_are_checked_and_budgeted() {
         use base64::Engine;
         let t = tempfile::tempdir().unwrap();
-        let dir = std::fs::canonicalize(t.path()).unwrap();
+        let dir = crate::platform::canon(t.path()).unwrap();
         std::fs::write(dir.join("a.png"), png_bytes(100, 50)).unwrap();
         std::fs::write(dir.join("fake.png"), "<svg/>").unwrap();
         let ok = base64::engine::general_purpose::STANDARD.encode(jpeg_bytes(20, 10));
@@ -861,7 +861,7 @@ mod tests {
 
     fn report_dir() -> (tempfile::TempDir, std::path::PathBuf) {
         let t = tempfile::tempdir().unwrap();
-        let d = std::fs::canonicalize(t.path()).unwrap().join("r");
+        let d = crate::platform::canon(t.path()).unwrap().join("r");
         std::fs::create_dir_all(d.join(DIR)).unwrap();
         (t, d)
     }

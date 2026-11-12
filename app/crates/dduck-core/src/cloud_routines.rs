@@ -4,6 +4,7 @@
 //! D.Duck then parses the raw API response from the CLI's stream (or the file the CLI saved it to), keeps only the
 //! allowed fields and deletes that file: it holds every routine's prompt.
 
+use crate::platform::CanonExt;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
@@ -225,8 +226,8 @@ pub fn parse_api(body: &str) -> Result<(Vec<CloudRoutine>, bool), CloudError> {
 /// A saved tool result must sit at `<projects>/<key>/<session>/tool-results/<name>.txt` and be a plain file.
 fn saved_path(projects: &Path, raw: &str, session: &str) -> Option<PathBuf> {
     let p = PathBuf::from(raw);
-    let root = projects.canonicalize().ok()?;
-    let canon = p.canonicalize().ok()?;
+    let root = projects.canon().ok()?;
+    let canon = p.canon().ok()?;
     let rel = canon.strip_prefix(&root).ok()?;
     let parts: Vec<_> = rel.components().map(|c| c.as_os_str().to_string_lossy().to_string()).collect();
     let ok = parts.len() == 4 && parts[1] == session && parts[2] == "tool-results" && parts[3].ends_with(".txt");
@@ -341,7 +342,7 @@ pub fn clean_cwd_project(projects: &Path, cwd: &Path) {
 
 /// Same cleanup for any app-owned `…/<owner>/cwd` folder (usage-insights reuses it).
 pub fn clean_owned_cwd(projects: &Path, cwd: &Path, owner: &str) {
-    let Ok(canon) = cwd.canonicalize() else { return };
+    let Ok(canon) = cwd.canon() else { return };
     if !canon.ends_with(Path::new(owner).join("cwd")) {
         return;
     }
@@ -353,8 +354,8 @@ pub fn clean_owned_cwd(projects: &Path, cwd: &Path, owner: &str) {
 
 /// Deletes what the run left under `projects`: the session folder, then the project folder if empty.
 pub fn clean(projects: &Path, leftovers: &Path) {
-    let Ok(root) = projects.canonicalize() else { return };
-    let Ok(dir) = leftovers.canonicalize() else { return };
+    let Ok(root) = projects.canon() else { return };
+    let Ok(dir) = leftovers.canon() else { return };
     if dir.strip_prefix(&root).map(|r| r.components().count() == 2).unwrap_or(false) {
         let _ = std::fs::remove_dir_all(&dir);
         if let Some(parent) = dir.parent() {
@@ -488,13 +489,13 @@ mod tests {
         let projects = tmp.path().join("projects");
         let cwd = tmp.path().join("cloud-routines").join("cwd");
         std::fs::create_dir_all(&cwd).unwrap();
-        let key = projects.join(project_key(&cwd.canonicalize().unwrap()));
+        let key = projects.join(project_key(&cwd.canon().unwrap()));
         std::fs::create_dir_all(key.join("s1/tool-results")).unwrap();
         clean_cwd_project(&projects, &cwd);
         assert!(!key.exists());
         let other = tmp.path().join("other");
         std::fs::create_dir_all(&other).unwrap();
-        let okey = projects.join(project_key(&other.canonicalize().unwrap()));
+        let okey = projects.join(project_key(&other.canon().unwrap()));
         std::fs::create_dir_all(&okey).unwrap();
         clean_cwd_project(&projects, &other);
         assert!(okey.exists(), "never touches other projects");

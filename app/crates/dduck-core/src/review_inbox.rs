@@ -409,7 +409,7 @@ fn folder_of(cwd: Option<&str>) -> Option<String> {
 fn report_card(read: Result<task_report::Report, ReportError>, report_id: &str, root: &Path, cwd: Option<&str>) -> CardReport {
     match read {
         Ok(mut rep) => {
-            let dir = std::fs::canonicalize(root).ok().map(|d| d.join(report_id));
+            let dir = crate::platform::canon(root).ok().map(|d| d.join(report_id));
             let mut first = None;
             if let Some(dir) = dir.filter(|d| std::fs::symlink_metadata(d).is_ok_and(|m| m.file_type().is_dir())) {
                 let cwd = cwd.map(Path::new);
@@ -467,7 +467,7 @@ pub struct Query<'a> {
 /// A folder that no longer resolves is left out. Each distinct folder is resolved once per call.
 fn in_scope(cwd: Option<&str>, scope: &Path, seen: &mut HashMap<String, Option<PathBuf>>) -> bool {
     let Some(cwd) = cwd else { return false };
-    let real = seen.entry(cwd.to_string()).or_insert_with(|| std::fs::canonicalize(PathBuf::from(cwd)).ok());
+    let real = seen.entry(cwd.to_string()).or_insert_with(|| crate::platform::canon(PathBuf::from(cwd)).ok());
     real.as_ref().is_some_and(|real| real.starts_with(scope))
 }
 
@@ -781,7 +781,7 @@ mod tests {
     fn pending_leaves_out_running_waiting_reviewed_and_old_tasks() {
         let conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(t.path()).unwrap().join(task_report::DIR_NAME);
+        let root = crate::platform::canon(t.path()).unwrap().join(task_report::DIR_NAME);
         let since = now() - 10_000;
         rec(&conn, "aaaaaaa1", "/tmp", "dev", Some(&id(1)), now(), None, None);
         rec(&conn, "aaaaaaa2", "/tmp", "dev", Some(&id(2)), now() + 1, None, None);
@@ -826,7 +826,7 @@ mod tests {
     fn badge_matches_the_list_and_a_first_run_starts_at_zero() {
         let conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(t.path()).unwrap().join(task_report::DIR_NAME);
+        let root = crate::platform::canon(t.path()).unwrap().join(task_report::DIR_NAME);
         // 30 finished tasks from before the tab existed: the first run shows no badge.
         for i in 0..30u8 {
             rec(&conn, &format!("ee{i:06x}"), "/tmp", "dev", Some(&id(i + 1)), now() - 1000 + i64::from(i), None, None);
@@ -848,7 +848,7 @@ mod tests {
     fn list_carries_a_summary_only() {
         let conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(t.path()).unwrap().join(task_report::DIR_NAME);
+        let root = crate::platform::canon(t.path()).unwrap().join(task_report::DIR_NAME);
         let long = format!("{}{CANARY}", "가".repeat(GOAL_CHARS));
         rec(&conn, "bbbbbbb1", "/tmp", "dev", Some(&id(1)), now(), Some(&format!("{long}\n둘째 줄 {CANARY}")), None);
         // No name: the goal falls to the instruction's first line.
@@ -883,7 +883,7 @@ mod tests {
     fn cards_count_evidence_without_names_and_show_the_first_attachment() {
         let conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let base = std::fs::canonicalize(t.path()).unwrap();
+        let base = crate::platform::canon(t.path()).unwrap();
         let root = base.join(task_report::DIR_NAME);
         let cwd = base.join("proj");
         std::fs::create_dir_all(cwd.join("src")).unwrap();
@@ -926,7 +926,7 @@ mod tests {
     fn project_scope_resolves_folders_by_component() {
         let conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let base = std::fs::canonicalize(t.path()).unwrap();
+        let base = crate::platform::canon(t.path()).unwrap();
         let root = base.join(task_report::DIR_NAME);
         for d in ["proj", "proj/.claude/worktrees/w1", "proj-other", "elsewhere"] {
             std::fs::create_dir_all(base.join(d)).unwrap();
@@ -951,7 +951,7 @@ mod tests {
     fn pages_hold_ten() {
         let conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(t.path()).unwrap().join(task_report::DIR_NAME);
+        let root = crate::platform::canon(t.path()).unwrap().join(task_report::DIR_NAME);
         for i in 0..25u8 {
             rec(&conn, &format!("dd{i:06x}"), "/tmp", "dev", Some(&id(i + 1)), now() + i64::from(i), None, None);
         }
@@ -995,7 +995,7 @@ mod tests {
     fn a_routine_runs_report_shows_in_the_inbox_and_the_badge() {
         let conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(t.path()).unwrap().join(task_report::DIR_NAME);
+        let root = crate::platform::canon(t.path()).unwrap().join(task_report::DIR_NAME);
         let since = now() - 10_000;
         routine(&conn, 1, "아침 공고 확인");
         run(&conn, 1, "bba9b3f7", "done", Some(&id(41)), now());
@@ -1070,7 +1070,7 @@ mod tests {
     fn every_page_of_the_counted_rows_opens() {
         let conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(t.path()).unwrap().join(task_report::DIR_NAME);
+        let root = crate::platform::canon(t.path()).unwrap().join(task_report::DIR_NAME);
         for n in 0..300u32 {
             conn.execute("INSERT INTO task_meta(bg_id, created_at, report_id) VALUES (?1, ?2, ?3)", params![format!("ab{n:06x}"), now() + i64::from(n), format!("{n:032x}")]).unwrap();
         }
@@ -1099,7 +1099,7 @@ mod tests {
     fn a_finished_task_without_a_report_is_listed_under_all_only() {
         let conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(t.path()).unwrap().join(task_report::DIR_NAME);
+        let root = crate::platform::canon(t.path()).unwrap().join(task_report::DIR_NAME);
         let since = now() - 10_000;
         rec(&conn, "ee6cd22a", "/w/dev_team", "research", None, now(), Some("NO-REPORT-PROMPT-CANARY 조사해 줘"), None);
         conn.execute("UPDATE task_meta SET ended_status = 'failed' WHERE bg_id = 'ee6cd22a'", []).unwrap();
@@ -1141,7 +1141,7 @@ mod tests {
     fn deleting_a_task_with_a_report_removes_the_record_and_its_folder_and_lowers_the_badge() {
         let mut conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(t.path()).unwrap().join(task_report::DIR_NAME);
+        let root = crate::platform::canon(t.path()).unwrap().join(task_report::DIR_NAME);
         let since = now() - 10_000;
         rec(&conn, "aaaa0001", "/tmp", "dev", Some(&id(1)), now(), Some("지시"), None);
         rec(&conn, "aaaa0002", "/tmp", "dev", Some(&id(2)), now() + 1, None, None);
@@ -1184,7 +1184,7 @@ mod tests {
     fn deleting_a_routine_run_keeps_its_history_row_and_removes_only_its_report() {
         let mut conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(t.path()).unwrap().join(task_report::DIR_NAME);
+        let root = crate::platform::canon(t.path()).unwrap().join(task_report::DIR_NAME);
         let since = now() - 10_000;
         routine(&conn, 1, "아침 공고 확인");
         let r = run(&conn, 1, "bba9b3f7", "done", Some(&id(41)), now());
@@ -1248,7 +1248,7 @@ mod tests {
     fn delete_never_removes_a_folder_outside_the_reports_root_or_one_still_in_use() {
         let mut conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let base = std::fs::canonicalize(t.path()).unwrap();
+        let base = crate::platform::canon(t.path()).unwrap();
         let root = base.join(task_report::DIR_NAME);
         // Shared id: a usage-limit alias points at the same report.
         rec(&conn, "aaaa0001", "/tmp", "dev", Some(&id(1)), now(), None, None);

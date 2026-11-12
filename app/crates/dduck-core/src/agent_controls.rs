@@ -159,6 +159,7 @@ pub fn recheck(plan: &TrashPlan) -> Result<(), TrashError> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    use crate::platform::CanonExt;
     use super::*;
     use crate::agents_catalog::{Roots, discover};
 
@@ -211,7 +212,7 @@ mod tests {
         let plan = plan_trash(&def("mine"), &cfg).unwrap();
         recheck(&plan).unwrap();
         let p = plan_trash(&def("old-helper"), &cfg).unwrap();
-        assert_eq!(p.project.as_deref(), Some(proj.canonicalize().unwrap().as_path()));
+        assert_eq!(p.project.as_deref(), Some(proj.canon().unwrap().as_path()));
         assert_eq!(plan_trash(&def("Explore"), &cfg).unwrap_err(), TrashError::NotDeletable);
         // Changed after the dialog: refused.
         std::fs::write(cfg.join("agents/mine.md"), "---\nname: mine\ndescription: other\n---\n").unwrap();
