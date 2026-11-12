@@ -72,6 +72,31 @@ pub fn user_name() -> Option<String> {
     std::env::var(if cfg!(windows) { "USERNAME" } else { "USER" }).ok().filter(|u| !u.is_empty())
 }
 
+/// What the webview needs to know about the OS (`platform` command, lib/platform.ts).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlatformInfo {
+    pub os: &'static str,
+    /// Git for Windows (Git Bash) is installed, so Claude Code has a Bash tool. Always true off Windows.
+    pub git_bash: bool,
+}
+
+pub fn info() -> PlatformInfo {
+    let os = if cfg!(target_os = "macos") { "macos" } else if cfg!(windows) { "windows" } else { "linux" };
+    PlatformInfo { os, git_bash: !cfg!(windows) || git_bash().is_some() }
+}
+
+/// Git Bash as Claude Code finds it on Windows: `CLAUDE_CODE_GIT_BASH_PATH`, then `Git\bin\bash.exe` under the
+/// Program Files folders. `None` off Windows.
+pub fn git_bash() -> Option<PathBuf> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let env = std::env::var_os("CLAUDE_CODE_GIT_BASH_PATH").map(PathBuf::from);
+    let roots = ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"].into_iter().filter_map(std::env::var_os);
+    env.into_iter().chain(roots.map(|r| PathBuf::from(r).join("Git").join("bin").join("bash.exe"))).find(|p| p.is_absolute() && p.is_file())
+}
+
 /// Two paths name the same location: component by component, and on Windows without letter-case differences (NTFS).
 pub fn same_path(a: &Path, b: &Path) -> bool {
     if cfg!(windows) { same_path_ci(a, b) } else { a == b }

@@ -180,3 +180,13 @@ fn task_type_keys_and_team_config_payloads() {
     assert!(team_config::diff(&back, &[]).unwrap().refine.is_none());
 }
 
+
+#[test]
+fn platform_payload_matches_typescript() {
+    // lib/platform.ts PlatformInfo.
+    let v = serde_json::to_value(dduck_core::platform::info()).unwrap();
+    assert_eq!(keys(&v), set(&["os", "gitBash"]));
+    assert!(["macos", "windows", "linux"].contains(&v["os"].as_str().unwrap()));
+    #[cfg(target_os = "macos")]
+    assert_eq!(v, serde_json::json!({ "os": "macos", "gitBash": true }));
+}

@@ -6,9 +6,9 @@
  * "a session is waiting for you". Everything else stays quiet.
  */
 @theme {
-  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   /* Korean falls back to Pretendard so Hangul in mono text keeps its natural width (rules review L1). */
-  --font-mono: ui-monospace, "SF Mono", Menlo, "Pretendard Variable", Pretendard, "Apple SD Gothic Neo", monospace;
+  --font-mono: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", Consolas, "Pretendard Variable", Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", monospace;
 
   --color-ink: #24283b;
   --color-ink-2: #5d6275;

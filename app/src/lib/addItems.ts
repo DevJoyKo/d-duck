@@ -3,6 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "../i18n";
 import type { PluginOutcome } from "./api";
+import { isWindows } from "./platform";
 
 export type AuthorKind = "skill" | "command" | "workflow";
 /** Label of one item's kind ("스킬"), read at call time so it follows the language. */
@@ -139,7 +140,8 @@ export function fillTemplate(template: string, name: string, description: string
 export function targetPath(kind: AuthorKind, project: string | null, name: string): string {
   const root = project ? `${project}/.claude` : "~/.claude";
   const n = name || t("extensions.add.create.namePlaceholder");
-  return kind === "skill" ? `${root}/skills/${n}/SKILL.md` : kind === "command" ? `${root}/commands/${n}.md` : `${root}/workflows/${n}.js`;
+  const path = kind === "skill" ? `${root}/skills/${n}/SKILL.md` : kind === "command" ? `${root}/commands/${n}.md` : `${root}/workflows/${n}.js`;
+  return isWindows() ? path.replace(/\//g, "\\") : path;
 }
 
 /** "새로 만듦": made through D.Duck in the last 7 days, matched by kind, name and folder. */

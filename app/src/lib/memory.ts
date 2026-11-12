@@ -2,6 +2,7 @@
 // from `projects_known` (project-switcher), a file name and hash tokens; Rust resolves every path.
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "../i18n";
+import { baseName } from "./platform";
 
 export type MemoryKind = "user" | "feedback" | "project" | "reference";
 export const KINDS: MemoryKind[] = ["user", "feedback", "project", "reference"];
@@ -159,7 +160,7 @@ export function secretText(hits: SecretHit[]): string {
 
 /** Last path component, for showing a folder name before the project key. */
 export function folderName(path: string | null): string | null {
-  return path ? (path.split("/").filter(Boolean).pop() ?? path) : null;
+  return path ? baseName(path) : null;
 }
 
 export function sizeText(n: number | null): string {

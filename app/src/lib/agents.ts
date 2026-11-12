@@ -2,6 +2,7 @@
 import type { Activity, ActState, AgentDef, AgentSource } from "./api";
 import { t, translate } from "../i18n";
 import { liveLabels, typeLabel, type TeamType } from "./team";
+import { splitPath } from "./platform";
 
 export type Pose = "working" | "waiting" | "failed" | "done" | "idle";
 
@@ -23,7 +24,7 @@ export function statusLine(a: Activity | undefined): { pose: Pose; head: string;
 export const SOURCE_LABEL: Record<AgentSource, string> = liveLabels(["project", "user", "plugin", "builtin"], (s) => t(`agents.source.${s}`));
 
 export function sourceText(d: AgentDef): string {
-  const scope = d.scope ? d.scope.split("/").filter(Boolean).pop() : null;
+  const scope = d.scope ? splitPath(d.scope).pop() : null;
   return scope ? `${SOURCE_LABEL[d.source]} · ${scope}` : SOURCE_LABEL[d.source];
 }
 

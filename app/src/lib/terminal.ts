@@ -152,8 +152,33 @@ export function estimateGeometry(out: string): { cols: number; rows: number } {
 /** Cell width of the log font is 0.6 × font size (SF Mono / Menlo). */
 export const CELL_RATIO = 0.6;
 
+/** The log font: macOS fonts first, then Windows ones (windows-support 4.4). */
+export const LOG_FONT = 'ui-monospace, "SF Mono", Menlo, "Cascadia Mono", Consolas, monospace';
+
+/** Cell width ÷ font size of `family`, measured on a canvas (Windows fonts are narrower than 0.6, e.g. Consolas 0.55).
+ * Falls back to {@link CELL_RATIO} when nothing can be measured or the result is implausible. */
+export function measureCellRatio(family: string, measure?: (font: string, text: string) => number | null): number {
+  const probe = "M".repeat(20);
+  const size = 100;
+  let w: number | null = null;
+  try {
+    if (measure) w = measure(`${size}px ${family}`, probe);
+    else {
+      const ctx = document.createElement("canvas").getContext("2d");
+      if (ctx) {
+        ctx.font = `${size}px ${family}`;
+        w = ctx.measureText(probe).width;
+      }
+    }
+  } catch {
+    w = null;
+  }
+  const r = w ? w / probe.length / size : NaN;
+  return r >= 0.4 && r <= 0.8 ? r : CELL_RATIO;
+}
+
 /** Largest font (7–11 px) whose `cols` columns fit `widthPx`; wider screens keep 7 px and scroll sideways. */
-export function fitFontSize(cols: number, widthPx: number): number {
+export function fitFontSize(cols: number, widthPx: number, ratio: number = CELL_RATIO): number {
   if (!(widthPx > 0)) return 11;
-  return Math.min(11, Math.max(7, Math.floor((widthPx / (cols * CELL_RATIO)) * 2) / 2));
+  return Math.min(11, Math.max(7, Math.floor((widthPx / (cols * ratio)) * 2) / 2));
 }

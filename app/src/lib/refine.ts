@@ -5,6 +5,7 @@ import { UNSAFE, type Brief, type Draft } from "./brief";
 import { parseInline, stripUnsafe } from "./safeMarkdown";
 import { t } from "../i18n";
 import { subscribe } from "../i18n/language";
+import { isWindows } from "./platform";
 
 // `label` is read in the current language on each access.
 export const FIELDS: { key: keyof Brief; label: string }[] = (["goal", "outOfScope", "constraints", "done"] as const).map((key) => ({
@@ -338,5 +339,5 @@ export function draftFromAdvice(item: AdviceItem): Draft {
   };
 }
 
-/** `/Users/<name>` or `/home/<name>` (the backend checks the real home folder). */
-export const looksLikeHome = (p: string) => /^\/(?:Users|home)\/[^/]+\/?$/.test(p.trim());
+/** `/Users/<name>` or `/home/<name>`, `C:\\Users\\<name>` on Windows (the backend checks the real home folder). */
+export const looksLikeHome = (p: string) => (isWindows() ? /^[A-Za-z]:[\\/]Users[\\/][^\\/]+[\\/]?$/i : /^\/(?:Users|home)\/[^/]+\/?$/).test(p.trim());

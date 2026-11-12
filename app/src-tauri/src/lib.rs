@@ -712,6 +712,12 @@ fn set_language(app: AppHandle, state: State<'_, AppState>, choice: String) -> R
     Ok(info)
 }
 
+/// The OS and whether Git Bash is installed (windows-support 4.1, lib/platform.ts).
+#[tauri::command]
+fn platform() -> dduck_core::platform::PlatformInfo {
+    dduck_core::platform::info()
+}
+
 #[tauri::command(async)]
 fn get_onboarding_state(state: State<'_, AppState>) -> Res<Option<settings::OnboardingState>> {
     settings::onboarding_state(&*state.conn()?).map_err(err)
@@ -3928,6 +3934,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_status,
+            platform,
             limit_cmds::limit_status,
             limit_cmds::limit_cancel,
             limit_cmds::set_limit_opt_out,

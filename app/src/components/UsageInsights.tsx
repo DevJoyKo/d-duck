@@ -13,6 +13,8 @@ import { isGateError } from "../lib/auth";
 import { GateLine } from "./LoginBits";
 import { t } from "../i18n";
 import { useT } from "../i18n/react";
+import { isWindows } from "../lib/platform";
+import { MacOnlyChip } from "./MacOnly";
 
 const LEVEL: Record<Finding["level"], string> = {
   high: "bg-danger/10 text-danger",
@@ -298,7 +300,8 @@ export function UsageInsights({ q, onNavigate, onDraft }: { q: Query; onNavigate
   });
   const del = useMutation({ mutationFn: api.insightsDelete, onSuccess: () => qc.setQueryData(["insights", "last"], null) });
   const r = local.data;
-  const disabledReason = !r ? t("usage.insights.claude.needLocal") : !r.enough ? t("usage.insights.claude.needRecords") : null;
+  // Windows preview: the Claude analysis needs the app-owned hook, verified on macOS only (MacOnly in the backend too).
+  const disabledReason = isWindows() ? t("common.macOnly.insights") : !r ? t("usage.insights.claude.needLocal") : !r.enough ? t("usage.insights.claude.needRecords") : null;
 
   return (
     <section aria-labelledby="insights-title" className="border-t border-line pt-8">
@@ -355,6 +358,7 @@ export function UsageInsights({ q, onNavigate, onDraft }: { q: Query; onNavigate
                   {run.isPending ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
                   {run.isPending ? t("usage.insights.claude.running") : t("usage.insights.claude.title")}
                 </Button>
+                {isWindows() && <MacOnlyChip />}
                 {run.isPending && (
                   <Button variant="danger" onClick={() => void api.insightsCancel()}>
                     {t("usage.insights.claude.cancel")}

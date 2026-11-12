@@ -11,6 +11,7 @@ import { openTour } from "../lib/onboarding";
 import { badgeLabel as BADGE } from "../lib/review";
 
 import type { Page } from "../lib/nav";
+import { isMac } from "../lib/platform";
 export type { NavTarget, Page } from "../lib/nav";
 
 function NavItem({ active, onClick, icon, children, badge, badgeLabel, badgeTone = "duck" }: { active: boolean; onClick: () => void; icon: ReactNode; children: ReactNode; badge?: number; badgeLabel?: (n: number) => string; badgeTone?: "duck" | "neutral" }) {
@@ -82,9 +83,9 @@ export function Sidebar({
 }) {
   const t = useT();
   return (
-    <nav className="relative flex w-[216px] shrink-0 flex-col border-r border-line bg-side px-3 pt-11 pb-4 text-side-ink backdrop-blur-[30px]">
-      {/* Top strip sits under the macOS traffic lights and drags the window. */}
-      <div data-tauri-drag-region className="absolute top-0 left-0 h-10 w-[216px]" />
+    <nav className={`relative flex w-[216px] shrink-0 flex-col border-r border-line bg-side px-3 ${isMac() ? "pt-11" : "pt-4"} pb-4 text-side-ink backdrop-blur-[30px]`}>
+      {/* Top strip sits under the macOS traffic lights and drags the window. Windows has its native title bar instead. */}
+      {isMac() && <div data-tauri-drag-region className="absolute top-0 left-0 h-10 w-[216px]" />}
       <div className="mb-6 flex items-center gap-2.5 px-2">
         <span aria-hidden className="grid h-8 w-8 place-items-center rounded-[10px] bg-sheet shadow-e1">
           <DuckAvatar pose="done" size={26} />

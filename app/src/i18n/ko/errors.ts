@@ -68,6 +68,8 @@ export default {
     modelAllowUnknown: "허용 목록을 확인할 수 없어 막았어요",
     modelNoFallback: "대신 쓸 모델이 없어 시작하지 않았어요 · 더 비싼 모델로는 바꾸지 않아요",
     modelAgentUnsupported: "에이전트 파일의 모델을 쓸 수 없어요 · 에이전트 설정에서 바꿔 주세요",
+    macOnly: "Mac 전용이에요 · Windows 미리보기에서는 아직 쓸 수 없어요",
+    windowsCommandTooLong: "Windows에서는 지시와 설정이 너무 길어요 · 줄여서 다시 보내 주세요",
   },
   connection: {
     claudeAi: "Claude 계정으로 연결돼 있어요",

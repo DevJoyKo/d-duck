@@ -193,4 +193,20 @@ describe("소식 tab", () => {
     expect(screen.getByText("Earlier")).toBeTruthy();
     await invoke("set_language", { choice: "ko" });
   });
+
+  it("Windows preview: 가져오기 is Mac only, saved items still show, and the backend refuses a fetch", async () => {
+    localStorage.setItem("dduck.page", "news");
+    window.history.replaceState(null, "", "/?os=win");
+    const core = await import("@tauri-apps/api/core");
+    const invoke = core.invoke as unknown as Invoke;
+    await invoke("mock_news_reset");
+    await (await import("../lib/platform")).loadPlatform();
+    const { default: App } = await import("../App");
+    render(<App />);
+    await waitFor(() => expect(rows().length).toBe(12));
+    const fetch = screen.getByRole("button", { name: /가져오기/ }) as HTMLButtonElement;
+    expect(fetch.disabled).toBe(true);
+    expect(screen.getByText("새 소식 가져오기는 Windows 미리보기에서 아직 쓸 수 없어요 · 저장된 소식은 볼 수 있어요")).toBeTruthy();
+    await expect(invoke("news_fetch")).rejects.toMatchObject({ kind: "invalidInput", code: "macOnly" });
+  });
 });

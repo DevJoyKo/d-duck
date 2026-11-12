@@ -54,4 +54,14 @@ export default {
     original: "The original task ran on {model}{ro}",
     saved: "Saved",
   },
+  macOnly: {
+    chip: "Mac only",
+    localOnly: "Local-only tasks aren't available in the Windows preview yet",
+    forceStop: "Force stop isn't available in the Windows preview yet",
+    news: "Fetching news isn't available in the Windows preview yet · Saved items still show",
+    insights: "Claude analysis isn't available in the Windows preview yet",
+    refine: "Brief refinement isn't available in the Windows preview yet",
+    cloud: "Loading and editing cloud routines isn't available in the Windows preview yet",
+    gitBash: "Without Git for Windows, tasks can't run commands",
+  },
 } satisfies Shape<typeof ko>;

@@ -55,4 +55,15 @@ export default {
     original: "원래 작업은 {model}{ro} 돌았어요",
     saved: "저장했어요",
   },
+  // windows-support: features whose protection is verified on macOS only. One line each, shown next to the disabled control.
+  macOnly: {
+    chip: "Mac 전용",
+    localOnly: "로컬만 작업은 Windows 미리보기에서 아직 쓸 수 없어요",
+    forceStop: "강제 종료는 Windows 미리보기에서 아직 쓸 수 없어요",
+    news: "새 소식 가져오기는 Windows 미리보기에서 아직 쓸 수 없어요 · 저장된 소식은 볼 수 있어요",
+    insights: "Claude 분석은 Windows 미리보기에서 아직 쓸 수 없어요",
+    refine: "지시 다듬기는 Windows 미리보기에서 아직 쓸 수 없어요",
+    cloud: "클라우드 루틴 불러오기·고치기는 Windows 미리보기에서 아직 쓸 수 없어요",
+    gitBash: "Git for Windows가 없으면 명령을 실행할 수 없어요",
+  },
 } as const;

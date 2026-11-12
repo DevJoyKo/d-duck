@@ -578,6 +578,9 @@ table! {
         ListChanged => ("목록이 바뀌었어요. 다시 열어 주세요", "The list changed. Open it again"),
         ChangedOutside => ("파일이 밖에서 바뀌었어요. 다시 불러오세요", "The file changed outside the app. Load it again"),
         FileChanged => ("파일이 바뀌었어요. 다시 불러오세요", "The file changed. Load it again"),
+        // windows-support: features whose protection is not verified on Windows (decision 7), and the CreateProcess limit.
+        MacOnly => ("Mac 전용이에요 · Windows 미리보기에서는 아직 쓸 수 없어요", "Mac only · Not available in the Windows preview yet"),
+        WindowsCommandTooLong => ("Windows에서는 지시와 설정이 너무 길어요 · 줄여서 다시 보내 주세요", "The instructions and settings are too long for Windows · Shorten them and try again"),
     }
 }
 

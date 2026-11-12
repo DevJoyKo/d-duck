@@ -3,7 +3,8 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useState } from "react";
 import { api, messageOf } from "../lib/api";
-import { estimateGeometry, fitFontSize, lastScreen } from "../lib/terminal";
+import { CELL_RATIO, estimateGeometry, fitFontSize, lastScreen, LOG_FONT, measureCellRatio } from "../lib/terminal";
+import { isMac } from "../lib/platform";
 import { useT } from "../i18n/react";
 import { t as tNow } from "../i18n";
 
@@ -39,7 +40,7 @@ export function LogView({ id, live }: { id: string; live: boolean }) {
       cols: 180,
       rows: 48,
       scrollback: 0,
-      fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+      fontFamily: LOG_FONT,
       theme: termTheme(),
       linkHandler: { activate: () => {}, allowNonHttpProtocols: false },
       // Only for `unicode` below: Claude Code lays out emoji such as ✅ as two cells (Unicode 11+ widths).
@@ -62,6 +63,7 @@ export function LogView({ id, live }: { id: string; live: boolean }) {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let shown = "";
+    let ratio: number | undefined;
     const tick = async () => {
       try {
         const out = lastScreen(await api.taskLogs(id));
@@ -76,7 +78,8 @@ export function LogView({ id, live }: { id: string; live: boolean }) {
             const { cols, rows } = estimateGeometry(out);
             if (cols !== xterm.cols || rows !== xterm.rows) xterm.resize(cols, rows);
             const width = (host.current?.clientWidth ?? 0) - 24; // p-3 on both sides
-            xterm.options.fontSize = fitFontSize(cols, width);
+            // macOS keeps the fixed SF Mono ratio; elsewhere the installed font is measured once (windows-support 4.4).
+            xterm.options.fontSize = fitFontSize(cols, width, (ratio ??= isMac() ? CELL_RATIO : measureCellRatio(LOG_FONT)));
             xterm.write("\x1b[0m\x1b[H\x1b[2J" + out);
           }
         }

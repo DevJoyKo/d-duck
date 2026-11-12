@@ -13,6 +13,8 @@ import { currentLocale } from "../i18n/language";
 import { GateLine } from "./LoginBits";
 import { DuckAvatar } from "./DuckAvatar";
 import { Button, PageBody, PageHeader, Switch } from "./ui";
+import { isWindows } from "../lib/platform";
+import { MacOnlyNote } from "./MacOnly";
 
 const ICON: Record<NewsCategory, typeof Cpu> = {
   model: Cpu,
@@ -287,8 +289,10 @@ export function NewsPage() {
     if (id) requestAnimationFrame(() => Array.from(document.querySelectorAll<HTMLButtonElement>("[data-news-row]")).find((e) => e.dataset.newsRow === id)?.focus());
   }, []);
 
+  // Windows preview: fetching needs the app-owned hook, verified on macOS only; saved items still show (MacOnly).
+  const macOnly = isWindows();
   const fetchButton = (
-    <Button variant="primary" onClick={() => fetch.mutate()} disabled={running}>
+    <Button variant="primary" onClick={() => fetch.mutate()} disabled={running || macOnly} title={macOnly ? t("common.macOnly.news") : undefined}>
       {running ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
       {running ? t("news.fetch.running") : t("news.fetch.button")}
     </Button>
@@ -304,12 +308,13 @@ export function NewsPage() {
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
             <StatusLine view={v} running={running} quiet={!!runError} onCancel={() => void api.newsCancel()} />
             <div className="ml-auto flex items-center gap-2">
-              <Switch on={v.daily.enabled} label={t("news.daily.label")} disabled={daily.isPending} onClick={() => daily.mutate(!v.daily.enabled)} />
+              <Switch on={v.daily.enabled} label={t("news.daily.label")} disabled={daily.isPending || (macOnly && !v.daily.enabled)} onClick={() => daily.mutate(!v.daily.enabled)} />
               <span className="text-[13px] text-ink">{t("news.daily.label")}</span>
               <span className="text-xs text-ink-3">{!v.daily.enabled ? t("news.daily.note") : v.daily.capped ? t("news.daily.capped") : v.daily.nextAtMs ? t("news.daily.next", { when: dateTime(v.daily.nextAtMs) }) : t("news.daily.note")}</span>
             </div>
           </div>
         )}
+        {macOnly && <MacOnlyNote text={t("common.macOnly.news")} />}
         {dailyNote && <p className="px-3 text-xs text-ink-3">{dailyNote}</p>}
         <GateLine force={gate} />
         {runError && (

@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { t } from "../i18n";
 import { subscribe } from "../i18n/language";
 import type { SecretHit } from "./memory";
+import { splitPath } from "./platform";
 
 export type RuleScope = "global" | "project";
 export type FmState = "none" | "ok" | "complex" | "broken";
@@ -212,7 +213,7 @@ export function freeName(name: string, taken: string[]): string {
 
 /** Folder name of a project rules group (`/a/dev_team/.claude/rules` → `dev_team`). */
 export function projectFolder(dir: string): string | null {
-  const parts = dir.split("/").filter(Boolean);
+  const parts = splitPath(dir);
   return parts.length >= 3 && parts[parts.length - 1] === "rules" && parts[parts.length - 2] === ".claude" ? parts[parts.length - 3] : null;
 }
 

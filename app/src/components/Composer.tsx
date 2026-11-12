@@ -24,6 +24,7 @@ import { forgetComposer, keepComposer, recallComposer } from "../lib/composerMem
 import { defaultLabel, ModelPicker, priceOf, useModelOptions } from "./ModelPicker";
 import { blockedText, effortHint, itemOf, replacementText, shallowHint } from "../lib/model";
 import { ro } from "../i18n/josa";
+import { isAbsPath, isWindows, platform } from "../lib/platform";
 
 const REPO_REASON: Record<string, string> = localized({
   notRepo: "tasks.composer.repo.notRepo",
@@ -118,9 +119,9 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
   // Model (model-select design 4): task > agent file > type > CLI default. `--model` wins over a file agent's own
   // model (spike 1.1), so the task value always applies.
   // Settled folder only: the list reads files and the DB, so not on every keystroke (code review HIGH).
-  const [modelCwd, setModelCwd] = useState(cwd.startsWith("/") ? cwd : "");
+  const [modelCwd, setModelCwd] = useState(isAbsPath(cwd) ? cwd : "");
   useEffect(() => {
-    const id = setTimeout(() => setModelCwd(cwd.startsWith("/") ? cwd : ""), 500);
+    const id = setTimeout(() => setModelCwd(isAbsPath(cwd) ? cwd : ""), 500);
     return () => clearTimeout(id);
   }, [cwd]);
   const models = useModelOptions(modelCwd || null);
@@ -150,7 +151,7 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
   const repo = useQuery({ queryKey: ["repo", cwd], queryFn: () => api.repoCheck(cwd), enabled: !!cwd, staleTime: 30_000 });
   const repoOk = repo.data?.kind === "ok";
   // The default branch is checked out: the backend starts in a worktree anyway (delivery-guard), so the box shows it.
-  const guard = useQuery({ queryKey: ["delivery-guard", cwd], queryFn: () => deliveryApi.preview(cwd), enabled: cwd.startsWith("/"), staleTime: 10_000, retry: false });
+  const guard = useQuery({ queryKey: ["delivery-guard", cwd], queryFn: () => deliveryApi.preview(cwd), enabled: isAbsPath(cwd), staleTime: 10_000, retry: false });
   const forcedWorktree = repoOk && !atHome && !origin && !!guard.data?.forcedWorktree;
   const useWorktree = forcedWorktree || (repoOk && !atHome && (worktreeChoice ?? taskType === "dev"));
 
@@ -180,7 +181,7 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
     el?.scrollIntoView({ block: "center", behavior: "smooth" });
     el?.focus();
   };
-  const refineBlocked = !status?.cli ? t("tasks.composer.noCli") : !brief.goal.trim() ? (origin === "insight-claude" || draft?.goalExamples?.length ? t("tasks.composer.goalOrExample") : t("tasks.composer.goalFirst")) : null;
+  const refineBlocked = isWindows() ? t("common.macOnly.refine") : !status?.cli ? t("tasks.composer.noCli") : !brief.goal.trim() ? (origin === "insight-claude" || draft?.goalExamples?.length ? t("tasks.composer.goalOrExample") : t("tasks.composer.goalFirst")) : null;
   const nameError = validateTaskName(name);
   const start = useMutation({
     // The label rides along so the "시작하는 중" card can name the task (StartingCards, D-159).
@@ -257,7 +258,7 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
 
         <Field label={t("tasks.composer.cwd.label")}>
           <div className="flex gap-2">
-            <input value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder="/Users/me/project" className={`${fieldClass} font-mono`} />
+            <input value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder={isWindows() ? "C:\\Users\\me\\project" : "/Users/me/project"} className={`${fieldClass} font-mono`} />
             <Button
               type="button"
               onClick={async () => {
@@ -270,6 +271,11 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
             </Button>
           </div>
           {!cwd && draft?.cwdHint && <span className="block text-xs text-ink-2">{draft.cwdHint}</span>}
+          {isWindows() && !platform().gitBash && (
+            <span className="block text-xs text-ink-2" data-git-bash-missing>
+              {t("common.macOnly.gitBash")}
+            </span>
+          )}
           {atHome && (
             <span role="alert" className="block text-xs text-danger">
               {t("tasks.composer.cwd.home", { rule: HOME_ONLY_CLAUDE })}

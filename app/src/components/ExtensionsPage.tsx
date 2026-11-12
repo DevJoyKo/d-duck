@@ -21,6 +21,7 @@ import { useBulk } from "../lib/pluginBulk";
 import { useProject, useScope } from "./ProjectContext";
 import { ScopeBar } from "./ScopeBar";
 import { Badge, Button, Empty, PageBody, PageHeader, Segmented, Sheet, fieldClass } from "./ui";
+import { splitPath } from "../lib/platform";
 
 type Kind = Exclude<ExtChip, "all">;
 const CHIPS: ExtChip[] = ["all", "skill", "command", "workflow", "plugin"];
@@ -106,7 +107,7 @@ export function rowActions(s: Skill): {
 function sourceLabel(s: Skill): string {
   if (s.source === "plugin") return pluginOf(s) ?? t("extensions.source.plugin");
   if (s.source === "builtin") return t("extensions.source.builtin");
-  if (s.source === "project") return t("extensions.source.project", { folder: s.scope?.split("/").filter(Boolean).pop() ?? "" });
+  if (s.source === "project") return t("extensions.source.project", { folder: (s.scope ? splitPath(s.scope).pop() : undefined) ?? "" });
   return s.readonly ? "claude.ai" : t("extensions.source.global");
 }
 

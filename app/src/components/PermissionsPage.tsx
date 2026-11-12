@@ -43,6 +43,7 @@ import { useDirty, useScope } from "./ProjectContext";
 import { ScopeBar } from "./ScopeBar";
 import { t } from "../i18n";
 import { useT } from "../i18n/react";
+import { baseName } from "../lib/platform";
 
 type Tab = "rules" | "agent";
 const tabs = (): { id: Tab; label: string }[] => [
@@ -66,7 +67,6 @@ const DECISION_CLS: Record<Explanation["decision"], string> = {
 };
 const decisionLabel = (d: Explanation["decision"]) =>
   d === "none" ? t("agents.perm.byMode") : d === "unavailable" ? t("agents.perm.noTool") : t(`agents.perm.list.${d}`);
-const baseName = (p: string) => p.split("/").filter(Boolean).pop() ?? p;
 const asToggle = (d: Explanation["decision"]): Toggle => (d === "allow" || d === "ask" || d === "deny" ? d : "none");
 
 function RiskBadge({ risk }: { risk: Risk }) {
