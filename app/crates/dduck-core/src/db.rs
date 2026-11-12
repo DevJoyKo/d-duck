@@ -7,7 +7,7 @@ use rusqlite::Connection;
 use crate::Error;
 
 #[cfg(test)]
-const SCHEMA_VERSION: i64 = 17;
+const SCHEMA_VERSION: i64 = 18;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS ingest_files (
@@ -327,6 +327,13 @@ const SCHEMA_V17: &str = "CREATE TABLE IF NOT EXISTS news_items (
 );
 CREATE TABLE IF NOT EXISTS news_seen (id TEXT NOT NULL, lang TEXT NOT NULL, seen_ms INTEGER NOT NULL, PRIMARY KEY (id, lang));";
 
+/// news-apply (D-208): the optional apply fields of a news item. NULL = an item stored before v18 or one whose field
+/// failed its check; `apply_steps` is a JSON array of strings.
+const SCHEMA_V18: &str = "ALTER TABLE news_items ADD COLUMN key_fact TEXT;
+ALTER TABLE news_items ADD COLUMN adopt TEXT;
+ALTER TABLE news_items ADD COLUMN apply_steps TEXT;
+ALTER TABLE news_items ADD COLUMN verify TEXT;";
+
 pub const SETTING_ARTIFACTS_BACKFILL: &str = "artifacts_backfill";
 
 /// Staged migrations, each in one transaction with its version bump. Upgrading an existing v1 DB marks a one-time
@@ -404,6 +411,9 @@ fn migrate(conn: &Connection) -> Result<(), Error> {
     }
     if version < 17 {
         conn.execute_batch(&format!("BEGIN IMMEDIATE; {SCHEMA_V17} PRAGMA user_version = 17; COMMIT;"))?;
+    }
+    if version < 18 {
+        conn.execute_batch(&format!("BEGIN IMMEDIATE; {SCHEMA_V18} PRAGMA user_version = 18; COMMIT;"))?;
     }
     ensure_columns(conn)?;
     Ok(())
@@ -596,9 +606,33 @@ mod tests {
         conn.pragma_update(None, "user_version", 16).unwrap();
         migrate(&conn).unwrap();
         let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
-        assert_eq!(v, 17);
+        assert_eq!(v, SCHEMA_VERSION);
         let n: i64 = conn.query_row("SELECT COUNT(*) FROM news_items", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn upgrading_v17_adds_the_apply_columns_and_keeps_news() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        conn.execute_batch("DROP TABLE news_items;").unwrap();
+        conn.execute_batch(SCHEMA_V17).unwrap();
+        conn.pragma_update(None, "user_version", 17).unwrap();
+        conn.execute(
+            "INSERT INTO news_items(id, lang, title, date, category, summary, what, when_to_use, best_practice, source_url, first_seen_ms) VALUES ('a','ko','t','2026-11-01','other','s','w','u','b','https://code.claude.com/docs/en/changelog',1)",
+            [],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO news_seen(id, lang, seen_ms) VALUES ('a','ko',2)", []).unwrap();
+        migrate(&conn).unwrap();
+        let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+        assert_eq!(v, 18);
+        let row: (String, Option<String>, Option<String>, Option<String>, Option<String>) = conn
+            .query_row("SELECT title, key_fact, adopt, apply_steps, verify FROM news_items WHERE id = 'a'", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
+            .unwrap();
+        assert_eq!(row, ("t".into(), None, None, None, None), "old news kept, new fields NULL");
+        let seen: i64 = conn.query_row("SELECT COUNT(*) FROM news_seen", [], |r| r.get(0)).unwrap();
+        assert_eq!(seen, 1);
     }
 
     #[test]
