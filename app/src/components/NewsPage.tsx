@@ -64,15 +64,16 @@ function SourceLink({ item }: { item: NewsItem }) {
 
 function Row({ item, onOpen }: { item: NewsItem; onOpen: (it: NewsItem, el: HTMLButtonElement) => void }) {
   const t = useT();
-  // The meta line sits over the row button's bottom padding, outside it, so "원문 ↗" is its own button (no nesting);
-  // clicks on the rest of that line fall through to the row.
+  // The meta line is drawn over a blank line kept inside the row button, right under the one-line title and summary
+  // (12 + 22 + 4 + 20 + 6 = 64px down), but outside the button, so "원문 ↗" is its own button (no nesting). Clicks on
+  // the rest of that line fall through to the row.
   return (
     <li className="relative">
       <button
         type="button"
         data-news-row={item.id}
         onClick={(e) => onOpen(item, e.currentTarget)}
-        className="flex w-full items-start gap-4 rounded-xl px-3 pt-3 pb-9 text-left transition-colors hover:bg-ink/4 focus-visible:outline-2 focus-visible:outline-ink"
+        className="flex w-full items-start gap-4 rounded-xl px-3 py-3 text-left transition-colors hover:bg-ink/4 focus-visible:outline-2 focus-visible:outline-ink"
       >
         <NewsThumb item={item} />
         <span className="min-w-0 flex-1">
@@ -83,12 +84,13 @@ function Row({ item, onOpen }: { item: NewsItem; onOpen: (it: NewsItem, el: HTML
                 <span className="sr-only">{t("news.list.new")}</span>
               </span>
             )}
-            <span className={`truncate text-[15px] leading-snug ${item.seen ? "font-medium text-ink-2" : "font-semibold text-ink"}`}>{item.title}</span>
+            <span className={`truncate text-[15px] leading-[22px] ${item.seen ? "font-medium text-ink-2" : "font-semibold text-ink"}`}>{item.title}</span>
           </span>
-          <span className="mt-1 block truncate text-[13px] text-ink-2">{item.summary}</span>
+          <span className="mt-1 block truncate text-[13px] leading-5 text-ink-2">{item.summary}</span>
+          <span aria-hidden className="mt-1.5 block h-4" />
         </span>
       </button>
-      <span className="pointer-events-none absolute right-3 bottom-3 left-[146px] flex min-w-0 items-center gap-2">
+      <span className="pointer-events-none absolute top-16 right-3 left-[146px] flex h-4 min-w-0 items-center gap-2">
         <Meta item={item} />
         <SourceLink item={item} />
       </span>
