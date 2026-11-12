@@ -16,20 +16,61 @@ export interface ModalOptions {
   escapePhase?: "bubble" | "capture";
 }
 
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]';
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), details > summary:first-of-type, [tabindex]';
 
-/** Focusable controls inside `root`, by attributes only (no layout reads, so jsdom behaves like the app). */
-export function focusables(root: HTMLElement): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => {
-    if (el.getAttribute("tabindex") === "-1") return false;
-    const off = el.closest('[hidden], [inert], [aria-hidden="true"]');
-    return !off || !root.contains(off);
-  });
+/** Inside a closed <details> and not part of its summary: not rendered, so not a tab stop. */
+function inClosedDetails(el: HTMLElement, root: HTMLElement): boolean {
+  for (let p = el.parentElement; p && p !== root; p = p.parentElement) {
+    if (p instanceof HTMLDetailsElement && !p.open) {
+      const summary = p.querySelector(":scope > summary");
+      if (!summary?.contains(el)) return true;
+    }
+  }
+  return false;
 }
 
-/** Mounted modals, newest last. Only the top one reacts to keys and focus, so two sheets open together don't both close. */
+/** Candidate tab stops inside `root`, in document order: attributes first (the same in jsdom), then the browser's
+ *  own visibility check where it exists (display:none, e.g. a `hidden lg:block` list). A candidate can still refuse
+ *  focus; the Tab handler then moves on to the next one. Of a named radio group only the checked radio (else the
+ *  first) is a stop, as in the browser. */
+export function focusables(root: HTMLElement): HTMLElement[] {
+  const radios = new Map<string, HTMLInputElement>();
+  // Sorted explicitly: jsdom's selector engine can return a selector list grouped by selector, not in page order.
+  const found = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+  const all = found.filter((el) => {
+    if (el.getAttribute("tabindex") === "-1") return false;
+    const off = el.closest('[hidden], [inert], [aria-hidden="true"]');
+    if (off && root.contains(off)) return false;
+    if (inClosedDetails(el, root)) return false;
+    return el.checkVisibility?.() ?? true;
+  });
+  for (const el of all) {
+    if (!(el instanceof HTMLInputElement) || el.type !== "radio" || !el.name) continue;
+    const kept = radios.get(el.name);
+    if (!kept || (!kept.checked && el.checked)) radios.set(el.name, el);
+  }
+  return all.filter((el) => !(el instanceof HTMLInputElement && el.type === "radio" && el.name) || radios.get(el.name) === el);
+}
+
+/** Focus the first element of `list` from `start` stepping by `dir` (wrapping) that really takes focus. */
+function focusFrom(list: HTMLElement[], start: number, dir: 1 | -1): boolean {
+  const n = list.length;
+  for (let k = 0; k < n; k++) {
+    const el = list[(((start + k * dir) % n) + n) % n];
+    el.focus();
+    if (document.activeElement === el) return true;
+  }
+  return false;
+}
+
+/** Mounted modals, newest last. Only the top one reacts to keys and focus, so two sheets open together don't both
+ *  close. Effects run child first: a modal nested inside another modal's component and mounted in the same commit
+ *  lands below its parent. No sheet does that today (each opens from a click, in its own commit). */
 const stack: object[] = [];
 
+/** Focus return on unmount is skipped while the dialog node is still in the page (StrictMode re-running the effect).
+ *  That assumes the node belongs to the component calling the hook and leaves the page with it. */
 export function useModal(dialog: RefObject<HTMLElement | null>, onClose: () => void, options: ModalOptions = {}) {
   // Read during render, before an autoFocus child takes focus in the commit.
   const [opener] = useState(() => (typeof document === "undefined" ? null : (document.activeElement as HTMLElement | null)));
@@ -55,11 +96,16 @@ export function useModal(dialog: RefObject<HTMLElement | null>, onClose: () => v
     }
     const box = () => dialog.current;
     const mounted = box();
-    const target = () => {
+    const toInitial = () => {
+      const first = latest.current.options.initial?.current;
+      if (first) {
+        first.focus();
+        if (document.activeElement === first) return;
+      }
       const d = box();
-      return latest.current.options.initial?.current ?? (d ? focusables(d)[0] : undefined) ?? null;
+      if (d) focusFrom(focusables(d), 0, 1);
     };
-    if (!box()?.contains(document.activeElement)) target()?.focus();
+    if (!box()?.contains(document.activeElement)) toInitial();
 
     const onKey = (e: KeyboardEvent) => {
       if (!top()) return;
@@ -72,26 +118,27 @@ export function useModal(dialog: RefObject<HTMLElement | null>, onClose: () => v
         latest.current.onClose();
         return;
       }
-      if (e.key !== "Tab") return;
+      // Ctrl/Alt/Cmd+Tab belong to the system or the browser.
+      if (e.key !== "Tab" || e.ctrlKey || e.altKey || e.metaKey) return;
       e.preventDefault();
       const list = focusables(d);
       if (!list.length) return;
+      const dir = e.shiftKey ? -1 : 1;
       const active = document.activeElement as HTMLElement | null;
       const i = active ? list.indexOf(active) : -1;
-      if (i < 0 && active && active !== d && d.contains(active)) {
+      let start: number;
+      if (i >= 0) start = i + dir;
+      else if (active && active !== d && d.contains(active)) {
         // Focus on something inside that is not a stop (a row focused by script): continue from where it is.
         const after = list.findIndex((el) => active.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
-        const next = e.shiftKey ? (after < 0 ? list.length : after) - 1 : after;
-        list[next < 0 || next >= list.length ? (e.shiftKey ? list.length - 1 : 0) : next].focus();
-        return;
-      }
-      const next = i < 0 ? (e.shiftKey ? list.length - 1 : 0) : (i + (e.shiftKey ? -1 : 1) + list.length) % list.length;
-      list[next].focus();
+        start = dir > 0 ? (after < 0 ? 0 : after) : (after < 0 ? list.length : after) - 1;
+      } else start = dir > 0 ? 0 : list.length - 1;
+      focusFrom(list, start, dir);
     };
     const onFocusIn = (e: FocusEvent) => {
       if (!top()) return;
       const d = box();
-      if (d && !d.contains(e.target as Node)) target()?.focus();
+      if (d && !d.contains(e.target as Node)) toInitial();
     };
     window.addEventListener("keydown", onKey, capture);
     document.addEventListener("focusin", onFocusIn);

@@ -16,17 +16,28 @@ const { AuthoringEditor } = await import("./AuthoringEditor");
 const { AddMenu, AddSheet } = await import("./AddSheet");
 const { addApi } = await import("../lib/addItems");
 const { UsagePage } = await import("./UsagePage");
+const { NewsPage } = await import("./NewsPage");
+const { focusables } = await import("../lib/useModal");
 
 const wrap = (ui: ReactNode) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>);
 const tab = (shift = false) => fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab", shiftKey: shift });
 const escape = () => fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
 
-/** Tab more times than there are stops (and Shift+Tab now and then): focus never leaves the dialog. */
+/** Tab around the sheet once forward and once backward: every key moves focus, focus never leaves the sheet, and
+ *  every tab stop the hook sees (visible, enabled, not in a closed details) is visited both ways. */
 function walk(dialog: HTMLElement) {
-  const n = dialog.querySelectorAll("button, input, textarea, select, a[href]").length + 3;
-  for (let i = 0; i < n; i++) {
-    tab(i % 4 === 3);
-    expect(dialog.contains(document.activeElement)).toBe(true);
+  const stops = focusables(dialog);
+  expect(stops.length).toBeGreaterThan(1);
+  for (const shift of [false, true]) {
+    const seen = new Set<Element>();
+    for (let i = 0; i < stops.length + 2; i++) {
+      const before = document.activeElement;
+      tab(shift);
+      expect(dialog.contains(document.activeElement)).toBe(true);
+      expect(document.activeElement).not.toBe(before);
+      seen.add(document.activeElement!);
+    }
+    expect(stops.filter((s) => !seen.has(s))).toEqual([]);
   }
 }
 
@@ -67,6 +78,16 @@ describe("Agent settings sheet", () => {
     escape();
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(opener);
+  });
+
+  it("walks the Rules and Types tabs too", async () => {
+    const { dialog } = await open();
+    fireEvent.click(within(dialog).getByRole("radio", { name: "팀 규칙" }));
+    await within(dialog).findAllByRole("textbox");
+    walk(dialog);
+    fireEvent.click(within(dialog).getByRole("radio", { name: "작업 유형" }));
+    await waitFor(() => expect(within(dialog).queryAllByRole("textbox").length).toBeGreaterThan(0));
+    walk(dialog);
   });
 
   it("asks before Escape drops edited rules, and declining keeps the sheet open", async () => {
@@ -228,5 +249,27 @@ describe("Usage session sheet (2.2)", () => {
     escape();
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(row);
+  });
+});
+
+describe("News sheet (2.2)", () => {
+  it("focuses ×, keeps Tab inside, closes on Escape and the page puts focus back on the row", async () => {
+    wrap(<NewsPage />);
+    const row = await waitFor(() => {
+      const b = document.querySelector<HTMLButtonElement>("[data-news-row]");
+      if (!b) throw new Error("no news yet");
+      return b;
+    });
+    const id = row.dataset.newsRow;
+    act(() => row.focus());
+    fireEvent.click(row);
+    const dialog = await screen.findByRole("dialog");
+    const close = within(dialog).getByRole("button", { name: "닫기" });
+    expect(document.activeElement).toBe(close);
+    wraps(dialog, close);
+    walk(dialog);
+    escape();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect((document.activeElement as HTMLElement | null)?.dataset.newsRow).toBe(id));
   });
 });

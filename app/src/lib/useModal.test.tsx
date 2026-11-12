@@ -107,6 +107,9 @@ describe("useModal: Tab", () => {
         <div aria-hidden="true">
           <button>가림</button>
         </div>
+        <div inert>
+          <button>비활성</button>
+        </div>
         <button tabIndex={-1}>건너뜀</button>
         <button>마지막</button>
       </Sheet>
@@ -115,6 +118,104 @@ describe("useModal: Tab", () => {
     expect(document.activeElement).toBe(button("마지막"));
     tab();
     expect(document.activeElement).toBe(button("시트 닫기"));
+  });
+
+  it("skips a control that refuses focus (display:none in the app) and keeps moving the same way", () => {
+    openPage((close) => (
+      <Sheet onClose={close}>
+        <button>가운데</button>
+        <button>안 받음</button>
+        <button>마지막</button>
+      </Sheet>
+    ));
+    // jsdom has no layout: stand in for a display:none control whose focus() does nothing.
+    button("안 받음").focus = () => {};
+    act(() => button("가운데").focus());
+    tab();
+    expect(document.activeElement).toBe(button("마지막"));
+    tab(true);
+    expect(document.activeElement).toBe(button("가운데"));
+  });
+
+  it("leaves out controls the browser reports as not visible", () => {
+    openPage((close) => (
+      <Sheet onClose={close}>
+        <button
+          ref={(el) => {
+            if (el) Object.assign(el, { checkVisibility: () => false });
+          }}
+        >
+          넓은 화면용
+        </button>
+        <button>마지막</button>
+      </Sheet>
+    ));
+    tab();
+    expect(document.activeElement).toBe(button("마지막"));
+  });
+
+  it("stops at a closed <details> summary but not at what it hides", () => {
+    openPage((close) => (
+      <Sheet onClose={close}>
+        <details>
+          <summary>더 보기</summary>
+          <input aria-label="접힌 칸" />
+        </details>
+        <details open>
+          <summary>펼침</summary>
+          <input aria-label="펼친 칸" />
+        </details>
+      </Sheet>
+    ));
+    const order: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      tab();
+      order.push((document.activeElement as HTMLElement).textContent || (document.activeElement as HTMLElement).getAttribute("aria-label") || "");
+    }
+    expect(order).toEqual(["더 보기", "펼침", "펼친 칸", "시트 닫기"]);
+  });
+
+  it("makes only the checked radio of a named group a stop", () => {
+    openPage((close) => (
+      <Sheet onClose={close}>
+        <input type="radio" name="plugin" aria-label="가" />
+        <input type="radio" name="plugin" aria-label="나" defaultChecked />
+        <input type="radio" name="plugin" aria-label="다" />
+        <button>마지막</button>
+      </Sheet>
+    ));
+    tab();
+    expect(document.activeElement).toBe(screen.getByLabelText("나"));
+    tab();
+    expect(document.activeElement).toBe(button("마지막"));
+  });
+
+  it("continues from a focused element that is not a stop (tabindex=-1 row), both ways", () => {
+    openPage((close) => (
+      <Sheet onClose={close}>
+        <div tabIndex={-1} data-testid="row">
+          행
+        </div>
+        <button>다음</button>
+      </Sheet>
+    ));
+    const row = screen.getByTestId("row");
+    act(() => row.focus());
+    tab();
+    expect(document.activeElement).toBe(button("다음"));
+    act(() => row.focus());
+    tab(true);
+    expect(document.activeElement).toBe(button("시트 닫기"));
+  });
+
+  it("leaves Ctrl, Alt and Cmd+Tab alone", () => {
+    openPage();
+    for (const mod of ["ctrlKey", "altKey", "metaKey"]) {
+      const before = document.activeElement;
+      const passed = fireEvent.keyDown(document.activeElement!, { key: "Tab", [mod]: true });
+      expect(passed).toBe(true);
+      expect(document.activeElement).toBe(before);
+    }
   });
 
   it("pulls focus that lands outside the sheet back to the initial control", () => {
