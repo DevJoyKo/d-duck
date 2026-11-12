@@ -1,6 +1,7 @@
 // News thumbnails (news-tab D-204, news-apply D-208): the key-fact card when an item has `keyFact`, else the category
 // card; the adopt tag sits under either. Drawn by the app from text only: no remote image.
 import { Bot, Cpu, Plug, Settings2, ShieldCheck, Sparkles, SquareCode, SquareTerminal } from "lucide-react";
+import { Fragment } from "react";
 import type { NewsAdopt, NewsCategory, NewsItem } from "../lib/api";
 import { categoryColor } from "../lib/news";
 import { useT } from "../i18n/react";
@@ -66,13 +67,29 @@ function AdoptTag({ adopt }: { adopt: NewsAdopt }) {
 function FactCard({ fact, size }: { fact: string; size: Size }) {
   const mono = isCommandFact(fact);
   const box = size === "row" ? "h-16 w-[118px]" : "min-h-12 w-[132px]";
-  // The row shows up to two lines, breaking at spaces and hyphens first, then cuts with an ellipsis (the whole text is
-  // in `title` and in the sheet head, which wraps it in full).
-  const text = size === "row" ? "line-clamp-2 wrap-break-word" : "block wrap-anywhere";
+  // A command wraps only at spaces (brand review m4: "/skill-doctor" must not split at its hyphen): each word stays
+  // whole, a word of 12–14 characters drops to 12px so it fits the card, and only a longer word falls back to breaking.
+  const words = fact.split(" ");
+  const longest = Math.max(...words.map((w) => [...w].length));
+  const keepWords = mono && longest <= 14;
+  const fontSize = mono ? (keepWords && longest > 11 ? "text-[12px]" : "text-[14px]") : "text-[15px]";
+  // The row shows up to two lines, then an ellipsis (the whole text is in `title` and in the sheet head).
+  const wrap = keepWords ? "" : size === "row" ? "wrap-break-word" : "wrap-anywhere";
+  const text = size === "row" ? `line-clamp-2 ${wrap}` : `block ${wrap}`;
   return (
     <span data-news-card className={`flex shrink-0 items-center rounded-lg border border-line bg-sheet px-2.5 py-2 ${box}`}>
-      <span data-news-fact title={fact} className={`min-w-0 flex-1 leading-snug font-semibold text-ink ${text} ${mono ? "font-mono text-[14px]" : "text-[15px]"}`}>
-        {fact}
+      <span data-news-fact title={fact} className={`min-w-0 flex-1 leading-snug font-semibold text-ink ${text} ${mono ? "font-mono" : ""} ${fontSize}`}>
+        {keepWords
+          ? words.map((w, i) => (
+              // The space sits outside the no-wrap word, so the line can break there.
+              <Fragment key={i}>
+                {i > 0 && " "}
+                <span data-news-word className="whitespace-nowrap">
+                  {w}
+                </span>
+              </Fragment>
+            ))
+          : fact}
       </span>
     </span>
   );

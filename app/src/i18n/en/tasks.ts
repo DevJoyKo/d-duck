@@ -365,6 +365,7 @@ export default {
       done: "The plan states how to check it using the reference, and runs only after a person approves",
       outOfScope: "Settings or code changes unrelated to the new feature in the reference",
       followSource: "Where this differs from the source, follow the source",
+      omitted: "Explanations about permission or credential settings were left out of this draft; check the source if needed",
       cwd: "Pick the project folder to apply it to",
       title: "Title",
       keyFact: "Key fact",

@@ -484,6 +484,8 @@ export interface NewsItem {
   /** 1–3 one-line steps. */
   applySteps?: string[] | null;
   verify?: string | null;
+  /** Paragraphs a draft must not quote (`what`, `bestPractice`): computed by Rust from the stored text (news-apply M1). */
+  noQuote?: string[];
 }
 export type NewsErrorKind = "budget" | "turns" | "timeout" | "cancelled" | "spawn" | "failed" | "login_required" | "empty" | "malformed" | "busy" | "guard";
 export interface NewsStatus {

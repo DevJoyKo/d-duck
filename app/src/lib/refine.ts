@@ -349,17 +349,17 @@ export function keepNewsReference(prev: Brief, next: Brief): { brief: Brief; fix
     .filter((q) => [...q].length >= 6);
   const leaks = (s: string) => s.includes(NEWS_REFERENCE_HEADER) || s.split("\n").some((l) => l.trimStart().startsWith(">")) || quoted.some((q) => s.includes(q));
   const out = { ...next };
-  let fixed = false;
-  if (!next.constraints.includes(block)) {
-    const rest = next.constraints
-      .split("\n")
-      .filter((l) => l !== NEWS_REFERENCE_HEADER && !l.startsWith(">"))
-      .join("\n")
-      .trim();
-    out.constraints = [block, rest].filter(Boolean).join("\n");
-    fixed = true;
-  }
-  for (const k of ["goal", "done"] as const) {
+  // Always rebuilt (test review m2): the rewrite's own lines without any header or `>` line, under the original block,
+  // so a quote line the rewrite added (or edited) never survives.
+  const rest = next.constraints
+    .split("\n")
+    .filter((l) => l !== NEWS_REFERENCE_HEADER && !l.startsWith(">"))
+    .join("\n")
+    .trim();
+  out.constraints = [block, rest].filter(Boolean).join("\n");
+  let fixed = out.constraints !== next.constraints;
+  // Goal, done and out-of-scope are the app's fixed lines in a news draft (m3): any of them that picked up news goes back.
+  for (const k of ["goal", "done", "outOfScope"] as const) {
     if (leaks(next[k])) {
       out[k] = leaks(prev[k]) ? "" : prev[k];
       fixed = true;
@@ -383,13 +383,15 @@ const UNSAFE_KEEP_NEWLINE = new RegExp(UNSAFE.source.replace("\\u0000-\\u001f", 
  * app's fixed lines (security review HIGH: an agent reads those as instructions); every piece of news text goes under
  * the reference header, quoted line by line, with the source link. */
 export function draftFromNews(item: NewsItem, cwd: string): Draft {
+  const noQuote = item.noQuote ?? [];
   const steps = (item.applySteps ?? []).flatMap((s, i) => quoteLines(t("tasks.refine.news.step", { n: i + 1 }), s));
   const quoted = [
     ...quoteLines(t("tasks.refine.news.title"), item.title),
     ...quoteLines(t("tasks.refine.news.keyFact"), item.keyFact),
-    ...quoteLines(t("tasks.refine.news.what"), item.what),
+    // A paragraph that names a permission or credential word stays out of the quote (dduck-core news::no_quote, M1).
+    ...(noQuote.includes("what") ? [] : quoteLines(t("tasks.refine.news.what"), item.what)),
     ...steps,
-    ...quoteLines(t("tasks.refine.news.best"), item.bestPractice),
+    ...(noQuote.includes("bestPractice") ? [] : quoteLines(t("tasks.refine.news.best"), item.bestPractice)),
     ...quoteLines(t("tasks.refine.news.verify"), item.verify),
     ...quoteLines(t("tasks.refine.news.source"), item.sourceUrl),
   ];
@@ -405,7 +407,7 @@ export function draftFromNews(item: NewsItem, cwd: string): Draft {
     brief: {
       goal: t("tasks.refine.news.goal"),
       outOfScope: t("tasks.refine.news.outOfScope"),
-      constraints: [NEWS_REFERENCE_HEADER, ...quoted, t("tasks.refine.news.followSource"), DIFF_FIRST].join("\n"),
+      constraints: [NEWS_REFERENCE_HEADER, ...quoted, ...(noQuote.length ? [t("tasks.refine.news.omitted")] : []), t("tasks.refine.news.followSource"), DIFF_FIRST].join("\n"),
       done: t("tasks.refine.news.done"),
     },
   };

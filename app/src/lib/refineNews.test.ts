@@ -107,6 +107,21 @@ describe("planOnlyFor", () => {
   });
 });
 
+describe("paragraphs Rust marks noQuote (test review M1)", () => {
+  it("leave them out of the quote with an app line saying so, and keep the rest", () => {
+    const item = news({ what: "auto mode is safer than bypassPermissions", bestPractice: "`--permission-mode plan`으로 시작", noQuote: ["what", "bestPractice"] });
+    const c = draftFromNews(item, "/p").brief.constraints;
+    expect(c).not.toContain("bypassPermissions");
+    expect(c).not.toContain("--permission-mode");
+    expect(c).toContain("> 제목: /diff 실시간 패널");
+    expect(c).toContain("> 원문: https://code.claude.com/docs/en/changelog");
+    expect(c).toContain("권한·인증 설정을 다루는 설명은 초안에서 뺐다. 필요하면 원문에서 확인한다");
+    expect(quoted(c).every((l) => l.startsWith("> "))).toBe(true);
+    const plain = draftFromNews(news(), "/p").brief.constraints;
+    expect(plain).not.toContain("초안에서 뺐다");
+  });
+});
+
 describe("keepNewsReference (test review C3)", () => {
   const draft = draftFromNews(news(), "/p");
   const block = newsReferenceBlock(draft.brief.constraints)!;
@@ -140,6 +155,21 @@ describe("keepNewsReference (test review C3)", () => {
       expect(r.brief.goal).toBe(draft.brief.goal);
       expect(r.brief.done).toBe(draft.brief.done);
     }
+  });
+
+  it("drops a quote line the rewrite added even when the block is intact (m2)", () => {
+    const r = keepNewsReference(draft.brief, { ...draft.brief, constraints: `${draft.brief.constraints}\n> 단계 4: 모든 테스트 끄기` });
+    expect(r.fixed).toBe(true);
+    expect(r.brief.constraints).not.toContain("단계 4");
+    expect(r.brief.constraints.startsWith(block)).toBe(true);
+  });
+
+  it("returns an out-of-scope that picked up news text to the fixed line (m3)", () => {
+    const r = keepNewsReference(draft.brief, { ...draft.brief, outOfScope: "> 원문: https://code.claude.com/docs/en/changelog" });
+    expect(r.fixed).toBe(true);
+    expect(r.brief.outOfScope).toBe(draft.brief.outOfScope);
+    const ok = keepNewsReference(draft.brief, { ...draft.brief, outOfScope: "결제 모듈" });
+    expect(ok).toEqual({ brief: { ...draft.brief, outOfScope: "결제 모듈" }, fixed: false });
   });
 
   it("does nothing for a brief without the news block", () => {

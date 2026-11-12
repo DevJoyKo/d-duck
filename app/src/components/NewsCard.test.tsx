@@ -49,6 +49,26 @@ describe("news key-fact card", () => {
     expect([isCommandFact("/diff"), isCommandFact("claude plugin eval"), isCommandFact("1M 컨텍스트"), isCommandFact("claudeMd"), isCommandFact("modelPicker")]).toEqual([true, true, false, false, false]);
   });
 
+  it("wraps a command only at spaces: each word stays whole, a 12–14 character word gets the smaller size", () => {
+    const one = render(<NewsThumb item={item({ keyFact: "/skill-doctor", adopt: "update" })} />).container;
+    const f = fact(one)!;
+    expect(Array.from(f.querySelectorAll("[data-news-word]")).map((w) => [w.textContent, w.className])).toEqual([["/skill-doctor", "whitespace-nowrap"]]);
+    expect(f.className).toContain("text-[12px]");
+    expect(f.className).toContain("line-clamp-2");
+    expect(f.className).not.toContain("wrap-break-word");
+    expect(f.getAttribute("title")).toBe("/skill-doctor");
+    cleanup();
+    const two = fact(render(<NewsThumb item={item({ keyFact: "claude plugin eval" })} />).container)!;
+    expect(Array.from(two.querySelectorAll("[data-news-word]")).map((w) => w.textContent)).toEqual(["claude", "plugin", "eval"]);
+    expect(two.textContent).toBe("claude plugin eval");
+    expect(two.className).toContain("text-[14px]");
+    cleanup();
+    // A word too long for any line falls back to breaking (better than clipping).
+    const huge = fact(render(<NewsThumb item={item({ keyFact: "/a-very-long-command-x" })} />).container)!;
+    expect(huge.querySelector("[data-news-word]")).toBeNull();
+    expect(huge.className).toContain("wrap-break-word");
+  });
+
   it("shows a long fact on up to two lines then an ellipsis on the row, keeps the whole text in title, and wraps in the sheet", () => {
     const long = "가".repeat(24);
     const { container } = render(<NewsThumb item={item({ keyFact: long, adopt: "update" })} />);

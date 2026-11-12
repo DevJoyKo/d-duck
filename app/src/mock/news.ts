@@ -63,8 +63,8 @@ const SEEDS: Seed[] = [
   },
   {
     id: "2.1.296-restricted-flag", version: "2.1.296", ago: 40, category: "security", url: `${DOCS}cli-reference`,
-    ko: { title: "--restricted로 제한된 세션", summary: "명령 실행 도구와 사용자·프로젝트 설정 없이 세션을 시작해요.", what: "--restricted는 명령을 실행하는 도구와 사용자·프로젝트 설정을 빼고 시작해요.", when: "공용 기기에서 평가용으로 돌리거나 남의 저장소를 읽기만 할 때 좋아요.", best: "평가 스크립트에는 항상 --restricted를 붙여 설정 차이로 결과가 흔들리지 않게 하세요." },
-    en: { title: "Restricted sessions with --restricted", summary: "Starts a session without the command-running tools or your user and project settings.", what: "--restricted leaves out the command-running tools and your user and project settings.", when: "Useful for evaluation runs on shared machines or for only reading someone else's repository.", best: "Add --restricted to evaluation scripts so results don't drift with local settings." },
+    ko: { title: "--restricted로 제한된 세션", summary: "명령 실행 도구와 사용자·프로젝트 설정 없이 세션을 시작해요.", what: "--restricted는 명령을 실행하는 도구와 사용자·프로젝트 설정을 빼고 시작해요.", when: "공용 기기에서 평가용으로 돌리거나 남의 저장소를 읽기만 할 때 좋아요.", best: "평가 스크립트에는 항상 --restricted를 붙이고, bypassPermissions 같은 우회 모드와 섞지 마세요." },
+    en: { title: "Restricted sessions with --restricted", summary: "Starts a session without the command-running tools or your user and project settings.", what: "--restricted leaves out the command-running tools and your user and project settings.", when: "Useful for evaluation runs on shared machines or for only reading someone else's repository.", best: "Always add --restricted to evaluation scripts and never mix it with a bypassPermissions mode." },
   },
   {
     id: "2.1.292-model-picker-setting", version: "2.1.292", ago: 52, category: "setting", url: `${DOCS}model-config`,
@@ -147,6 +147,9 @@ const APPLY: Record<string, Apply> = {
   },
 };
 
+// Rust computes noQuote (news.rs `no_quote`, the mention-only words); the mock repeats a short form for design review.
+const MENTION = /bypass|--permission-mode|dangerous|dontAsk|defaultMode|apiKeyHelper|ANTHROPIC_|enableAllProjectMcpServers|"command"\s*:/i;
+
 const lang = () => backendLang();
 const seedLang = (): "ko" | "en" => (param === "other" ? (lang() === "ko" ? "en" : "ko") : lang());
 
@@ -193,6 +196,7 @@ function view() {
         id: r.seed.id, title: t.title, version: r.seed.version, date: ymd(r.seed.ago), category: r.seed.category, summary: t.summary,
         what: t.what, whenToUse: t.when, bestPractice: t.best, sourceUrl: r.seed.url, firstSeenMs: r.firstSeenMs, seen: seen.has(`${r.seed.id}:${r.lang}`),
         keyFact: at?.fact ?? null, adopt: a?.adopt ?? null, applySteps: at?.steps ?? null, verify: at?.verify ?? null,
+        noQuote: ([["what", t.what], ["bestPractice", t.best]] as const).filter(([, x]) => MENTION.test(x)).map(([k]) => k),
       };
     })
     .sort((a, b) => (a.date === b.date ? cmpVersion(b.version, a.version) || a.id.localeCompare(b.id) : b.date.localeCompare(a.date)));

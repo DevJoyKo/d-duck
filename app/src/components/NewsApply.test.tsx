@@ -52,7 +52,7 @@ describe("news key-fact rows", () => {
     expect(document.querySelectorAll("[data-news-row] [data-news-fact]").length).toBe(9);
     expect(document.querySelectorAll("[data-news-row] [data-news-category]").length).toBe(3);
     const fast = row("2.1.322-vertex-fast-mode");
-    expect(within(fast).getByText("/fast").className).toContain("font-mono");
+    expect(within(fast).getByText("/fast").closest("[data-news-fact]")?.className).toContain("font-mono");
     expect(within(fast).getByText("골라 쓰기")).toBeTruthy();
     const popOut = row("2.1.312-desktop-pop-out");
     expect(popOut.querySelector("[data-news-category]")).not.toBeNull();
@@ -177,6 +177,21 @@ describe("원문 ↗ on a row", () => {
     const meta = document.getElementById(r.getAttribute("aria-describedby") ?? "");
     expect(meta?.textContent).toContain("v2.1.322 · ");
   });
+});
+
+describe("a paragraph that only mentions a permission word (M1)", () => {
+  it("shows in the sheet but stays out of the draft", async () => {
+    await boot();
+    const sheet = await openSheet("2.1.296-restricted-flag", "--restricted로 제한된 세션");
+    const best = sheet.querySelector('[data-news-detail="best"]') as HTMLElement;
+    expect(best.textContent).toContain("bypassPermissions 같은 우회 모드와 섞지 마세요");
+    fireEvent.click(within(sheet).getByRole("button", { name: "내 프로젝트에 적용" }));
+    await screen.findByDisplayValue(GOAL);
+    const constraints = Array.from(document.querySelectorAll("textarea")).find((x) => x.value.startsWith(HEADER)) as HTMLTextAreaElement;
+    expect(constraints.value).not.toContain("bypassPermissions");
+    expect(constraints.value).toContain("> 무엇인지: --restricted는");
+    expect(constraints.value).toContain("권한·인증 설정을 다루는 설명은 초안에서 뺐다");
+  }, 15_000);
 });
 
 describe("test review follow-ups (C3, Q3)", () => {
