@@ -10,6 +10,7 @@ import type { NavTarget as Page } from "./Sidebar"; // old ids are normalized by
 import { UsageInsights } from "./UsageInsights";
 import { displayName, LabelEditor, SessionsSection, SessionTimeline } from "./SessionBits";
 import { PageHeader, SectionTitle, Segmented, Select } from "./ui";
+import { useModal } from "../lib/useModal";
 import type { Draft } from "../lib/brief";
 import { t } from "../i18n";
 import { tx, useT } from "../i18n/react";
@@ -133,40 +134,14 @@ function SessionDrawer({ sessionId, onClose }: { sessionId: string; onClose: () 
   const [editing, setEditing] = useState(false);
   const pencilRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    // Focus moves into the dialog and returns to the row that opened it; Esc closes.
-    const opener = document.activeElement as HTMLElement | null;
-    closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        // The title editor's input handles its own Escape (any language, so not matched by its label).
-        if ((e.target as HTMLElement | null)?.tagName === "INPUT") return;
-        return onClose();
-      }
-      if (e.key !== "Tab") return;
-      // Keep Tab inside the modal dialog.
-      const dialog = closeRef.current?.closest('[role="dialog"]');
-      const items = dialog ? Array.from(dialog.querySelectorAll<HTMLElement>("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])")) : [];
-      if (items.length === 0) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      opener?.focus();
-    };
-  }, [onClose]);
+  // Focus moves to ×, Tab stays inside, Esc closes and focus returns to the row that opened it (sheet-focus).
+  // The title editor's input stops its own Escape, so it cancels the edit without closing the sheet.
+  const dialogRef = useRef<HTMLElement>(null);
+  useModal(dialogRef, onClose, { initial: closeRef });
   return (
     <div className="fixed inset-0 z-20 flex justify-end bg-ink/20" onClick={onClose}>
       <aside
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="session-detail-title"

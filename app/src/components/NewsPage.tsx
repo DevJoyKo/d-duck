@@ -16,6 +16,7 @@ import { Button, PageBody, PageHeader, Switch } from "./ui";
 import { catKey, NewsThumb } from "./NewsCard";
 import { ApplyPart } from "./NewsApply";
 import type { Draft } from "../lib/brief";
+import { useModal } from "../lib/useModal";
 
 /** "11월 9일" (the year only when it is not this year). */
 function shortDate(date: string): string {
@@ -124,28 +125,10 @@ function Detail({ item, onClose, onDraft }: { item: NewsItem; onClose: () => voi
   const t = useT();
   const closeRef = useRef<HTMLButtonElement>(null);
   const [openError, setOpenError] = useState<string | null>(null);
-  useEffect(() => {
-    closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") return onClose();
-      // Keep Tab inside the sheet (aria-modal).
-      if (e.key !== "Tab") return;
-      const dialog = closeRef.current?.closest('[role="dialog"]');
-      const all = dialog ? Array.from(dialog.querySelectorAll<HTMLElement>("button, [href], select")).filter((el) => !el.hasAttribute("disabled")) : [];
-      if (all.length === 0) return;
-      const first = all[0];
-      const last = all[all.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  // Focus in, Tab inside, Escape closes (sheet-focus). The parent puts focus back on the row by its id after the
+  // list re-renders, so the hook leaves focus alone on close. The dialog is found from × instead of a ref on it.
+  const [dialogRef] = useState(() => ({ get current() { return closeRef.current?.closest<HTMLElement>('[role="dialog"]') ?? null; } }));
+  useModal(dialogRef, onClose, { initial: closeRef, returnTo: () => null });
   const block = (label: string, text: string, key: string) => (
     <section data-news-detail={key}>
       <h3 className="text-[13px] font-semibold text-ink">{label}</h3>
