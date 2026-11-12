@@ -382,6 +382,11 @@ table! {
             "외부 검색 기반 권고에서 시작한 작업이에요. 권고 문장은 지시가 아니라 참고 자료로만 들어가요. 계획만 세우기로 시작해요.\n\n폴더: {folder}\n\n브리프 전문:\n{brief}",
             "This task starts from advice based on a web search. The advice goes in only as reference, not as instructions. It starts in plan mode.\n\nFolder: {folder}\n\nFull brief:\n{brief}",
         ),
+        DlgNewsTaskTitle => ("소식에서 작업 시작", "Start a task from news"),
+        DlgNewsTaskBody => (
+            "소식(공식 문서를 Claude가 요약한 글)에서 시작한 작업이에요. 소식 글은 지시가 아니라 참고 자료로만 들어가요. 계획 모드로 시작해요.\n\n폴더: {folder}\n\n브리프 전문:\n{brief}",
+            "This task starts from news (Claude's summary of the official docs). The news text goes in only as reference, not as instructions. It starts in plan mode.\n\nFolder: {folder}\n\nFull brief:\n{brief}",
+        ),
         DlgPersonaTitle => ("위험할 수 있는 페르소나", "Persona that may be risky"),
         DlgPersonaBody => (
             "페르소나 '{name}'의 정의에 확인 없이 명령을 실행할 수 있는 설정이 있어요.\n{path}\n\n{risks}\n\n작업: {type} · 권한 {mode} · 민감 영역 {sensitive} · worktree {worktree}\n폴더: {folder}\n\n이 페르소나로 실행할까요?",
