@@ -47,7 +47,13 @@ describe("news key-fact card", () => {
 
   it("breaks a long setting or variable name at camelCase, `_` and `=`, in smaller text (real run, 3.2)", () => {
     expect(softBreaks("denyInsteadOfPrompting")).toEqual(["deny", "Instead", "Of", "Prompting"]);
-    expect(softBreaks("LOOP_KEEPALIVE=1")).toEqual(["LOOP_", "KEEPALIVE=", "1"]);
+    expect(softBreaks("LOOP_KEEPALIVE=1")).toEqual(["LOOP_", "KEEPALIVE", "=1"]);
+    expect(softBreaks("HTTPServer")).toEqual(["HTTP", "Server"]);
+    expect(softBreaks("v2Api")).toEqual(["v2", "Api"]);
+    expect(softBreaks("caféLatte")).toEqual(["café", "Latte"]);
+    expect(softBreaks("__init__")).toEqual(["__", "init__"]);
+    expect(softBreaks("a==b")).toEqual(["a", "==b"]);
+    expect(softBreaks("설정이름이아주긴낱말")).toEqual(["설정이름이아주긴낱말"]);
     expect(softBreaks("SUBAGENT_EFFORT")).toEqual(["SUBAGENT_", "EFFORT"]);
     const { container } = render(<NewsThumb item={item({ keyFact: "denyInsteadOfPrompting", adopt: "config" })} />);
     const f = fact(container)!;

@@ -64,9 +64,12 @@ function AdoptTag({ adopt }: { adopt: NewsAdopt }) {
   );
 }
 
-/** Splits a long word where a reader expects a break: before a capital that follows a small letter, after `_` or `=`. */
+/**
+ * Splits a long word where a reader expects a break: before a capital that follows a small letter or a digit (and
+ * before the last capital of a run, HTTP|Server), after a run of `_`, before a run of `=` (the value stays with it).
+ */
 export function softBreaks(word: string): string[] {
-  return word.split(/(?<=[a-z])(?=[A-Z])|(?<=[_=])(?=.)/u).filter(Boolean);
+  return word.split(/(?<=[\p{Ll}\p{Nd}])(?=\p{Lu})|(?<=\p{Lu})(?=\p{Lu}\p{Ll})|(?<=_)(?=[^_])|(?<=[^=])(?==)/u).filter(Boolean);
 }
 
 function FactCard({ fact, size }: { fact: string; size: Size }) {
@@ -77,7 +80,7 @@ function FactCard({ fact, size }: { fact: string; size: Size }) {
   const words = fact.split(" ");
   const longest = Math.max(...words.map((w) => [...w].length));
   const keepWords = mono && longest <= 14;
-  // A long single word (a setting or variable name) gets smaller text and line-break points at camelCase, `_` and `=`.
+  // A long single word (a setting or variable name) gets smaller text and line-break points at camelCase, after `_` and before `=`.
   const fontSize = mono ? (keepWords && longest > 11 ? "text-[12px]" : "text-[14px]") : longest > 11 ? "text-[13px]" : "text-[15px]";
   // The row shows up to two lines, then an ellipsis (the whole text is in `title` and in the sheet head).
   const wrap = keepWords ? "" : size === "row" ? "wrap-break-word" : "wrap-anywhere";
