@@ -12,4 +12,4 @@
 
 - [x] 3.1 Design review (design-critic + security-privacy-reviewer), reflected in the design.md "Review fixes" section
 - [x] 3.2 Full checks (tsc, vitest, lint) plus a keyboard walk of the six sheets in the mock UI (Playwright: Tab ×N, then confirm activeElement is inside the sheet), with the record and screenshots under docs/assets/review/sheet-focus/
-- [ ] 3.3 Test review (qa-verifier + design-critic)
+- [x] 3.3 Test review (qa-verifier + design-critic) — test review: qa-verifier PASS + design-critic re-check closed (2026-11-13)

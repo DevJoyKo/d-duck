@@ -80,6 +80,24 @@ describe("Agent settings sheet", () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  it("Escape in the skill picker closes only the picker; the next Escape closes the sheet", async () => {
+    const { opener, dialog } = await open();
+    // A project file agent: its loadout can be edited (a plugin agent's cannot).
+    const row = (await within(dialog).findByText("design-critic")).closest("tr") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: /기본 장비/ }));
+    const pick = await within(dialog).findByRole("button", { name: /스킬 고르기/ });
+    fireEvent.click(pick);
+    const search = await within(dialog).findByLabelText("스킬 찾기");
+    act(() => search.focus());
+    escape();
+    expect(within(dialog).queryByLabelText("스킬 찾기")).toBeNull();
+    expect(screen.getByRole("dialog", { name: "에이전트 설정" })).toBe(dialog);
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    escape();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
+
   it("walks the Rules and Types tabs too", async () => {
     const { dialog } = await open();
     fireEvent.click(within(dialog).getByRole("radio", { name: "팀 규칙" }));

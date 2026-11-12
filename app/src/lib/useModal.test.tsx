@@ -234,13 +234,17 @@ describe("useModal: Escape", () => {
     expect(document.activeElement).toBe(opener);
   });
 
-  it("ignores Escape while an input method is composing", () => {
+  it("ignores Escape while an input method is composing, and the field keeps its text", () => {
     openPage();
-    const field = screen.getByLabelText("시트 이름");
+    const field = screen.getByLabelText("시트 이름") as HTMLInputElement;
     act(() => field.focus());
+    fireEvent.change(field, { target: { value: "한글" } });
     fireEvent.keyDown(field, { key: "Escape", isComposing: true });
     fireEvent.keyDown(field, { key: "Escape", keyCode: 229 });
     expect(screen.queryByRole("dialog")).not.toBeNull();
+    expect(screen.getByLabelText("시트 이름")).toBe(field);
+    expect(field.value).toBe("한글");
+    expect(document.activeElement).toBe(field);
   });
 
   it("ignores an Escape an inner control already handled (defaultPrevented)", () => {
@@ -304,6 +308,37 @@ describe("useModal: Escape", () => {
 });
 
 describe("useModal: stack", () => {
+  it("a sheet opened later on top of an open one takes Escape and focusin; the lower one gets them back after", () => {
+    const lower = vi.fn();
+    function Layers() {
+      const [upper, setUpper] = useState(false);
+      return (
+        <>
+          <Sheet onClose={lower} label="아래">
+            <button onClick={() => setUpper(true)}>위 열기</button>
+          </Sheet>
+          {upper && <Sheet onClose={() => setUpper(false)} label="위" />}
+        </>
+      );
+    }
+    render(<Layers />);
+    expect(document.activeElement).toBe(button("아래 닫기"));
+    // A separate commit: the upper sheet mounts after the lower one is already open.
+    act(() => button("위 열기").focus());
+    fireEvent.click(button("위 열기"));
+    expect(document.activeElement).toBe(button("위 닫기"));
+    // Focus moving into the lower sheet is pulled back into the top one.
+    act(() => button("아래 닫기").focus());
+    expect(document.activeElement).toBe(button("위 닫기"));
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "위" })).toBeNull();
+    expect(lower).not.toHaveBeenCalled();
+    // Focus went back to the opener in the lower sheet, which reacts again.
+    expect(document.activeElement).toBe(button("위 열기"));
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(lower).toHaveBeenCalledTimes(1);
+  });
+
   it("lets only the top sheet react to Escape and Tab", () => {
     const lower = vi.fn();
     function Two() {
