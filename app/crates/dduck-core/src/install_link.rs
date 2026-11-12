@@ -500,6 +500,7 @@ fn plan_files(entries: &[TreeEntry], path: &str) -> Result<(Vec<Planned>, Vec<St
 }
 
 fn mkdir_private(p: &Path) -> std::io::Result<()> {
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut b = std::fs::DirBuilder::new();
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);

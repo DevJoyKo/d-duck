@@ -486,6 +486,7 @@ pub struct PermPlan {
     pub mode_change: Option<(Option<String>, Option<String>)>,
     pub risky_mode: bool,
     old_permissions: Value,
+    #[cfg_attr(not(unix), allow(dead_code))]
     new_file_mode: u32,
     #[cfg(unix)]
     ino: u64,
@@ -724,6 +725,7 @@ pub fn plan_save(path: &Path, edit: PermEdit, token: &str, shared: bool) -> Resu
             return Err(PermError::Invalid(if m == "bypassPermissions" { crate::i18n::Fail::BypassNotHere.str().into() } else { crate::i18n::Fail::ModeUnknown.str().into() }));
         }
     }
+    #[cfg_attr(not(unix), allow(unused_variables))]
     let (text, old_permissions, meta) = if old.exists {
         let bytes = std::fs::read(&path).map_err(|_| PermError::Io)?;
         if sha(&bytes) != token {

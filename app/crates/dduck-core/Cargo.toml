@@ -9,7 +9,6 @@ rust-version.workspace = true
 ammonia = "4.2.4"
 base64 = "0.23"
 chrono = "0.4.45"
-notify = "8.2.1"
 quick-xml = "0.42"
 regex = "1.13.1"
 rusqlite = { version = "0.41.1", features = ["bundled"] }
@@ -20,7 +19,6 @@ sys-locale = "0.3.2"
 # Atomic save of a report attachment (report-copy-save, D-174); already a dev-dependency.
 tempfile = "3.27.0"
 thiserror = "2.0.21"
-tokio = { version = "1.54.1", features = ["rt", "time", "sync", "macros", "process", "io-util"] }
 unicode-normalization = "0.1.26"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 url = "2.5.8"

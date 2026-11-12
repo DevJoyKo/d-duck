@@ -959,6 +959,7 @@ impl Target {
 }
 
 fn mkdir(p: &Path, mode: u32) -> std::io::Result<()> {
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut b = std::fs::DirBuilder::new();
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut b, mode);

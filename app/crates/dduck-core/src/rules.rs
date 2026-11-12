@@ -1170,6 +1170,7 @@ fn make_dir(p: &Path) -> Result<(), RuleError> {
         Ok(m) if m.file_type().is_dir() => Ok(()),
         Ok(_) => Err(RuleError::Unsafe(crate::i18n::Fail::RulesDirBad.str())),
         Err(_) => {
+            #[cfg_attr(not(unix), allow(unused_mut))]
             let mut b = std::fs::DirBuilder::new();
             #[cfg(unix)]
             std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o755);
@@ -1230,6 +1231,7 @@ pub struct TogglePlan {
     exists: bool,
     token: String,
     content: String,
+    #[cfg_attr(not(unix), allow(dead_code))]
     new_mode: u32,
     pub note: Option<&'static str>,
     pub changed: bool,

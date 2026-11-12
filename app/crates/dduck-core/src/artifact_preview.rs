@@ -723,6 +723,7 @@ mod tests {
         assert_eq!(preview(&cache, &fx.home, &fx.allowed, "s", "art1", true), Err(PreviewError::Typed));
     }
 
+    #[cfg(unix)]
     #[test]
     fn symlinks_are_refused() {
         let fx = fx();
@@ -799,6 +800,7 @@ mod tests {
         assert_eq!(get(&fx, &publish(&fx, gone_dir.to_str().unwrap(), "art1"), "art1"), Err(PreviewError::Missing));
     }
 
+    #[cfg(unix)]
     #[test]
     fn fifo_is_refused_without_blocking() {
         let fx = fx();

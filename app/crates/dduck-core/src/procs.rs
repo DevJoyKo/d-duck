@@ -3,8 +3,11 @@
 //! A pid from `claude agents --json` is only signalled after checking, right before the signal, that it still
 //! belongs to the current user and runs a `claude` executable — so a recycled pid is never killed.
 
+#[cfg(unix)]
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,6 +45,7 @@ pub fn is_own_claude_process(pid: i64) -> bool {
 }
 
 /// Pure part of the check: owned by `me` and the executable's file name is `claude`/`claude.exe`.
+#[cfg(unix)]
 fn matches_claude(uid: u32, comm: &str, me: u32) -> bool {
     let name = comm.rsplit('/').next().unwrap_or("");
     uid == me && (name == "claude" || name == "claude.exe")

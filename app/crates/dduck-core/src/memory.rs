@@ -967,6 +967,7 @@ fn ensure_off_dir(dir: &Path) -> Result<PathBuf, MemError> {
         Ok(m) if m.file_type().is_dir() => Ok(off),
         Ok(_) => Err(MemError::Unsafe(crate::i18n::Fail::OffBad.str())),
         Err(_) => {
+            #[cfg_attr(not(unix), allow(unused_mut))]
             let mut b = std::fs::DirBuilder::new();
             #[cfg(unix)]
             std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
@@ -1479,6 +1480,7 @@ mod tests {
         let (_t, _cfg, dir) = setup();
         let original = std::fs::read(dir.join("MEMORY.md")).unwrap();
         toggle(&dir, "commit-style.md", false).unwrap();
+        #[cfg(unix)]
         let sc = dir.join(".off/commit-style.md.line");
         #[cfg(unix)]
         assert_eq!(std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&sc).unwrap().permissions()) & 0o777, 0o600);
@@ -1587,6 +1589,7 @@ mod tests {
 
     #[test]
     fn conflicts_duplicates_and_links_are_refused() {
+        #[cfg_attr(not(unix), allow(unused_variables))]
         let (_t, cfg, dir) = setup();
         let l = list(&dir);
         let a = entry_of(&l, "commit-style.md");
