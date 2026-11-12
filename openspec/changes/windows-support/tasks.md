@@ -1,7 +1,7 @@
 ## 0. Premises (before groups 1–5)
 
-- [ ] 0.1 Non-required `windows-latest` CI job: `cargo check` + clippy for the workspace; list what fails
-- [ ] 0.2 Same runner: install the CLI (native installer), record `--version`, `--help` of `--bg`/`agents`/`logs`/`stop`/`attach`, the tools list from a `-p` init message (no login: record what is observable), and whether `auth`/`plugin`/`mcp list` start the background service; decisions.md entry; rewrite Goals if `--bg` is missing
+- [x] 0.1 Non-required `windows-latest` CI job: `cargo check` + clippy for the workspace; list what fails — `.github/workflows/windows-probe.yml` (2026-11-13): core lib builds with ~10 unused/dead-code warnings (Mac-only paths); lib test fails on 2× `std::os::unix` + 1× `libc` (artifact_preview, procs, permissions, rules, memory, install_link, authoring); unused deps tokio/notify on Windows; the shell `dduck` not reached yet
+- [x] 0.2 Same runner: install the CLI (native installer), record `--version`, `--help` of `--bg`/`agents`/`logs`/`stop`/`attach`, the tools list from a `-p` init message (no login: record what is observable), and whether `auth`/`plugin`/`mcp list` start the background service; decisions.md entry; rewrite Goals if `--bg` is missing — 2026-11-13, CLI 2.1.323 at `%USERPROFILE%\.local\bin\claude.exe`: `--bg` and `agents`/`logs`/`stop`/`attach` exist; `auth status`/`plugin list`/`mcp list` start no background process; `-p` without login prints the init message (tools include `Bash`, no `PowerShell` with Git Bash present) then "Not logged in". Goals unchanged
 
 ## 1. Core platform layer
 
