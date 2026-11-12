@@ -64,6 +64,11 @@ function AdoptTag({ adopt }: { adopt: NewsAdopt }) {
   );
 }
 
+/** Splits a long word where a reader expects a break: before a capital that follows a small letter, after `_` or `=`. */
+export function softBreaks(word: string): string[] {
+  return word.split(/(?<=[a-z])(?=[A-Z])|(?<=[_=])(?=.)/u).filter(Boolean);
+}
+
 function FactCard({ fact, size }: { fact: string; size: Size }) {
   const mono = isCommandFact(fact);
   const box = size === "row" ? "h-16 w-[118px]" : "min-h-12 w-[132px]";
@@ -72,7 +77,8 @@ function FactCard({ fact, size }: { fact: string; size: Size }) {
   const words = fact.split(" ");
   const longest = Math.max(...words.map((w) => [...w].length));
   const keepWords = mono && longest <= 14;
-  const fontSize = mono ? (keepWords && longest > 11 ? "text-[12px]" : "text-[14px]") : "text-[15px]";
+  // A long single word (a setting or variable name) gets smaller text and line-break points at camelCase, `_` and `=`.
+  const fontSize = mono ? (keepWords && longest > 11 ? "text-[12px]" : "text-[14px]") : longest > 11 ? "text-[13px]" : "text-[15px]";
   // The row shows up to two lines, then an ellipsis (the whole text is in `title` and in the sheet head).
   const wrap = keepWords ? "" : size === "row" ? "wrap-break-word" : "wrap-anywhere";
   const text = size === "row" ? `line-clamp-2 ${wrap}` : `block ${wrap}`;
@@ -89,7 +95,19 @@ function FactCard({ fact, size }: { fact: string; size: Size }) {
                 </span>
               </Fragment>
             ))
-          : fact}
+          : words.map((w, i) => (
+              <Fragment key={i}>
+                {i > 0 && " "}
+                {[...w].length > 11
+                  ? softBreaks(w).map((part, j) => (
+                      <Fragment key={j}>
+                        {j > 0 && <wbr />}
+                        {part}
+                      </Fragment>
+                    ))
+                  : w}
+              </Fragment>
+            ))}
       </span>
     </span>
   );

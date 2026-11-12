@@ -201,7 +201,8 @@ Answer with ONE JSON object and nothing else (no code fence, no prose): {\"items
 \"what\":\"<=600 chars: what it is\",\"when_to_use\":\"<=600 chars: when it helps\",\"best_practice\":\"<=600 chars: how to use it well\",\
 \"source_url\":\"the code.claude.com/docs/en/... page, without #anchor or ?query\",\
 \"key_fact\":\"the one thing to type or remember, as short as possible: aim for 12 chars or fewer, never over 24 \
-(e.g. /fast, effort cap, 1M context, one settings file), in the answer language\",\
+(e.g. /fast, effort cap, 1M context, one settings file), in the answer language; for a long setting or variable name \
+use a short plain phrase instead (deny, not ask; not denyInsteadOfPrompting)\",\
 \"adopt\":\"update|config|opt_in\",\"apply_steps\":[\"1 to 3 steps to try it in a project, each <=160 chars, one line\"],\
 \"verify\":\"<=160 chars, one line: how to check it worked\"}]}\n\
 key_fact, adopt, apply_steps and verify are optional: leave a field out when the pages don't make it clear. adopt is \

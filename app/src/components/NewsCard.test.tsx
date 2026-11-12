@@ -2,7 +2,7 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { NewsItem } from "../lib/api";
-import { NewsThumb, isCommandFact } from "./NewsCard";
+import { NewsThumb, isCommandFact, softBreaks } from "./NewsCard";
 
 const item = (extra: Partial<NewsItem> = {}): NewsItem => ({
   id: "2.1.323-diff",
@@ -43,6 +43,20 @@ describe("news key-fact card", () => {
     cleanup();
     const name = render(<NewsThumb item={item({ keyFact: "maxEffortLevel", adopt: "config" })} />).container;
     expect(tag(name)?.textContent).toBe("설정 필요");
+  });
+
+  it("breaks a long setting or variable name at camelCase, `_` and `=`, in smaller text (real run, 3.2)", () => {
+    expect(softBreaks("denyInsteadOfPrompting")).toEqual(["deny", "Instead", "Of", "Prompting"]);
+    expect(softBreaks("LOOP_KEEPALIVE=1")).toEqual(["LOOP_", "KEEPALIVE=", "1"]);
+    expect(softBreaks("SUBAGENT_EFFORT")).toEqual(["SUBAGENT_", "EFFORT"]);
+    const { container } = render(<NewsThumb item={item({ keyFact: "denyInsteadOfPrompting", adopt: "config" })} />);
+    const f = fact(container)!;
+    expect(f.textContent).toBe("denyInsteadOfPrompting");
+    expect(f.querySelectorAll("wbr")).toHaveLength(3);
+    expect(f.className).toContain("text-[13px]");
+    cleanup();
+    const short = fact(render(<NewsThumb item={item({ keyFact: "Fable 5.2", adopt: "update" })} />).container)!;
+    expect([short.querySelectorAll("wbr").length, short.className.includes("text-[15px]")]).toEqual([0, true]);
   });
 
   it("knows a command by a leading slash or `claude `", () => {
