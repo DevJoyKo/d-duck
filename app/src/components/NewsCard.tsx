@@ -66,7 +66,7 @@ function FactCard({ fact, size }: { fact: string; size: Size }) {
   const mono = isCommandFact(fact);
   const box = size === "row" ? "h-16 w-[118px]" : "min-h-12 w-[132px]";
   // The row cuts a long fact (the whole text is in `title` and in the sheet); the sheet head wraps it.
-  const text = size === "row" ? "truncate" : "break-words";
+  const text = size === "row" ? "truncate" : "wrap-anywhere";
   return (
     <span data-news-card className={`flex shrink-0 items-center rounded-lg border border-line bg-sheet px-2.5 py-2 ${box}`}>
       <span data-news-fact title={fact} className={`block min-w-0 flex-1 leading-snug font-semibold text-ink ${text} ${mono ? "font-mono text-[14px]" : "text-[15px]"}`}>

@@ -14,6 +14,8 @@ import { GateLine } from "./LoginBits";
 import { DuckAvatar } from "./DuckAvatar";
 import { Button, PageBody, PageHeader, Switch } from "./ui";
 import { catKey, NewsThumb } from "./NewsCard";
+import { ApplyPart } from "./NewsApply";
+import type { Draft } from "../lib/brief";
 
 /** "11월 9일" (the year only when it is not this year). */
 function shortDate(date: string): string {
@@ -34,15 +36,43 @@ function Meta({ item }: { item: NewsItem }) {
   );
 }
 
+/** The row's "원문 ↗" (news-apply 2.3a): the same backend path as the sheet's 원문 열기 (Rust re-checks the stored link). */
+function SourceLink({ item }: { item: NewsItem }) {
+  const t = useT();
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={t("news.list.sourceLabel", { title: item.title })}
+        onClick={() => {
+          setError(null);
+          api.newsOpenSource(item.id).catch((e) => setError(messageOf(e)));
+        }}
+        className="pointer-events-auto shrink-0 rounded text-xs text-ink-2 underline-offset-2 hover:text-ink hover:underline focus-visible:outline-2 focus-visible:outline-ink"
+      >
+        {t("news.list.source")}
+      </button>
+      {error && (
+        <span role="alert" className="pointer-events-auto min-w-0 truncate text-xs text-danger">
+          {t("news.detail.openFailed", { error })}
+        </span>
+      )}
+    </>
+  );
+}
+
 function Row({ item, onOpen }: { item: NewsItem; onOpen: (it: NewsItem, el: HTMLButtonElement) => void }) {
   const t = useT();
+  // The meta line sits over the row button's bottom padding, outside it, so "원문 ↗" is its own button (no nesting);
+  // clicks on the rest of that line fall through to the row.
   return (
-    <li>
+    <li className="relative">
       <button
         type="button"
         data-news-row={item.id}
         onClick={(e) => onOpen(item, e.currentTarget)}
-        className="flex w-full items-center gap-4 rounded-xl px-3 py-3 text-left transition-colors hover:bg-ink/4 focus-visible:outline-2 focus-visible:outline-ink"
+        className="flex w-full items-start gap-4 rounded-xl px-3 pt-3 pb-9 text-left transition-colors hover:bg-ink/4 focus-visible:outline-2 focus-visible:outline-ink"
       >
         <NewsThumb item={item} />
         <span className="min-w-0 flex-1">
@@ -56,11 +86,12 @@ function Row({ item, onOpen }: { item: NewsItem; onOpen: (it: NewsItem, el: HTML
             <span className={`truncate text-[15px] leading-snug ${item.seen ? "font-medium text-ink-2" : "font-semibold text-ink"}`}>{item.title}</span>
           </span>
           <span className="mt-1 block truncate text-[13px] text-ink-2">{item.summary}</span>
-          <span className="mt-1.5 block">
-            <Meta item={item} />
-          </span>
         </span>
       </button>
+      <span className="pointer-events-none absolute right-3 bottom-3 left-[146px] flex min-w-0 items-center gap-2">
+        <Meta item={item} />
+        <SourceLink item={item} />
+      </span>
     </li>
   );
 }
@@ -79,7 +110,7 @@ function Section({ title, items, onOpen }: { title: string; items: NewsItem[]; o
   );
 }
 
-function Detail({ item, onClose }: { item: NewsItem; onClose: () => void }) {
+function Detail({ item, onClose, onDraft }: { item: NewsItem; onClose: () => void; onDraft?: (d: Draft) => void }) {
   const t = useT();
   const closeRef = useRef<HTMLButtonElement>(null);
   const [openError, setOpenError] = useState<string | null>(null);
@@ -90,7 +121,7 @@ function Detail({ item, onClose }: { item: NewsItem; onClose: () => void }) {
       // Keep Tab inside the sheet (aria-modal).
       if (e.key !== "Tab") return;
       const dialog = closeRef.current?.closest('[role="dialog"]');
-      const all = dialog ? Array.from(dialog.querySelectorAll<HTMLElement>("button, [href]")).filter((el) => !el.hasAttribute("disabled")) : [];
+      const all = dialog ? Array.from(dialog.querySelectorAll<HTMLElement>("button, [href], select")).filter((el) => !el.hasAttribute("disabled")) : [];
       if (all.length === 0) return;
       const first = all[0];
       const last = all[all.length - 1];
@@ -131,6 +162,7 @@ function Detail({ item, onClose }: { item: NewsItem; onClose: () => void }) {
           {block(t("news.detail.what"), item.what, "what")}
           {block(t("news.detail.when"), item.whenToUse, "when")}
           {block(t("news.detail.best"), item.bestPractice, "best")}
+          <ApplyPart item={item} onDraft={onDraft} />
           <div>
             <Button
               onClick={() => {
@@ -198,7 +230,8 @@ function StatusLine({ view, running, onCancel, quiet }: { view: NewsView; runnin
   );
 }
 
-export function NewsPage() {
+/** `onDraft`: "내 프로젝트에 적용" hands a draft to the app's composer (App.openDraft asks before replacing one). */
+export function NewsPage({ onDraft }: { onDraft?: (d: Draft) => void } = {}) {
   const t = useT();
   const { lang } = useLanguage();
   const qc = useQueryClient();
@@ -313,7 +346,7 @@ export function NewsPage() {
           </div>
         )}
       </PageBody>
-      {open && <Detail item={open} onClose={close} />}
+      {open && <Detail item={open} onClose={close} onDraft={onDraft} />}
     </>
   );
 }

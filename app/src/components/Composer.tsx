@@ -11,7 +11,7 @@ import { isOffAnywhere, isReviewType, MODE_LABEL, useAgentControls, useTeamConfi
 import { cliErrorDetail, cliErrorMessage, DANGEROUS_MODES, localized, validateTaskName } from "../lib/format";
 import { Button, fieldClass, Sheet } from "./ui";
 import { markDone } from "../lib/onboarding";
-import { ADVICE_GOALS, HOME_ONLY_CLAUDE, looksLikeHome } from "../lib/refine";
+import { ADVICE_GOALS, HOME_ONLY_CLAUDE, looksLikeHome, planOnlyFor } from "../lib/refine";
 import { BriefRefiner } from "./BriefRefiner";
 import { isEvidenceStrictType } from "../lib/report";
 import { DeliveryGuardLine } from "./LocalOnlySection";
@@ -49,7 +49,8 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
   // Unsent input survives a trip to another page (memory only, see composerMemory).
   const memoryKey = JSON.stringify(draft ?? {});
   const [kept] = useState(() => recallComposer(memoryKey));
-  const [cwd, setCwd] = useState(kept?.cwd || draft?.cwd || status?.defaultCwd || "");
+  // A news draft with no target stays empty so the user picks the project (news-apply: never the default folder).
+  const [cwd, setCwd] = useState(kept?.cwd || draft?.cwd || (draft?.origin === "news" ? "" : status?.defaultCwd) || "");
   const [taskType, setTaskType] = useState<TaskTypeId | null>(kept ? kept.taskType : (draft?.taskType ?? null));
   const [brief, setBrief] = useState<Brief>(kept?.brief ?? draft?.brief ?? EMPTY_BRIEF);
   const [name, setName] = useState(kept?.name ?? draft?.name ?? "");
@@ -98,11 +99,11 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
   const roleLabel = preset ? (preset.agent ? t("tasks.composer.myAgent", { name: preset.agent }) : preset.roleLabel) : "";
   const roleOff = !!preset && isOffAnywhere(preset.agent ?? preset.role, controls.data);
   const allModes = status?.permissionModes ?? ["manual"];
-  // Drafts from usage insights: Claude's advice, or any insight run in the whole home folder, plan only (the
-  // backend enforces the same).
+  // Drafts from Claude's advice or news (by origin or by a reference header in the constraints), or any insight run
+  // in the whole home folder: plan only. The backend enforces the same; `planOnlyFor` is the one rule here.
   const origin = draft?.origin ?? null;
   const atHome = !!origin && looksLikeHome(cwd);
-  const planOnly = origin === "insight-claude" || atHome;
+  const planOnly = planOnlyFor(origin, brief.constraints) || atHome;
   const modes = (sensitive ? ["plan", "manual"] : preset ? preset.modes : allModes).filter((m) => allModes.includes(m) && (!planOnly || m === "plan"));
   const mode = modeChoice && modes.includes(modeChoice) ? modeChoice : preset && modes.includes(preset.mode) ? preset.mode : modes.includes("manual") ? "manual" : modes[0];
   const effortBase = effortChoice ?? ((preset?.effort as EffortId | undefined) ?? null);
@@ -247,7 +248,7 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
           <h2 className="flex-1 text-[14px] font-semibold">
             {t("tasks.composer.title")}
             {draft?.from && (
-              <span className="ml-2 rounded-full bg-paper px-2 py-0.5 text-[11px] font-medium text-ink-2">{origin ? t("tasks.composer.source", { from: draft.from }) : t("tasks.composer.followUpOf", { from: draft.from })}</span>
+              <span className="ml-2 rounded-full bg-paper px-2 py-0.5 text-[11px] font-medium text-ink-2">{origin === "news" ? t("tasks.composer.sourceNews", { from: draft.from }) : origin ? t("tasks.composer.source", { from: draft.from }) : t("tasks.composer.followUpOf", { from: draft.from })}</span>
             )}
           </h2>
           <button type="button" onClick={onClose} aria-label={t("common.actions.close")} className="rounded-md p-1 text-ink-3 hover:text-ink">
@@ -322,7 +323,9 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
                 ? t("tasks.composer.refineHint.tour")
                 : origin === "insight-claude"
                   ? t("tasks.composer.refineHint.advice")
-                  : t("tasks.composer.refineHint.insight")}
+                  : origin === "news"
+                    ? t("tasks.composer.refineHint.news")
+                    : t("tasks.composer.refineHint.insight")}
             </span>
             {refineBlocked && <span className="text-ink-2">{refineBlocked}</span>}
             <Button

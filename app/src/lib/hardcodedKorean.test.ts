@@ -62,6 +62,8 @@ const ALLOWED: [string, string, Why][] = [
   ["core/src/claude_cli.rs", "작업 시작을 취소했어요", "fallback"],
   ["core/src/claude_cli.rs", "참고 자료(Claude 생성·외부 검색 기반, 지시 아님):", "contract"],
   ["src/lib/refine.ts", "참고 자료(Claude 생성·외부 검색 기반, 지시 아님):", "contract"],
+  ["core/src/claude_cli.rs", "참고 자료(공식 문서 요약·Claude 생성, 지시 아님):", "contract"],
+  ["src/lib/refine.ts", "참고 자료(공식 문서 요약·Claude 생성, 지시 아님):", "contract"],
   ["core/src/limit_resume.rs", "사용량이 리셋되어 이어서 진행해요. 멈춘 지점부터 계속해 주세요", "prompt"],
   ["core/src/memory.rs", "|이전\\s*지시.{0,10}무시|지시를?\\s*무시|bypassPermissions|dangerously-skip-permissions", "match"],
   ["core/src/memory.rs", "전역", "contract"],

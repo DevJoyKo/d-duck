@@ -45,7 +45,7 @@ export default {
     title: "Try it",
     noSteps: "The draft starts from the best practice",
     verify: "Check it worked · {text}",
-    source: "Source {url}",
+    sourceLabel: "Source",
     target: "Project",
     targetNone: "Pick in the composer",
     button: "Apply to my project",

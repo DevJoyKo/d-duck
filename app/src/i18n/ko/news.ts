@@ -43,7 +43,7 @@ export default {
     title: "적용 제안",
     noSteps: "베스트 프랙티스를 바탕으로 초안을 만들어요",
     verify: "됐는지 확인하기 · {text}",
-    source: "원문 {url}",
+    sourceLabel: "원문",
     target: "대상 프로젝트",
     targetNone: "작성 창에서 고르기",
     button: "내 프로젝트에 적용",

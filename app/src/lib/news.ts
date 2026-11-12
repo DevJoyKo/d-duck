@@ -1,6 +1,7 @@
 // News tab helpers (news-tab, D-204): the "Earlier" split and each category's thumbnail. Rust already sorts the
 // list (date, then numeric version); this file never reorders it.
 import type { NewsCategory, NewsItem } from "./api";
+import type { ProjectsPayload } from "./projects";
 import { DUCK_COLORS, type DuckColor } from "../components/DuckAvatar";
 
 /** Items dated more than this many days ago go under "이미 나온 기능". */
@@ -45,4 +46,23 @@ export function hostOf(url: string): string {
   } catch {
     return "";
   }
+}
+
+/** A project "내 프로젝트에 적용" can target: a real folder that isn't home (news-apply design 5). */
+export interface NewsTarget {
+  path: string;
+  name: string;
+}
+
+/** Targets for the sheet's picker, recent picks first, and the default: the first usable recent pick, else none. */
+export function newsTargets(data: Pick<ProjectsPayload, "projects" | "recent"> | undefined): { targets: NewsTarget[]; fallback: string } {
+  if (!data) return { targets: [], fallback: "" };
+  const usable = data.projects.filter((p) => p.path && p.folder === "ok" && !p.isHome && !p.offReason);
+  const rank = (id: string) => {
+    const i = data.recent.indexOf(id);
+    return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  const sorted = [...usable].sort((a, b) => rank(a.id) - rank(b.id) || (b.lastActive ?? 0) - (a.lastActive ?? 0));
+  const firstRecent = sorted.find((p) => data.recent.includes(p.id));
+  return { targets: sorted.map((p) => ({ path: p.path as string, name: p.name })), fallback: firstRecent?.path ?? "" };
 }
