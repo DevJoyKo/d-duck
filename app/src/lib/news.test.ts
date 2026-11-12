@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { NewsItem } from "./api";
-import { categoryColor, dayMs, hostOf, splitEarlier } from "./news";
+import { categoryColor, dayMs, hostOf, newsTargets, splitEarlier } from "./news";
+import type { KnownProject } from "./projects";
 import { ROLE_COLOR_INDEX } from "./roleColors";
 
 const item = (id: string, date: string): NewsItem => ({
@@ -29,5 +30,23 @@ describe("news helpers", () => {
   it("shows the host of a link and nothing for junk", () => {
     expect(hostOf("https://code.claude.com/docs/en/changelog")).toBe("code.claude.com");
     expect(hostOf("not a url")).toBe("");
+  });
+
+  it("lists apply targets recent first, leaves home and unknown folders out, and tells same names apart", () => {
+    const p = (id: string, name: string, parentDir: string | null, extra: Partial<KnownProject> = {}): KnownProject => ({
+      id, name, parentDir, path: parentDir ? `${parentDir}/${name}` : null, folder: "ok", isHome: false, offReason: null, memory: false, memories: 0, rules: 0, lastActive: null, worktreeOf: null, empty: false, ...extra,
+    });
+    const projects = [
+      p("a", "api", "/w/client"),
+      p("b", "api", "/w/other"),
+      p("h", "me", "/Users", { isHome: true, offReason: "home" }),
+      p("u", "lost", null, { folder: "unknown", offReason: "unknown" }),
+      p("s", "site", "/w"),
+    ];
+    const { targets, fallback } = newsTargets({ projects, recent: ["h", "s", "b"] });
+    expect(targets.map((t) => t.name)).toEqual(["site", "api · other", "api · client"]);
+    expect(fallback).toBe("/w/site");
+    expect(newsTargets({ projects, recent: ["h"] }).fallback).toBe("");
+    expect(newsTargets(undefined)).toEqual({ targets: [], fallback: "" });
   });
 });

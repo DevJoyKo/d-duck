@@ -2603,7 +2603,9 @@ async fn start_task(app: AppHandle, mut spec: TaskSpec, start_id: Option<String>
     let env = loadout_env(&app.state::<AppState>(), &spec.cwd, team.as_deref());
     steps.lap("loadout");
     // 전달 범위 (delivery-guard): computed here, never from the webview; any failure refuses the start.
-    let worktree_possible = spec.origin.is_none() && dduck_core::team::repo_status(&spec.cwd, &home_dir()) == dduck_core::team::RepoStatus::Ok;
+    // By folder, not by origin (news-apply test review C1): a draft from news or insights in a project on its default
+    // branch gets a worktree like any other task; the home folder never does.
+    let worktree_possible = dduck_core::delivery_guard::worktree_possible(&spec.cwd, &home_dir());
     let delivery = delivery_cmds::start_guard(&app.state::<AppState>(), &spec.cwd, worktree_possible).map_err(|reason| CliError::invalid(ReasonCode::from_guard(reason)))?;
     if delivery.force_worktree {
         // The default branch is checked out: the task works on its own branch in a worktree.
@@ -2670,7 +2672,10 @@ async fn start_task(app: AppHandle, mut spec: TaskSpec, start_id: Option<String>
         let parts = model_cmds::fallback_parts(&app, &spec.cwd);
         spec.apply_model(file_model.as_deref(), &parts.ctx())?;
         // A draft built from Claude's web-search-based advice: show the whole brief natively before it runs.
-        if spec.origin == Some(dduck_core::claude_cli::Origin::InsightClaude) {
+        // News drafts too (news-apply test review C4): the whole brief, with its quoted reference, is shown natively.
+        let quoted_origin = spec.origin.filter(|o| matches!(o, dduck_core::claude_cli::Origin::InsightClaude | dduck_core::claude_cli::Origin::News));
+        if let Some(origin) = quoted_origin {
+            let news = origin == dduck_core::claude_cli::Origin::News;
             let state = app.state::<AppState>();
             let _guard = state.confirm_lock.try_lock().map_err(|_| CliError::invalid(ReasonCode::ConfirmOpen))?;
             // Newlines kept; every other control, bidi or invisible character dropped.
@@ -2680,8 +2685,8 @@ async fn start_task(app: AppHandle, mut spec: TaskSpec, start_id: Option<String>
             }
             let ok = app
                 .dialog()
-                .message(trp(C::DlgAdviceBody, &P::new().text("folder", &spec.cwd.display().to_string(), 200).lines("brief", brief.split('\n'), 4_001, 4_000)))
-                .title(tr(C::DlgAdviceTitle))
+                .message(trp(if news { C::DlgNewsTaskBody } else { C::DlgAdviceBody }, &P::new().text("folder", &spec.cwd.display().to_string(), 200).lines("brief", brief.split('\n'), 4_001, 4_000)))
+                .title(tr(if news { C::DlgNewsTaskTitle } else { C::DlgAdviceTitle }))
                 .kind(MessageDialogKind::Warning)
                 .buttons(MessageDialogButtons::OkCancelCustom(tr(C::BtnStart), tr(C::BtnCancel)))
                 .blocking_show();

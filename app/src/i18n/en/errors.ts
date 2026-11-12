@@ -28,6 +28,8 @@ export default {
     tooLong: "The instructions and settings are too long",
     adviceNoRemote: "Phone remote control can't be on for a task started from a suggestion",
     advicePlanOnly: "A task started from a suggestion can only start in plan mode",
+    newsNoRemote: "Phone remote control can't be on for a task started from news",
+    newsPlanOnly: "A task started from news can only start in plan mode",
     dirNotFound: "Folder not found",
     promptSize: "The prompt must be 1 byte to 100 KB",
     nameFormat: "Names are 1–64 characters, don't start with '-', and have no control characters",

@@ -123,6 +123,19 @@ describe("palette tokens (palette-refresh 1.1)", () => {
       }
     }
 
+    it("news adopt tags: text on its tint over sheet and paper (news-apply B1)", () => {
+      const tags: [string, Rgba][] = [
+        ["color-ok-strong", [...parse(t["color-ok"]).slice(0, 3), 0.1] as Rgba],
+        ["color-warn", parse(t["color-warn-soft"])],
+        ["color-ink-2", [...parse(t["color-ink"]).slice(0, 3), 0.06] as Rgba],
+      ];
+      for (const [fg, tint] of tags) {
+        for (const ground of ["color-sheet", "color-paper"]) {
+          expect(contrast(parse(t[fg]), over(tint, parse(t[ground]))), `${fg} on ${ground}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    });
+
     it("side-ink on the translucent sidebar and on its selected row", () => {
       const side = over(parse(t["color-side"]), parse(t["color-paper"]));
       const active = over(parse(t["color-side-active"]), side);

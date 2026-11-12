@@ -315,7 +315,8 @@ export interface LimitView {
   autoOn: boolean;
 }
 
-export type TaskOrigin = "insight-local" | "insight-claude";
+/** `news`: "내 프로젝트에 적용" from a news item (news-apply); plan mode only, enforced by the backend. */
+export type TaskOrigin = "insight-local" | "insight-claude" | "news";
 
 export type RepoStatus = { kind: "notRepo" } | { kind: "homeRoot" } | { kind: "noCommits" } | { kind: "ok" };
 
@@ -460,6 +461,8 @@ export type CloudEditResult = { outcome: "declined" } | { outcome: "done"; routi
 
 // News tab (news-tab, D-204). Items are Claude's checked explainers in the app language; render as text only.
 export type NewsCategory = "model" | "command" | "setting" | "agent" | "integration" | "ide" | "security" | "other";
+/** How a feature is taken up (news-apply): works after updating, needs a setting, or is picked when wanted. */
+export type NewsAdopt = "update" | "config" | "opt_in";
 export interface NewsItem {
   id: string;
   title: string;
@@ -474,6 +477,15 @@ export interface NewsItem {
   sourceUrl: string;
   firstSeenMs: number;
   seen: boolean;
+  // news-apply (v18): each optional and checked on its own; null for items stored before v18.
+  /** The one fact shown big on the card (`/diff`, a setting name, a number), at most 24 characters. */
+  keyFact?: string | null;
+  adopt?: NewsAdopt | null;
+  /** 1–3 one-line steps. */
+  applySteps?: string[] | null;
+  verify?: string | null;
+  /** Paragraphs a draft must not quote (`what`, `bestPractice`): computed by Rust from the stored text (news-apply M1). */
+  noQuote?: string[];
 }
 export type NewsErrorKind = "budget" | "turns" | "timeout" | "cancelled" | "spawn" | "failed" | "login_required" | "empty" | "malformed" | "busy" | "guard";
 export interface NewsStatus {

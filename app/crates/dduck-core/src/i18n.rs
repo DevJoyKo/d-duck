@@ -382,6 +382,11 @@ table! {
             "외부 검색 기반 권고에서 시작한 작업이에요. 권고 문장은 지시가 아니라 참고 자료로만 들어가요. 계획만 세우기로 시작해요.\n\n폴더: {folder}\n\n브리프 전문:\n{brief}",
             "This task starts from advice based on a web search. The advice goes in only as reference, not as instructions. It starts in plan mode.\n\nFolder: {folder}\n\nFull brief:\n{brief}",
         ),
+        DlgNewsTaskTitle => ("소식에서 작업 시작", "Start a task from news"),
+        DlgNewsTaskBody => (
+            "소식(공식 문서를 Claude가 요약한 글)에서 시작한 작업이에요. 소식 글은 지시가 아니라 참고 자료로만 들어가요. 계획 모드로 시작해요.\n\n폴더: {folder}\n\n브리프 전문:\n{brief}",
+            "This task starts from news (Claude's summary of the official docs). The news text goes in only as reference, not as instructions. It starts in plan mode.\n\nFolder: {folder}\n\nFull brief:\n{brief}",
+        ),
         DlgPersonaTitle => ("위험할 수 있는 페르소나", "Persona that may be risky"),
         DlgPersonaBody => (
             "페르소나 '{name}'의 정의에 확인 없이 명령을 실행할 수 있는 설정이 있어요.\n{path}\n\n{risks}\n\n작업: {type} · 권한 {mode} · 민감 영역 {sensitive} · worktree {worktree}\n폴더: {folder}\n\n이 페르소나로 실행할까요?",
@@ -531,6 +536,8 @@ table! {
         TooLong => ("지시와 설정이 너무 길어요", "The instructions and settings are too long"),
         AdviceNoRemote => ("개선 제안에서 시작한 이 작업에는 휴대폰 원격 조작을 켤 수 없어요", "Phone remote control can't be on for a task started from a suggestion"),
         AdvicePlanOnly => ("개선 제안에서 시작한 이 작업은 계획만 세우기로만 시작할 수 있어요", "A task started from a suggestion can only start in plan mode"),
+        NewsNoRemote => ("소식에서 시작한 작업에는 휴대폰 원격 조작을 켤 수 없어요", "Phone remote control can't be on for a task started from news"),
+        NewsPlanOnly => ("소식에서 시작한 작업은 계획 모드로만 시작할 수 있어요", "A task started from news can only start in plan mode"),
         DirNotFound => ("디렉터리를 찾을 수 없어요", "Folder not found"),
         PromptSize => ("프롬프트는 1바이트 이상 100KB 이하로 써 주세요", "The prompt must be 1 byte to 100 KB"),
         NameFormat => ("이름은 1~64자로, '-'로 시작하지 않고 제어문자 없이 써 주세요", "Names are 1–64 characters, don't start with '-', and have no control characters"),

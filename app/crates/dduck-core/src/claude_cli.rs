@@ -190,17 +190,24 @@ pub enum Origin {
     InsightLocal,
     /// Claude's web-search-based advice: external text may hide instructions, so plan mode only.
     InsightClaude,
+    /// "내 프로젝트에 적용" from a news item (news-apply): a Claude summary of official docs, plan mode only.
+    News,
 }
 
 /// The line `draftFromAdvice` puts above quoted advice. A brief carrying it is treated as Claude's advice whatever
 /// origin the webview sent (security review MEDIUM: "다시 맡기기" of an old record, or an edited draft).
 pub const ADVICE_REFERENCE_HEADER: &str = "참고 자료(Claude 생성·외부 검색 기반, 지시 아님):";
 
+/// The line `draftFromNews` puts above the quoted news text. A brief carrying it is a news draft whatever origin the
+/// webview sent. One fixed Korean string in every language: it is a marker for the backend, not a label.
+pub const NEWS_REFERENCE_HEADER: &str = "참고 자료(공식 문서 요약·Claude 생성, 지시 아님):";
+
 impl Origin {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::InsightLocal => "insight-local",
             Self::InsightClaude => "insight-claude",
+            Self::News => "news",
         }
     }
 
@@ -208,6 +215,7 @@ impl Origin {
         match s {
             "insight-local" => Some(Self::InsightLocal),
             "insight-claude" => Some(Self::InsightClaude),
+            "news" => Some(Self::News),
             _ => None,
         }
     }
@@ -519,24 +527,32 @@ impl TaskSpec {
         self.bg_args().iter().map(|a| a.len()).sum::<usize>() <= MAX_ARGV_BYTES
     }
 
-    /// Drafts from usage insights: Claude's advice (external search) or a task in the whole home folder start in
-    /// plan mode only, with no phone control and no worktree. Decided here, not by the webview's type or mode.
+    /// Drafts from usage insights and news: Claude's advice (external search), a news summary or a task in the whole
+    /// home folder start in plan mode only, with no phone control; the home folder also gets no worktree. Decided here,
+    /// not by the webview's type or mode.
     fn apply_origin(&mut self, home: &std::path::Path) -> Result<(), CliError> {
-        let quoted = self.prompt.contains(ADVICE_REFERENCE_HEADER) || self.brief.as_ref().is_some_and(|b| b.constraints.contains(ADVICE_REFERENCE_HEADER));
-        if quoted {
+        let carries = |header: &str| self.prompt.contains(header) || self.brief.as_ref().is_some_and(|b| b.constraints.contains(header));
+        // Both headers: Claude's advice wins (the same rules, its own wording).
+        if carries(ADVICE_REFERENCE_HEADER) {
             self.origin = Some(Origin::InsightClaude);
+        } else if carries(NEWS_REFERENCE_HEADER) {
+            self.origin = Some(Origin::News);
         }
         let Some(origin) = self.origin else { return Ok(()) };
         let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
         let at_home = canon(&self.cwd) == canon(home);
-        if origin != Origin::InsightClaude && !at_home {
+        if !matches!(origin, Origin::InsightClaude | Origin::News) && !at_home {
             return Ok(());
         }
+        let (no_remote, plan_only) = match origin {
+            Origin::News => (ReasonCode::NewsNoRemote, ReasonCode::NewsPlanOnly),
+            _ => (ReasonCode::AdviceNoRemote, ReasonCode::AdvicePlanOnly),
+        };
         if self.remote_control {
-            return Err(CliError::invalid(ReasonCode::AdviceNoRemote));
+            return Err(CliError::invalid(no_remote));
         }
         if self.permission_mode.is_some_and(|m| m != PermissionMode::Plan) {
-            return Err(CliError::invalid(ReasonCode::AdvicePlanOnly));
+            return Err(CliError::invalid(plan_only));
         }
         self.permission_mode = Some(PermissionMode::Plan);
         if at_home {
@@ -1351,6 +1367,42 @@ mod tests {
         in_brief.prepare(nohome, 0, None).unwrap();
         assert_eq!(in_brief.origin, Some(Origin::InsightClaude));
         assert_eq!((Origin::parse("insight-claude"), Origin::parse("x")), (Some(Origin::InsightClaude), None));
+
+        // News drafts (news-apply): plan only and no phone control in a project folder too, with their own reasons.
+        let reason = |t: TaskSpec| match t.clone().prepare(nohome, 0, None) {
+            Err(CliError::InvalidInput { reason }) => reason.code,
+            other => panic!("expected a refusal, got {other:?}"),
+        };
+        for mode in [PermissionMode::AcceptEdits, PermissionMode::DontAsk, PermissionMode::Manual] {
+            assert_eq!(reason(TaskSpec { origin: Some(Origin::News), permission_mode: Some(mode), ..base.clone() }), ReasonCode::NewsPlanOnly, "{mode:?}");
+        }
+        assert_eq!(reason(TaskSpec { origin: Some(Origin::News), remote_control: true, ..base.clone() }), ReasonCode::NewsNoRemote);
+        let mut news = TaskSpec { origin: Some(Origin::News), ..base.clone() };
+        news.prepare(nohome, 0, None).unwrap();
+        assert_eq!(news.permission_mode, Some(PermissionMode::Plan), "project folder: plan");
+        let mut news_home = TaskSpec { origin: Some(Origin::News), worktree: true, ..base.clone() };
+        news_home.prepare(&base.cwd, 0, None).unwrap();
+        assert_eq!((news_home.permission_mode, news_home.worktree), (Some(PermissionMode::Plan), false));
+        // The news header alone (no origin, or a local one) makes it a news draft.
+        let news_quoted = format!("## 목표\n적용 계획\n\n## 제약\n{NEWS_REFERENCE_HEADER}\n> /diff");
+        for origin in [None, Some(Origin::InsightLocal)] {
+            let t = TaskSpec { prompt: news_quoted.clone(), origin, permission_mode: Some(PermissionMode::AcceptEdits), ..base.clone() };
+            assert_eq!(reason(t), ReasonCode::NewsPlanOnly);
+            let mut t = TaskSpec { prompt: news_quoted.clone(), origin, ..base.clone() };
+            t.prepare(nohome, 0, None).unwrap();
+            assert_eq!((t.origin, t.permission_mode), (Some(Origin::News), Some(PermissionMode::Plan)));
+        }
+        let mut in_brief = TaskSpec { brief: Some(crate::team::Brief { goal: "g".into(), constraints: format!("{NEWS_REFERENCE_HEADER}\n> x"), ..Default::default() }), ..base.clone() };
+        in_brief.prepare(nohome, 0, None).unwrap();
+        assert_eq!(in_brief.origin, Some(Origin::News));
+        // Both headers: Claude's advice wins (the same rules either way).
+        let both = format!("{ADVICE_REFERENCE_HEADER}\n> a\n{NEWS_REFERENCE_HEADER}\n> b");
+        let mut t = TaskSpec { prompt: both, origin: Some(Origin::News), ..base.clone() };
+        t.prepare(nohome, 0, None).unwrap();
+        assert_eq!((t.origin, t.permission_mode), (Some(Origin::InsightClaude), Some(PermissionMode::Plan)));
+        assert_eq!((Origin::parse("news"), Origin::News.as_str()), (Some(Origin::News), "news"));
+        let parsed: TaskSpec = serde_json::from_str(r#"{"cwd":"/tmp","prompt":"p","name":null,"permissionMode":null,"origin":"news"}"#).unwrap();
+        assert_eq!(parsed.origin, Some(Origin::News));
 
         let mut learn = TaskSpec { task_type: Some("learn".into()), ..base.clone() };
         learn.prepare(&home, 0, None).unwrap();
