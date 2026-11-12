@@ -2,7 +2,7 @@
 // and focus goes back where it came from. There is no user-event library: focus is set with focus() and keydown is
 // dispatched on the active element, so these tests prove the hook's wrapping and guards, not native Tab movement.
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { StrictMode, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useModal, type ModalOptions } from "./useModal";
 
@@ -265,5 +265,27 @@ describe("useModal: focus return", () => {
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });
     expect(opener.isConnected).toBe(false);
     expect(document.activeElement).toBe(document.body);
+  });
+});
+
+describe("useModal: StrictMode (dev)", () => {
+  it("keeps an autoFocus field through the effect re-run and still returns focus on a real close", () => {
+    render(
+      <StrictMode>
+        <Page
+          sheet={(close) => (
+            <Sheet onClose={close} options={{ returnTo: () => screen.getByLabelText("뒤 페이지") }}>
+              <input aria-label="링크" autoFocus />
+            </Sheet>
+          )}
+        />
+      </StrictMode>,
+    );
+    act(() => button("열기").focus());
+    fireEvent.click(button("열기"));
+    expect(document.activeElement).toBe(screen.getByLabelText("링크"));
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByLabelText("뒤 페이지"));
   });
 });

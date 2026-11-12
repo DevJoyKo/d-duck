@@ -54,6 +54,7 @@ export function useModal(dialog: RefObject<HTMLElement | null>, onClose: () => v
       }
     }
     const box = () => dialog.current;
+    const mounted = box();
     const target = () => {
       const d = box();
       return latest.current.options.initial?.current ?? (d ? focusables(d)[0] : undefined) ?? null;
@@ -99,6 +100,9 @@ export function useModal(dialog: RefObject<HTMLElement | null>, onClose: () => v
       window.removeEventListener("keydown", onKey, capture);
       document.removeEventListener("focusin", onFocusIn);
       for (const el of made) el.removeAttribute("inert");
+      // Still in the page: StrictMode re-running the effect, not a close. Moving focus out here would make the
+      // re-run take it back to `initial` and lose an autoFocus field.
+      if (mounted?.isConnected) return;
       const { returnTo } = latest.current.options;
       const back = returnTo ? returnTo() : opener;
       if (back?.isConnected) back.focus();
