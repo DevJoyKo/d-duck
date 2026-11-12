@@ -2,33 +2,18 @@
 // fetch. Item text is Claude's checked output in the app language and is rendered as plain text only.
 import { listen } from "@tauri-apps/api/event";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Cpu, ExternalLink, Loader2, Newspaper, Plug, RefreshCw, Settings2, ShieldCheck, Sparkles, SquareCode, SquareTerminal, X } from "lucide-react";
+import { ExternalLink, Loader2, Newspaper, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { api, messageOf, type NewsCategory, type NewsItem, type NewsRun, type NewsView } from "../lib/api";
+import { api, messageOf, type NewsItem, type NewsRun, type NewsView } from "../lib/api";
 import { dateTime, usd } from "../lib/format";
-import { categoryColor, dayMs, hostOf, splitEarlier } from "../lib/news";
+import { dayMs, hostOf, splitEarlier } from "../lib/news";
 import { isGateError } from "../lib/auth";
 import { useLanguage, useT } from "../i18n/react";
 import { currentLocale } from "../i18n/language";
 import { GateLine } from "./LoginBits";
 import { DuckAvatar } from "./DuckAvatar";
 import { Button, PageBody, PageHeader, Switch } from "./ui";
-
-const ICON: Record<NewsCategory, typeof Cpu> = {
-  model: Cpu,
-  command: SquareTerminal,
-  setting: Settings2,
-  agent: Bot,
-  integration: Plug,
-  ide: SquareCode,
-  security: ShieldCheck,
-  other: Sparkles,
-};
-
-/** "other" is a reserved plural name in the catalogs, so that category's label lives under `misc`. */
-function catKey(c: NewsCategory) {
-  return `news.category.${c === "other" ? "misc" : c}` as const;
-}
+import { catKey, NewsThumb } from "./NewsCard";
 
 /** "11월 9일" (the year only when it is not this year). */
 function shortDate(date: string): string {
@@ -37,18 +22,6 @@ function shortDate(date: string): string {
   const d = new Date(ms);
   const sameYear = d.getFullYear() === new Date().getFullYear();
   return d.toLocaleDateString(currentLocale(), sameYear ? { month: "long", day: "numeric" } : { year: "numeric", month: "long", day: "numeric" });
-}
-
-function Thumb({ category, size = "row" }: { category: NewsCategory; size?: "row" | "sheet" }) {
-  const t = useT();
-  const c = categoryColor(category);
-  const Icon = ICON[category] ?? Sparkles;
-  const box = size === "row" ? "h-16 w-24" : "h-12 w-12";
-  return (
-    <span aria-hidden className={`grid shrink-0 place-items-center rounded-lg ${box}`} style={{ background: `color-mix(in srgb, ${c.body} var(--news-thumb-mix), transparent)` }} title={t(catKey(category))}>
-      <Icon size={size === "row" ? 22 : 20} strokeWidth={1.8} style={{ color: c.scarf }} />
-    </span>
-  );
 }
 
 function Meta({ item }: { item: NewsItem }) {
@@ -71,7 +44,7 @@ function Row({ item, onOpen }: { item: NewsItem; onOpen: (it: NewsItem, el: HTML
         onClick={(e) => onOpen(item, e.currentTarget)}
         className="flex w-full items-center gap-4 rounded-xl px-3 py-3 text-left transition-colors hover:bg-ink/4 focus-visible:outline-2 focus-visible:outline-ink"
       >
-        <Thumb category={item.category} />
+        <NewsThumb item={item} />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
             {!item.seen && (
@@ -142,7 +115,7 @@ function Detail({ item, onClose }: { item: NewsItem; onClose: () => void }) {
     <div className="fixed inset-0 z-30 flex justify-end bg-scrim/45" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-label={t("news.detail.label", { title: item.title })} onClick={(e) => e.stopPropagation()} className="flex h-full w-[min(560px,92vw)] flex-col border-l border-line bg-sheet shadow-e3">
         <div className="flex items-start gap-3 border-b border-line px-6 py-4">
-          <Thumb category={item.category} size="sheet" />
+          <NewsThumb item={item} size="sheet" />
           <div className="min-w-0 flex-1">
             <h2 className="text-[16px] leading-snug font-semibold">{item.title}</h2>
             <p className="mt-1">
