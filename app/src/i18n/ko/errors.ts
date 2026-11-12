@@ -28,6 +28,8 @@ export default {
     tooLong: "지시와 설정이 너무 길어요",
     adviceNoRemote: "개선 제안에서 시작한 이 작업에는 휴대폰 원격 조작을 켤 수 없어요",
     advicePlanOnly: "개선 제안에서 시작한 이 작업은 계획만 세우기로만 시작할 수 있어요",
+    newsNoRemote: "소식에서 시작한 작업에는 휴대폰 원격 조작을 켤 수 없어요",
+    newsPlanOnly: "소식에서 시작한 작업은 계획 모드로만 시작할 수 있어요",
     dirNotFound: "디렉터리를 찾을 수 없어요",
     promptSize: "프롬프트는 1바이트 이상 100KB 이하로 써 주세요",
     nameFormat: "이름은 1~64자로, '-'로 시작하지 않고 제어문자 없이 써 주세요",

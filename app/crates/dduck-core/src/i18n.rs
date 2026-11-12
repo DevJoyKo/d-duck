@@ -531,6 +531,8 @@ table! {
         TooLong => ("지시와 설정이 너무 길어요", "The instructions and settings are too long"),
         AdviceNoRemote => ("개선 제안에서 시작한 이 작업에는 휴대폰 원격 조작을 켤 수 없어요", "Phone remote control can't be on for a task started from a suggestion"),
         AdvicePlanOnly => ("개선 제안에서 시작한 이 작업은 계획만 세우기로만 시작할 수 있어요", "A task started from a suggestion can only start in plan mode"),
+        NewsNoRemote => ("소식에서 시작한 작업에는 휴대폰 원격 조작을 켤 수 없어요", "Phone remote control can't be on for a task started from news"),
+        NewsPlanOnly => ("소식에서 시작한 작업은 계획 모드로만 시작할 수 있어요", "A task started from news can only start in plan mode"),
         DirNotFound => ("디렉터리를 찾을 수 없어요", "Folder not found"),
         PromptSize => ("프롬프트는 1바이트 이상 100KB 이하로 써 주세요", "The prompt must be 1 byte to 100 KB"),
         NameFormat => ("이름은 1~64자로, '-'로 시작하지 않고 제어문자 없이 써 주세요", "Names are 1–64 characters, don't start with '-', and have no control characters"),

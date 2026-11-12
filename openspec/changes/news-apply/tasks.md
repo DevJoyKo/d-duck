@@ -4,7 +4,7 @@
 
 - [x] 1.1 `news.rs`: 프롬프트에 적용 필드, `check_item`의 필드 단위 검증(`key_fact` 24자, `adopt`, `apply_steps` 1–3·160자·한 줄, `verify`), `APPLY_RISKY_RE`·`#` 줄 제거. 테스트: 정상·긴 값·위험 단계(파이프·bypassPermissions·Bash(*)·apiKeyHelper·hooks command)·모르는 키·필드 없는 옛 응답
 - [x] 1.2 마이그레이션 v18(열 4개), `merge`·`list`가 새 열을 저장·반환, `apply_steps` JSON. 테스트: v17 데이터 유지·NULL 반환·왕복
-- [ ] 1.3 `claude_cli.rs`: `Origin::News`, `NEWS_REFERENCE_HEADER`, `Origin` parse·as_str, `apply_origin`을 `matches!` 분기로, `ReasonCode::NewsPlanOnly`·`NewsNoRemote`(ko/en), task_meta·db 출처 저장과 "다시 맡기기" 복원. 테스트: 프로젝트 폴더에서 acceptEdits·dontAsk·원격 거절, 머리글만 있는 초안, 두 머리글, `clean_origin("news")` 왕복
+- [x] 1.3 `claude_cli.rs`: `Origin::News`, `NEWS_REFERENCE_HEADER`, `Origin` parse·as_str, `apply_origin`을 `matches!` 분기로, `ReasonCode::NewsPlanOnly`·`NewsNoRemote`(ko/en), task_meta·db 출처 저장과 "다시 맡기기" 복원. 테스트: 프로젝트 폴더에서 acceptEdits·dontAsk·원격 거절, 머리글만 있는 초안, 두 머리글, `clean_origin("news")` 왕복
 - [ ] 1.4 확인 창 예상 비용 문구 ko/en: 3.2의 실제 가져오기 비용으로 정함
 
 ## 2. 화면
