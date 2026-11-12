@@ -17,8 +17,8 @@
 1. **필드는 가져오기 한 번에 함께 받는다.** 프롬프트에 선택 필드 `key_fact`·`adopt`·`apply_steps`·`verify`를 더한다. 별도 호출이 없어 비용·지연이 작다. 대안(시트를 열 때 따로 생성)은 매번 비용이 들고 오프라인에서 안 된다.
 2. **적용 필드는 필드 단위로 버린다.** 기존 필드는 지금처럼 항목 단위로 검증하고, 적용 필드는 틀리면 그 필드만 None. 선택 필드 하나 때문에 좋은 소식을 잃지 않기 위해서다.
 3. **DB v18**: `news_items`에 `key_fact`, `adopt`, `apply_steps`(JSON 배열 문자열), `verify` 열(NULL 허용) 추가. 예전 행은 NULL → 카테고리 카드. news-tab은 아직 출시 전(v0.1.2 태그에 없음)이라 영향은 개발 DB뿐. 언어별 같은 id는 지금처럼 덮어쓰지 않는다(예전 소식은 다음 가져오기에도 필드가 생기지 않음, 수용).
-4. **썸네일(사용자 선택 B)**: `key_fact`가 있으면 `FactCard`(흰 카드, 위에 핵심을 크게, 아래 `adopt` 태그). 핵심이 `/`·`claude `로 시작하면 고정폭. 한 줄, `text-overflow: ellipsis`, `title`에 전체. 태그 색: update=초록, config=노랑, opt_in=회색, 모두 글자 있음. 색은 기존 토큰, 다크 모드는 토큰으로. 없으면 `Thumb` 그대로(`adopt`만 있으면 카테고리 카드 아래에 태그). A(미니 창)·C(썸네일 없음)는 고르지 않음.
-5. **브릿지 초안** `draftFromNews(item, cwd)`(`lib/refine.ts`). 소식 탭은 `PROJECT_PAGES`에 없어 프로젝트 범위가 없으므로(설계 리뷰 BLOCKER) 시트 버튼 옆에 대상 선택(`ProjectPicker` 재사용, 기본 `projects-known.recent[0]`)을 둔다. `NewsPage`에 `onDraft` prop, `App`이 `openDraft`를 넘긴다.
+4. **썸네일(사용자 선택 B)**: `key_fact`가 있으면 `FactCard`(흰 카드, 위에 핵심을 크게, 아래 `adopt` 태그). 핵심이 `/`·`claude `로 시작하면 고정폭. ~~한 줄, `text-overflow: ellipsis`~~ → 두 줄(`line-clamp-2`, 띄어쓰기·하이픈 우선) 뒤 말줄임(테스트 리뷰 C5), `title`에 전체. 태그 색: update=초록(글자는 `ok-strong` 토큰, 4.5:1), config=~~노랑~~ 앰버(`warn`, 노랑은 화면당 한 곳), opt_in=회색, 모두 글자 있음. 줄의 카테고리 카드도 118px(B3). 색은 기존 토큰, 다크 모드는 토큰으로. 없으면 `Thumb` 그대로(`adopt`만 있으면 카테고리 카드 아래에 태그). A(미니 창)·C(썸네일 없음)는 고르지 않음.
+5. **브릿지 초안** `draftFromNews(item, cwd)`(`lib/refine.ts`). 소식 탭은 `PROJECT_PAGES`에 없어 프로젝트 범위가 없으므로(설계 리뷰 BLOCKER) 시트 버튼 옆에 대상 선택(~~`ProjectPicker` 재사용, 기본 `projects-known.recent[0]`~~ → 시트 안 기본 select, 홈·모르는 폴더 제외, 기본은 쓸 수 있는 첫 recent, 같은 이름은 상위 폴더로 구별)을 둔다. `NewsPage`에 `onDraft` prop, `App`이 `openDraft`를 넘긴다.
    - `cwd`: 고른 대상, 없으면 ""와 `cwdHint`.
    - `taskType: "dev"`, `origin: "news"`, `refineHint: true`, `permissionMode: "plan"`, `from: 제목`.
    - `brief.goal`·`brief.done`·`brief.outOfScope`: 앱 고정 문구만(보안 리뷰 HIGH: 목표·완료 기준 칸은 에이전트가 지시로 읽음). 웹에서 온 글은 넣지 않는다.
@@ -47,3 +47,13 @@
 - `APPLY_RISKY_RE`의 원격 MCP는 `mcp\s+add\b…https?:`로 넓혔다(`--transport http` 같은 옵션이 끼어도 걸림).
 - `#` 제목 줄 제거는 적용 필드뿐 아니라 무엇인지·언제·베스트 프랙티스 문단에도 적용한다(초안 인용에 함께 들어가므로).
 - 줄의 "원문 ↗"는 줄 버튼 밖의 별도 버튼이다(버튼 중첩 금지). 메타 줄은 줄 버튼 안에 남긴 빈 줄 위에 겹쳐 그린다.
+
+## 테스트 리뷰 반영 (2026-11-13)
+
+- brand HIGH B1 "바로 됨" 대비 4.38 → `--color-ok-strong`(라이트 #1a6b3f, 다크 #4cc38a), 태그 3종 대비 테스트(paletteTokens). MINOR B2 다듬기 배너 버튼을 secondary로, B3 카테고리 썸네일 118px.
+- critic C1 worktree 강제를 출처가 아니라 폴더로(`delivery_guard::worktree_possible`, 작성 창도 같은 규칙). C2·QA Q2 넓은 검사를 인용 문단에도(걸리면 소식 버림), `| iex`·`iwr`/`irm`·`"allow"`에 맨 `Bash`·따옴표 없는 allow·`Bash(:*)`·stdio `mcp add … --`·`marketplace add`·`dangerous`·`dontAsk`·내려받아 `chmod +x`/`./` 실행·`rm --recursive/--force`, NFKC 정규화, `\brm`(`/confirm -r` 통과). QA Q1 제목·요약의 `#` 제목 줄이면 소식 버림.
+- C3 다듬기 적용 시 `keepNewsReference`: 참고 자료 묶음을 그대로 다시 붙이고 목표·완료 기준에 새어 들어간 소식 글은 되돌린 뒤 한 줄로 알림. brief_refine 프롬프트에 "참고 자료 묶음은 제약에 그대로, 목표·완료로 옮기지 않음" 추가.
+- C4 출처 `news`도 시작 전 네이티브 브리프 전문 확인(`DlgNewsTaskTitle/Body`).
+- C5 프롬프트가 `key_fact`를 12자 안팎으로 요청(예: /fast, effort cap, 1M context, one settings file; 검증 상한 24자 유지), 줄 카드는 두 줄 뒤 말줄임, mock 핵심을 짧게.
+- LOW: L1 이 문서·spec 대체 표시, L2 메타 줄을 `aria-describedby`로 잇고 고정 left px 대신 같은 열 구조로, L3 같은 이름 구별, L4 빈 단언 제거(시작 안 함은 앱 테스트로 증명).
+- 거절: brand의 "적용 제안에서 원문 주소 빼기" — 사용자가 원문 링크를 직접 요청해서 유지.

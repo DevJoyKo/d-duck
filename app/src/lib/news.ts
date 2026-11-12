@@ -64,5 +64,9 @@ export function newsTargets(data: Pick<ProjectsPayload, "projects" | "recent"> |
   };
   const sorted = [...usable].sort((a, b) => rank(a.id) - rank(b.id) || (b.lastActive ?? 0) - (a.lastActive ?? 0));
   const firstRecent = sorted.find((p) => data.recent.includes(p.id));
-  return { targets: sorted.map((p) => ({ path: p.path as string, name: p.name })), fallback: firstRecent?.path ?? "" };
+  // Two projects with the same name (a fork, a worktree) get their parent folder's name after them (test review L3).
+  const count = (name: string) => sorted.filter((p) => p.name === name).length;
+  const parent = (p: (typeof sorted)[number]) => (p.parentDir ?? "").split("/").filter(Boolean).pop() ?? "";
+  const label = (p: (typeof sorted)[number]) => (count(p.name) > 1 && parent(p) ? `${p.name} · ${parent(p)}` : p.name);
+  return { targets: sorted.map((p) => ({ path: p.path as string, name: label(p) })), fallback: firstRecent?.path ?? "" };
 }

@@ -81,7 +81,7 @@ describe("적용 제안", () => {
     expect(Array.from(target.options).some((o) => o.value === "/Users/me")).toBe(false);
     expect(within(part).getByRole("button", { name: "내 프로젝트에 적용" })).toBeTruthy();
     // The sheet head shows the whole key fact.
-    expect(sheet.querySelector("[data-news-fact]")?.textContent).toBe("claude remote-control");
+    expect(sheet.querySelector("[data-news-fact]")?.textContent).toBe("설정 파일 하나");
   });
 
   it("says the draft starts from the best practice when an item has no steps", async () => {
@@ -169,4 +169,91 @@ describe("원문 ↗ on a row", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(invoke.mock.calls.some(([c]) => c === "news_mark_seen")).toBe(false);
   });
+
+  it("is tied to the row's date line for screen readers", async () => {
+    await boot();
+    await waitFor(() => expect(rows().length).toBe(12));
+    const r = row("2.1.322-vertex-fast-mode");
+    const meta = document.getElementById(r.getAttribute("aria-describedby") ?? "");
+    expect(meta?.textContent).toContain("v2.1.322 · ");
+  });
+});
+
+describe("test review follow-ups (C3, Q3)", () => {
+  it("a refine result that drops the header and moves news into goal/done is put back, and the start stays news + plan", async () => {
+    const invoke = await boot();
+    const real = (await vi.importActual<typeof import("../mock/core")>("../mock/core")).invoke;
+    invoke.mockImplementation((c: string, a?: Record<string, unknown>) =>
+      c === "refine_brief"
+        ? Promise.resolve({
+            kind: "done",
+            token: "abcd",
+            costUsd: 0.02,
+            spentUsd: 0.02,
+            runsLeft: 3,
+            result: {
+              questions: [],
+              rewrite: { goal: "팀 규칙을 담은 설정 파일을 저장소에 둬요.", outOfScope: "다른 설정", constraints: "새 의존성 금지", done: "> 원문: https://code.claude.com/docs/en/changelog" },
+              finished: true,
+              note: "",
+            },
+          })
+        : real(c, a),
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const sheet = await openSheet("2.1.321-remote-control-settings", "원격 제어에 설정 파일 하나");
+    const target = within(sheet).getByRole("combobox", { name: "대상 프로젝트" }) as HTMLSelectElement;
+    await waitFor(() => expect(target.value).toBe("/Users/me/Agents/dev_team"));
+    fireEvent.click(within(sheet).getByRole("button", { name: "내 프로젝트에 적용" }));
+    await screen.findByDisplayValue(GOAL);
+    fireEvent.click(screen.getByRole("button", { name: /다시 쓰기만/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "모두 적용" }));
+    expect(await screen.findByText("참고 자료는 제약에 그대로 두고, 목표·완료 기준으로 옮겨진 소식 글은 되돌렸어요")).toBeTruthy();
+    expect(screen.getByDisplayValue(GOAL)).toBeTruthy();
+    expect(screen.getByDisplayValue(DONE)).toBeTruthy();
+    const constraints = Array.from(document.querySelectorAll("textarea")).find((x) => x.value.startsWith(HEADER)) as HTMLTextAreaElement;
+    expect(constraints.value).toContain("> 단계 1: 팀 규칙을 담은 설정 파일을 저장소에 둬요.");
+    expect(constraints.value).toContain("새 의존성 금지");
+    // Start (a second press passes the review-capacity warning): the backend gets origin news in plan mode.
+    const submit = () => document.querySelector("form button[type=submit]") as HTMLButtonElement;
+    fireEvent.click(submit());
+    if (!invoke.mock.calls.some(([c]) => c === "start_task")) fireEvent.click(submit());
+    await waitFor(() => expect(invoke.mock.calls.some(([c]) => c === "start_task")).toBe(true));
+    const spec = (invoke.mock.calls.find(([c]) => c === "start_task")![1] as { spec: Record<string, unknown> }).spec;
+    expect(spec.origin).toBe("news");
+    expect(spec.permissionMode).toBe("plan");
+    expect(String(spec.prompt)).toContain(HEADER);
+  }, 15_000);
+
+  it("accepting the replace question swaps the open composer to the new draft", async () => {
+    await boot();
+    let sheet = await openSheet("2.1.318-skill-doctor", "/skill-doctor로 스킬 비용 보기");
+    fireEvent.click(within(sheet).getByRole("button", { name: "내 프로젝트에 적용" }));
+    await screen.findByText("소식에서 · /skill-doctor로 스킬 비용 보기");
+    const ask = vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "소식" }));
+    sheet = await openSheet("2.1.298-resume-in-desktop", "데스크톱에서 터미널 세션 이어 하기");
+    fireEvent.click(within(sheet).getByRole("button", { name: "내 프로젝트에 적용" }));
+    expect(ask).toHaveBeenCalled();
+    expect(await screen.findByText("소식에서 · 데스크톱에서 터미널 세션 이어 하기")).toBeTruthy();
+    expect(screen.queryByText("소식에서 · /skill-doctor로 스킬 비용 보기")).toBeNull();
+    const constraints = Array.from(document.querySelectorAll("textarea")).find((x) => x.value.startsWith(HEADER)) as HTMLTextAreaElement;
+    expect(constraints.value).toContain("/resume");
+  }, 15_000);
+
+  it("a 다시 맡기기 draft of a news task (origin from the record, no badge text) locks plan mode", async () => {
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const { Composer } = await import("./Composer");
+    const { parseBrief } = await import("../lib/brief");
+    const prompt = `## 목표\n${GOAL}\n\n## 제약\n${HEADER}\n> 제목: /diff 실시간 패널\n\n## 완료 기준\n${DONE}`;
+    // What TasksPage builds for 다시 맡기기: the record's folder, type, parsed brief and stored origin.
+    const draft = { cwd: "/Users/me/Agents/side-project", taskType: "dev" as const, brief: parseBrief(prompt), origin: "news" as const };
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <Composer draft={draft} onClose={() => {}} status={{ cli: true, permissionModes: ["manual", "plan", "acceptEdits", "dontAsk"] } as never} />
+      </QueryClientProvider>,
+    );
+    const mode = (await screen.findByRole("combobox", { name: "권한" })) as HTMLSelectElement;
+    await waitFor(() => expect(Array.from(mode.options).map((o) => o.value)).toEqual(["plan"]));
+  }, 15_000);
 });

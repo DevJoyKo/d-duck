@@ -326,6 +326,48 @@ export function planOnlyFor(origin: TaskOrigin | null | undefined, constraints: 
   return origin === "insight-claude" || origin === "news" || constraints.includes(REFERENCE_HEADER) || constraints.includes(NEWS_REFERENCE_HEADER);
 }
 
+/** The news reference block in a brief's constraints: the header and the `>` lines right under it. */
+export function newsReferenceBlock(constraints: string): string | null {
+  const lines = constraints.split("\n");
+  const at = lines.indexOf(NEWS_REFERENCE_HEADER);
+  if (at < 0) return null;
+  let end = at + 1;
+  while (end < lines.length && lines[end].startsWith(">")) end++;
+  return lines.slice(at, end).join("\n");
+}
+
+/** Applying a refine result to a brief that carries the news reference (test review C3): the block stays verbatim in
+ * the constraints (re-attached when the rewrite dropped or changed it), and a goal or done that picked up the header,
+ * a quote line or a quoted news sentence goes back to what it was. `fixed` says something was put back. */
+export function keepNewsReference(prev: Brief, next: Brief): { brief: Brief; fixed: boolean } {
+  const block = newsReferenceBlock(prev.constraints);
+  if (!block) return { brief: next, fixed: false };
+  const quoted = block
+    .split("\n")
+    .slice(1)
+    .map((l) => l.replace(/^>\s?/, "").replace(/^[^:]{1,24}:\s*/, "").trim())
+    .filter((q) => [...q].length >= 6);
+  const leaks = (s: string) => s.includes(NEWS_REFERENCE_HEADER) || s.split("\n").some((l) => l.trimStart().startsWith(">")) || quoted.some((q) => s.includes(q));
+  const out = { ...next };
+  let fixed = false;
+  if (!next.constraints.includes(block)) {
+    const rest = next.constraints
+      .split("\n")
+      .filter((l) => l !== NEWS_REFERENCE_HEADER && !l.startsWith(">"))
+      .join("\n")
+      .trim();
+    out.constraints = [block, rest].filter(Boolean).join("\n");
+    fixed = true;
+  }
+  for (const k of ["goal", "done"] as const) {
+    if (leaks(next[k])) {
+      out[k] = leaks(prev[k]) ? "" : prev[k];
+      fixed = true;
+    }
+  }
+  return { brief: out, fixed };
+}
+
 /** `label: text` as quote lines: every line `> `, unsafe characters out, blank lines dropped. */
 function quoteLines(label: string, text: string | null | undefined): string[] {
   const lines = (text ?? "")

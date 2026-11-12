@@ -149,6 +149,7 @@ export default {
     source: "출처: {from}",
     followUpOf: "'{from}'의 후속",
     sourceNews: "소식에서 · {from}",
+    referenceKept: "참고 자료는 제약에 그대로 두고, 목표·완료 기준으로 옮겨진 소식 글은 되돌렸어요",
     repo: {
       notRepo: "git 저장소가 아니라 격리할 수 없어요",
       homeRoot: "홈 폴더 저장소라 격리할 수 없어요",

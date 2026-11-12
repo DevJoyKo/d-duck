@@ -49,23 +49,24 @@ describe("news key-fact card", () => {
     expect([isCommandFact("/diff"), isCommandFact("claude plugin eval"), isCommandFact("1M 컨텍스트"), isCommandFact("claudeMd"), isCommandFact("modelPicker")]).toEqual([true, true, false, false, false]);
   });
 
-  it("cuts a long fact with an ellipsis on the row, keeps the whole text in title, and wraps in the sheet", () => {
+  it("shows a long fact on up to two lines then an ellipsis on the row, keeps the whole text in title, and wraps in the sheet", () => {
     const long = "가".repeat(24);
     const { container } = render(<NewsThumb item={item({ keyFact: long, adopt: "update" })} />);
     const f = fact(container)!;
-    expect(f.className).toContain("truncate");
+    expect(f.className).toContain("line-clamp-2");
+    expect(f.className).toContain("wrap-break-word");
     expect(f.getAttribute("title")).toBe(long);
     expect(container.querySelector("[data-news-card]")?.className).toContain("w-[118px]");
     cleanup();
     const sheet = render(<NewsThumb item={item({ keyFact: long, adopt: "update" })} size="sheet" />).container;
-    expect(fact(sheet)?.className).not.toContain("truncate");
+    expect(fact(sheet)?.className).not.toContain("line-clamp");
     expect(fact(sheet)?.textContent).toBe(long);
     expect(sheet.querySelector("[data-news-card]")?.className).toContain("w-[132px]");
   });
 
   it("falls back to the category card without a key fact, and adds the tag when adopt is there", () => {
     const old = render(<NewsThumb item={item({ keyFact: null, adopt: null })} />).container;
-    expect(old.querySelector("[data-news-category]")).not.toBeNull();
+    expect(old.querySelector("[data-news-category]")?.className).toContain("w-[118px]");
     expect(fact(old)).toBeNull();
     expect(tag(old)).toBeNull();
     cleanup();

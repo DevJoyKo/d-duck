@@ -11,7 +11,7 @@ import { isOffAnywhere, isReviewType, MODE_LABEL, useAgentControls, useTeamConfi
 import { cliErrorDetail, cliErrorMessage, DANGEROUS_MODES, localized, validateTaskName } from "../lib/format";
 import { Button, fieldClass, Sheet } from "./ui";
 import { markDone } from "../lib/onboarding";
-import { ADVICE_GOALS, HOME_ONLY_CLAUDE, looksLikeHome, planOnlyFor } from "../lib/refine";
+import { ADVICE_GOALS, HOME_ONLY_CLAUDE, keepNewsReference, looksLikeHome, planOnlyFor } from "../lib/refine";
 import { BriefRefiner } from "./BriefRefiner";
 import { isEvidenceStrictType } from "../lib/report";
 import { DeliveryGuardLine } from "./LocalOnlySection";
@@ -80,6 +80,8 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
     close();
   };
   const [showPreview, setShowPreview] = useState(false);
+  // A refine result that moved or dropped the news reference was put back (news-apply C3).
+  const [referenceKept, setReferenceKept] = useState(false);
   // Over review capacity: the first submit only shows the warning; the second one starts (AG-08).
   const [ackCapacity, setAckCapacity] = useState(false);
   const [awaitingTrust, setAwaitingTrust] = useState(false);
@@ -152,7 +154,8 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
   const repoOk = repo.data?.kind === "ok";
   // The default branch is checked out: the backend starts in a worktree anyway (delivery-guard), so the box shows it.
   const guard = useQuery({ queryKey: ["delivery-guard", cwd], queryFn: () => deliveryApi.preview(cwd), enabled: cwd.startsWith("/"), staleTime: 10_000, retry: false });
-  const forcedWorktree = repoOk && !atHome && !origin && !!guard.data?.forcedWorktree;
+  // By folder, not by origin (news-apply C1, same rule as the backend): a news or insight draft on the default branch too.
+  const forcedWorktree = repoOk && !looksLikeHome(cwd) && !!guard.data?.forcedWorktree;
   const useWorktree = forcedWorktree || (repoOk && !atHome && (worktreeChoice ?? taskType === "dev"));
 
   const remoteBlocked = sensitive || !!preset?.strict || DANGEROUS_MODES.has(mode) || planOnly;
@@ -330,7 +333,7 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
             {refineBlocked && <span className="text-ink-2">{refineBlocked}</span>}
             <Button
               type="button"
-              variant="primary"
+              variant="secondary"
               size="sm"
               disabled={!!refineBlocked}
               onClick={() => {
@@ -420,11 +423,20 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
           hint={draft?.refineHint}
           localNames={draft?.localNames ?? []}
           maxRounds={team.data?.config.refine?.rounds ?? 4}
-          onApply={setBrief}
+          onApply={(next) => {
+            const kept = keepNewsReference(brief, next);
+            setReferenceKept(kept.fixed);
+            setBrief(kept.brief);
+          }}
           startRef={startRefine}
           submitRef={submitRefine}
           onFocusField={focusField}
         />
+        {referenceKept && (
+          <p role="status" className="-mt-2 text-xs text-ink-2">
+            {t("tasks.composer.referenceKept")}
+          </p>
+        )}
 
         <label className="flex items-start gap-2 text-[13px]">
           <input type="checkbox" checked={sensitive} onChange={(e) => setSensitive(e.target.checked)} className="mt-0.5" />

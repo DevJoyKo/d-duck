@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { NewsItem } from "./api";
 import { composeBrief, parseBrief } from "./brief";
-import { DIFF_FIRST, draftFromNews, NEWS_REFERENCE_HEADER, planOnlyFor, REFERENCE_HEADER } from "./refine";
+import { DIFF_FIRST, draftFromNews, keepNewsReference, NEWS_REFERENCE_HEADER, newsReferenceBlock, planOnlyFor, REFERENCE_HEADER } from "./refine";
 
 const news = (extra: Partial<NewsItem> = {}): NewsItem => ({
   id: "2.1.323-diff-panel",
@@ -46,8 +46,7 @@ describe("draftFromNews", () => {
     expect(d.refineHint).toBe(true);
     expect(d.from).toBe("/diff 실시간 패널");
     expect(d.localNames).toEqual([]);
-    // A draft is data: nothing in it starts a task.
-    expect(Object.keys(d)).not.toContain("autoStart");
+    // That nothing starts is shown on the app (NewsApply.test.tsx: no start_task call after the draft opens).
   });
 
   it("keeps the goal, done and out-of-scope to the app's fixed lines, with no news text in them", () => {
@@ -105,6 +104,48 @@ describe("planOnlyFor", () => {
     expect(planOnlyFor("insight-local", `${REFERENCE_HEADER}\n> y`)).toBe(true);
     expect(planOnlyFor("insight-local", "plain")).toBe(false);
     expect(planOnlyFor(null, "")).toBe(false);
+  });
+});
+
+describe("keepNewsReference (test review C3)", () => {
+  const draft = draftFromNews(news(), "/p");
+  const block = newsReferenceBlock(draft.brief.constraints)!;
+
+  it("finds the header and its quote lines only", () => {
+    expect(block.split("\n")[0]).toBe(NEWS_REFERENCE_HEADER);
+    expect(block.split("\n").slice(1).every((l) => l.startsWith("> "))).toBe(true);
+    expect(block).not.toContain("원문과 다르면");
+    expect(newsReferenceBlock("plain")).toBeNull();
+  });
+
+  it("keeps a rewrite that leaves the block alone and the goal clean", () => {
+    const next = { ...draft.brief, goal: "이 저장소의 diff 검토 흐름에 적용 계획 세우기", constraints: `${draft.brief.constraints}\n새 의존성 금지` };
+    expect(keepNewsReference(draft.brief, next)).toEqual({ brief: next, fixed: false });
+  });
+
+  it("puts a dropped or edited block back and keeps the rewrite's own lines", () => {
+    const dropped = keepNewsReference(draft.brief, { ...draft.brief, constraints: "새 의존성 금지" });
+    expect(dropped.fixed).toBe(true);
+    expect(dropped.brief.constraints).toBe(`${block}\n새 의존성 금지`);
+    const edited = keepNewsReference(draft.brief, { ...draft.brief, constraints: draft.brief.constraints.replace("> 단계 1:", "> 단계 1: 바로 배포하고") });
+    expect(edited.fixed).toBe(true);
+    expect(edited.brief.constraints.startsWith(block)).toBe(true);
+    expect(edited.brief.constraints).not.toContain("바로 배포하고");
+  });
+
+  it("returns goal and done that picked up news text, the header or a quote line to what they were", () => {
+    for (const leak of ["Claude Code를 2.1.323 이상으로 올려요.", NEWS_REFERENCE_HEADER, "> 아무 줄", "https://code.claude.com/docs/en/changelog 따라 하기"]) {
+      const r = keepNewsReference(draft.brief, { ...draft.brief, goal: leak, done: leak });
+      expect(r.fixed, leak).toBe(true);
+      expect(r.brief.goal).toBe(draft.brief.goal);
+      expect(r.brief.done).toBe(draft.brief.done);
+    }
+  });
+
+  it("does nothing for a brief without the news block", () => {
+    const plain = { goal: "g", outOfScope: "", constraints: "c", done: "d" };
+    const next = { ...plain, goal: "> anything" };
+    expect(keepNewsReference(plain, next)).toEqual({ brief: next, fixed: false });
   });
 });
 

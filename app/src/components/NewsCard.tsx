@@ -27,7 +27,8 @@ function Thumb({ category, size }: { category: NewsCategory; size: Size }) {
   const t = useT();
   const c = categoryColor(category);
   const Icon = ICON[category] ?? Sparkles;
-  const box = size === "row" ? "h-16 w-24" : "h-12 w-12";
+  // Rows: the same 118px as the key-fact card, so titles line up (brand review B3).
+  const box = size === "row" ? "h-16 w-[118px]" : "h-12 w-12";
   return (
     <span
       aria-hidden
@@ -48,7 +49,7 @@ export function isCommandFact(fact: string): boolean {
 
 // Text on every tag, never colour alone. Amber for 설정 필요: the duck yellow stays for the one call to action.
 const ADOPT_CLASS: Record<NewsAdopt, string> = {
-  update: "bg-ok/10 text-ok",
+  update: "bg-ok/10 text-ok-strong",
   config: "bg-warn-soft text-warn",
   opt_in: "bg-ink/6 text-ink-2",
 };
@@ -65,11 +66,12 @@ function AdoptTag({ adopt }: { adopt: NewsAdopt }) {
 function FactCard({ fact, size }: { fact: string; size: Size }) {
   const mono = isCommandFact(fact);
   const box = size === "row" ? "h-16 w-[118px]" : "min-h-12 w-[132px]";
-  // The row cuts a long fact (the whole text is in `title` and in the sheet); the sheet head wraps it.
-  const text = size === "row" ? "truncate" : "wrap-anywhere";
+  // The row shows up to two lines, breaking at spaces and hyphens first, then cuts with an ellipsis (the whole text is
+  // in `title` and in the sheet head, which wraps it in full).
+  const text = size === "row" ? "line-clamp-2 wrap-break-word" : "block wrap-anywhere";
   return (
     <span data-news-card className={`flex shrink-0 items-center rounded-lg border border-line bg-sheet px-2.5 py-2 ${box}`}>
-      <span data-news-fact title={fact} className={`block min-w-0 flex-1 leading-snug font-semibold text-ink ${text} ${mono ? "font-mono text-[14px]" : "text-[15px]"}`}>
+      <span data-news-fact title={fact} className={`min-w-0 flex-1 leading-snug font-semibold text-ink ${text} ${mono ? "font-mono text-[14px]" : "text-[15px]"}`}>
         {fact}
       </span>
     </span>

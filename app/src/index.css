@@ -36,6 +36,8 @@
   /* Status: failed / working / limit. 4.5:1 on sheet and paper (paletteTokens.test.ts). */
   --color-danger: #cf3338;
   --color-ok: #1f7f4b;
+  /* Small green text on an ok tint (news adopt tag): 4.5:1 on the tint over sheet and paper. */
+  --color-ok-strong: #1a6b3f;
   /* Second chart series: a muted steel next to the ink, never a saturated blue. */
   --color-chart-2: #6b7f99;
   /* Disc behind the duck: keeps its outline readable in both themes. */
@@ -81,6 +83,7 @@
       --color-well: rgba(255, 255, 255, 0.04);
       --color-danger: #ff6b6f;
       --color-ok: #4cc38a;
+      --color-ok-strong: #4cc38a;
       --color-chart-2: #95a0b5;
       /* Dark: a lighter disc so the duck stands apart from the card (design: "다크에서 밝게"). */
       --color-duck-stage: #41434d;
@@ -111,6 +114,7 @@
     --color-well: rgba(255, 255, 255, 0.04);
     --color-danger: #ff6b6f;
     --color-ok: #4cc38a;
+    --color-ok-strong: #4cc38a;
     --color-chart-2: #95a0b5;
     --color-duck-stage: #41434d;
     --color-warn: #f0a24a; /* amber: apart from the CTA yellow (duck) and the red danger */

@@ -3,7 +3,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Loader2, Newspaper, RefreshCw, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { api, messageOf, type NewsItem, type NewsRun, type NewsView } from "../lib/api";
 import { dateTime, usd } from "../lib/format";
 import { dayMs, hostOf, splitEarlier } from "../lib/news";
@@ -66,12 +66,14 @@ function Row({ item, onOpen }: { item: NewsItem; onOpen: (it: NewsItem, el: HTML
   const t = useT();
   // The meta line is drawn over a blank line kept inside the row button, right under the one-line title and summary
   // (12 + 22 + 4 + 20 + 6 = 64px down), but outside the button, so "원문 ↗" is its own button (no nesting). Clicks on
-  // the rest of that line fall through to the row.
+  // the rest of that line fall through to the row. The button is described by that line for screen readers.
+  const metaId = useId();
   return (
     <li className="relative">
       <button
         type="button"
         data-news-row={item.id}
+        aria-describedby={metaId}
         onClick={(e) => onOpen(item, e.currentTarget)}
         className="flex w-full items-start gap-4 rounded-xl px-3 py-3 text-left transition-colors hover:bg-ink/4 focus-visible:outline-2 focus-visible:outline-ink"
       >
@@ -90,9 +92,15 @@ function Row({ item, onOpen }: { item: NewsItem; onOpen: (it: NewsItem, el: HTML
           <span aria-hidden className="mt-1.5 block h-4" />
         </span>
       </button>
-      <span className="pointer-events-none absolute top-16 right-3 left-[146px] flex h-4 min-w-0 items-center gap-2">
-        <Meta item={item} />
-        <SourceLink item={item} />
+      {/* Same columns as the button (px-3, thumbnail width, gap-4), so the line starts under the title. */}
+      <span className="pointer-events-none absolute inset-x-0 top-16 flex h-4 gap-4 px-3">
+        <span aria-hidden className="w-[118px] shrink-0" />
+        <span className="flex min-w-0 flex-1 items-center gap-2">
+          <span id={metaId}>
+            <Meta item={item} />
+          </span>
+          <SourceLink item={item} />
+        </span>
       </span>
     </li>
   );

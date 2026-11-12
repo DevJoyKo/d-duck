@@ -18,5 +18,5 @@
 ## 3. 검사·리뷰
 
 - [x] 3.1 설계 리뷰(design-critic + security-privacy-reviewer) 반영 — design.md "설계 리뷰 반영"
-- [ ] 3.2 전체 검사(core test·clippy·tsc·vitest·lint), 실제 가져오기 1회(사용자 승인, cost_usd 기록), mock 스크린샷(목록·시트·작성 창, 라이트·다크) — 자동 검사·mock 스크린샷 완료(2026-11-13), 실제 가져오기 1회만 남음(사용자 승인 대기)
+- [ ] 3.2 전체 검사(core test·clippy·tsc·vitest·lint), 실제 가져오기 1회(사용자 승인, cost_usd 기록), mock 스크린샷(목록·시트·작성 창, 라이트·다크) — 자동 검사·mock 스크린샷 완료(2026-11-13, 테스트 리뷰 반영 뒤 다시 찍음). 근거: core `cargo test -p dduck-core`, vitest `src/components/NewsApply.test.tsx`·`NewsCard.test.tsx`·`src/lib/refineNews.test.ts`, 스크린샷 scratchpad `shots/news-apply/{list,sheet,composer}-{light-1440,dark-900}.png`. 실제 가져오기 1회만 남음(사용자 승인 대기)
 - [ ] 3.3 테스트 리뷰(qa-verifier + design-critic + brand-reviewer) 반영 — design.md "테스트 리뷰 반영"

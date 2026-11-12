@@ -150,6 +150,7 @@ export default {
     source: "From: {from}",
     followUpOf: "Follow-up to '{from}'",
     sourceNews: "From news · {from}",
+    referenceKept: "The reference stays in the constraints, and news text moved into the goal or done was put back",
     repo: {
       notRepo: "Not a git repository, so it can't be isolated",
       homeRoot: "A home folder repository can't be isolated",

@@ -100,8 +100,8 @@ const APPLY: Record<string, Apply> = {
   },
   "2.1.321-remote-control-settings": {
     adopt: "config",
-    ko: { fact: "claude remote-control", steps: ["팀 규칙을 담은 설정 파일을 저장소에 둬요.", "claude remote-control에 --settings로 그 파일을 넘겨 시작해요.", "파일을 바꾼 뒤에는 remote-control을 다시 시작해요."], verify: "새 원격 세션의 /status에 그 설정 파일이 보여요." },
-    en: { fact: "claude remote-control", steps: ["Keep a settings file with your team rules in the repository.", "Start claude remote-control with --settings pointing at that file.", "Restart remote-control after you change the file."], verify: "/status in a new remote session lists that settings file." },
+    ko: { fact: "설정 파일 하나", steps: ["팀 규칙을 담은 설정 파일을 저장소에 둬요.", "claude remote-control에 --settings로 그 파일을 넘겨 시작해요.", "파일을 바꾼 뒤에는 remote-control을 다시 시작해요."], verify: "새 원격 세션의 /status에 그 설정 파일이 보여요." },
+    en: { fact: "One settings file", steps: ["Keep a settings file with your team rules in the repository.", "Start claude remote-control with --settings pointing at that file.", "Restart remote-control after you change the file."], verify: "/status in a new remote session lists that settings file." },
   },
   "2.1.321-fable-5-2": {
     adopt: "opt_in",
@@ -115,13 +115,13 @@ const APPLY: Record<string, Apply> = {
   },
   "2.1.315-plugin-eval": {
     adopt: "opt_in",
-    ko: { fact: "claude plugin eval", steps: ["자주 맡기는 작업 5개로 케이스 묶음을 만들어요.", "플러그인을 고칠 때마다 같은 묶음으로 돌려 점수를 비교해요."], verify: "플러그인 있음·없음 점수가 나란히 나와요." },
-    en: { fact: "claude plugin eval", steps: ["Make a suite of 5 tasks you often hand off.", "Run the same suite after each plugin change and compare scores."], verify: "Scores with and without the plugin show side by side." },
+    ko: { fact: "plugin eval", steps: ["자주 맡기는 작업 5개로 케이스 묶음을 만들어요.", "플러그인을 고칠 때마다 같은 묶음으로 돌려 점수를 비교해요."], verify: "플러그인 있음·없음 점수가 나란히 나와요." },
+    en: { fact: "plugin eval", steps: ["Make a suite of 5 tasks you often hand off.", "Run the same suite after each plugin change and compare scores."], verify: "Scores with and without the plugin show side by side." },
   },
   "2.1.309-max-effort-level": {
     adopt: "config",
-    ko: { fact: "maxEffortLevel", steps: ["프로젝트 설정에 maxEffortLevel을 high로 적어요.", "세션을 다시 열어요."], verify: "/effort에서 high보다 높은 수준을 고를 수 없어요." },
-    en: { fact: "maxEffortLevel", steps: ["Set maxEffortLevel to high in the project settings.", "Open a new session."], verify: "/effort can't pick anything above high." },
+    ko: { fact: "effort 상한", steps: ["프로젝트 설정에 maxEffortLevel을 high로 적어요.", "세션을 다시 열어요."], verify: "/effort에서 high보다 높은 수준을 고를 수 없어요." },
+    en: { fact: "effort cap", steps: ["Set maxEffortLevel to high in the project settings.", "Open a new session."], verify: "/effort can't pick anything above high." },
   },
   "2.1.298-resume-in-desktop": {
     adopt: "update",
@@ -130,8 +130,8 @@ const APPLY: Record<string, Apply> = {
   },
   "2.1.296-restricted-flag": {
     adopt: "opt_in",
-    ko: { fact: "claude --restricted", steps: ["평가 스크립트의 claude 실행에 --restricted를 붙여요."], verify: "세션의 도구 목록에 명령 실행 도구가 없어요." },
-    en: { fact: "claude --restricted", steps: ["Add --restricted to the claude call in your evaluation script."], verify: "The session's tool list has no command-running tool." },
+    ko: { fact: "--restricted", steps: ["평가 스크립트의 claude 실행에 --restricted를 붙여요."], verify: "세션의 도구 목록에 명령 실행 도구가 없어요." },
+    en: { fact: "--restricted", steps: ["Add --restricted to the claude call in your evaluation script."], verify: "The session's tool list has no command-running tool." },
   },
   "2.1.292-model-picker-setting": {
     adopt: "config",
