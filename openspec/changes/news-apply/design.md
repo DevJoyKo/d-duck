@@ -39,3 +39,11 @@
 - design-critic BLOCKER(소식 탭에 프로젝트 범위 없음) → 시트에 대상 선택(기본 recent[0]), `NewsPage onDraft`. MAJOR: 거절 문구 → `NewsPlanOnly`·`NewsNoRemote`; 위험 검사 범위 → 7a; 개정 흔적(`parse_item`·짝) 정리; adopt만 있는 경우 SHALL·테스트. MINOR: 카드 폭 118px 명시, 비용 문구는 실측, 예전 소식 영향은 개발 DB뿐.
 - security-privacy-reviewer HIGH(웹 글이 목표·완료 기준 칸에) → 목표·완료 기준·범위 밖은 고정 문구, 웹 글은 모두 머리글 아래 `> ` 인용. MEDIUM: `APPLY_RISKY_RE`, `apply_origin` `matches!` 분기와 parse, `planOnlyFor` 헬퍼. LOW: `#` 줄 제거·인용, 다듬기 뒤 출처 유지.
 - 사용자 확인: 태그 문구 "업데이트만 하면 됨"은 카드에서 줄바뀜 → "바로 됨".
+
+## 구현 메모 (2026-11-13)
+
+- 대상 선택은 `ProjectPicker`를 쓰지 않고 시트 안의 기본 `<select>`로 했다. `ProjectPopover`는 탭별 프로젝트(`set_page_project`)를 바꾸는데 소식은 `PROJECT_PAGES`에 없어서다. 목록은 같은 `projects-known` 캐시, 홈·폴더 모름·없는 폴더는 뺀다. 기본값은 recent 중 쓸 수 있는 첫 항목.
+- "설정 필요" 태그는 노랑(duck) 대신 앰버(`warn`) 토큰. 노랑은 화면당 한 곳이고 소식 화면 테스트가 duck 색을 금지한다.
+- `APPLY_RISKY_RE`의 원격 MCP는 `mcp\s+add\b…https?:`로 넓혔다(`--transport http` 같은 옵션이 끼어도 걸림).
+- `#` 제목 줄 제거는 적용 필드뿐 아니라 무엇인지·언제·베스트 프랙티스 문단에도 적용한다(초안 인용에 함께 들어가므로).
+- 줄의 "원문 ↗"는 줄 버튼 밖의 별도 버튼이다(버튼 중첩 금지). 메타 줄은 줄 버튼 안에 남긴 빈 줄 위에 겹쳐 그린다.
