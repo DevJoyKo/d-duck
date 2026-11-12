@@ -1,4 +1,4 @@
-// sheet-focus 2.1: the four sheets that were aria-modal without a focus trap. Each one takes focus on open (the
+// sheet-focus 2.1 (and 2.2 for the Usage session sheet): the sheets that were aria-modal without a focus trap. Each one takes focus on open (the
 // initial-focus table in design.md 6), keeps Tab inside, and gives focus back on close. The dirty-guarded ones ask
 // before Escape throws edits away, the same confirm the × button uses.
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -15,6 +15,7 @@ const { AgentsPage } = await import("./AgentsPage");
 const { AuthoringEditor } = await import("./AuthoringEditor");
 const { AddMenu, AddSheet } = await import("./AddSheet");
 const { addApi } = await import("../lib/addItems");
+const { UsagePage } = await import("./UsagePage");
 
 const wrap = (ui: ReactNode) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>);
 const tab = (shift = false) => fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab", shiftKey: shift });
@@ -200,5 +201,32 @@ describe("add-extension sheet", () => {
   it("opened to create: × takes focus", () => {
     const { dialog } = pick(/^직접 만들기/);
     expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "닫기" }));
+  });
+});
+
+describe("Usage session sheet (2.2)", () => {
+  it("focuses ×, lets the title editor take its own Escape, and returns focus to the session row", async () => {
+    wrap(<UsagePage />);
+    const row = await waitFor(() => {
+      const b = document.querySelector<HTMLButtonElement>("table tbody button");
+      if (!b) throw new Error("no sessions yet");
+      return b;
+    });
+    act(() => row.focus());
+    fireEvent.click(row);
+    const dialog = await screen.findByRole("dialog");
+    const close = within(dialog).getByRole("button", { name: "닫기" });
+    expect(document.activeElement).toBe(close);
+    fireEvent.click(await within(dialog).findByRole("button", { name: "제목 고치기" }));
+    const field = within(dialog).getByRole("textbox");
+    act(() => field.focus());
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(within(dialog).queryByRole("textbox")).toBeNull();
+    expect(screen.getByRole("dialog")).toBe(dialog);
+    wraps(dialog, close);
+    walk(dialog);
+    escape();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(row);
   });
 });

@@ -738,7 +738,7 @@ function AskPane({ initialKind }: { initialKind: AuthorKind }) {
 export function AddSheet({ mode, onMode, onClose, kind = "skill", linkOnly = false }: { mode: AddMode; onMode: (m: AddMode) => void; onClose: () => void; kind?: AuthorKind; linkOnly?: boolean }) {
   const t = useT();
   // Focus in (the link field's autoFocus, else ×), Tab inside, Escape closes (sheet-focus). The menu item that opened
-  // the sheet is gone by then: focus goes back to the "추가" button.
+  // the sheet is gone by then: focus goes back to the Add button.
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeBtn = useRef<HTMLButtonElement>(null);
   useModal(dialogRef, onClose, { initial: closeBtn, returnTo: () => document.querySelector<HTMLElement>("[data-add-trigger]") });
