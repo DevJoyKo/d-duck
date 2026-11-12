@@ -2,11 +2,12 @@
 // refuses a save when the file changed meanwhile, and confirms natively when the text can run commands.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Lock, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useT } from "../i18n/react";
 import { addApi, kindLabel } from "../lib/addItems";
 import { discardText } from "../lib/rules";
 import { metaBlocks, metaReasonText, registeredText, useWorkflowCheck, type MetaCheck } from "../lib/workflowCheck";
+import { useModal } from "../lib/useModal";
 import { useDirty } from "./ProjectContext";
 import { Button, fieldClass } from "./ui";
 
@@ -40,11 +41,10 @@ export function AuthoringEditor({
   const close = useCallback(() => {
     if (!dirty || window.confirm(discardText())) onClose();
   }, [dirty, onClose]);
-  useEffect(() => {
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && !e.isComposing && close();
-    document.addEventListener("keydown", esc);
-    return () => document.removeEventListener("keydown", esc);
-  }, [close]);
+  // Focus in, Tab inside, Escape through `close`, focus back to the row (sheet-focus).
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeBtn = useRef<HTMLButtonElement>(null);
+  useModal(dialogRef, close, { initial: closeBtn });
   const save = useMutation({
     mutationFn: () => (d ? addApi.save(id, value, d.token) : Promise.reject()),
     onSuccess: async () => {
@@ -56,7 +56,7 @@ export function AuthoringEditor({
   const title = d ? (d.kind === "command" ? `/${d.name}` : d.name) : t("extensions.editor.loading");
   return (
     <div className="fixed inset-0 z-30 flex justify-end bg-ink/20" onClick={close}>
-      <div role="dialog" aria-modal="true" aria-label={t("extensions.editor.label", { title })} onClick={(e) => e.stopPropagation()} className="flex h-full w-[min(760px,100vw)] flex-col border-l border-line bg-sheet shadow-e3">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={t("extensions.editor.label", { title })} onClick={(e) => e.stopPropagation()} className="flex h-full w-[min(760px,100vw)] flex-col border-l border-line bg-sheet shadow-e3">
         <div className="flex items-center gap-3 border-b border-line px-5 py-3">
           <div className="mr-auto min-w-0">
             <p className="text-xs text-ink-3">
@@ -64,7 +64,7 @@ export function AuthoringEditor({
             </p>
             <h2 className="truncate font-mono text-[15px] font-semibold">{title}</h2>
           </div>
-          <button aria-label={t("common.actions.close")} onClick={close} className="rounded-md p-1 text-ink-3 hover:text-ink">
+          <button ref={closeBtn} aria-label={t("common.actions.close")} onClick={close} className="rounded-md p-1 text-ink-3 hover:text-ink">
             <X size={16} />
           </button>
         </div>

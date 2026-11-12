@@ -2,7 +2,7 @@
 // agent on/off · hide · delete, team rules, task types. The backend validates everything again.
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowDown, ArrowUp, Backpack, EyeOff, Lock, Plus, RotateCcw, Trash2, X } from "lucide-react";
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useRef, useState, type ReactNode } from "react";
 import { api, reasonIs, type AgentDef, failure, shown, type Shown } from "../lib/api";
 import { addedTools, agentListsFor, wouldEmptyTools, agentLoadoutLock, chosenFromAgent, frontmatterList, loadoutApi, useLoadoutOptions } from "../lib/loadout";
 import { LoadoutSection, namesToPins, type LoadoutValue } from "./LoadoutSection";
@@ -15,6 +15,7 @@ import { roleOf } from "../lib/roles";
 import { tx, useT } from "../i18n/react";
 import { defaultLabel, ModelPicker, useModelOptions } from "./ModelPicker";
 import { modelApi } from "../lib/model";
+import { useModal } from "../lib/useModal";
 import {
   AUTO_ALLOWED_LABEL,
   EDITABLE_MODES,
@@ -881,15 +882,10 @@ export function AgentSettings({ catalog, onClose }: { catalog: AgentDef[]; onClo
   const close = () => {
     if (!dirty || window.confirm(tr("agents.sheet.unsavedClose"))) onClose();
   };
-  const closeRef = useRef(close);
-  useEffect(() => {
-    closeRef.current = close;
-  });
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && closeRef.current();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  // Focus in, Tab inside, Escape through `close` (asks about unsaved edits), focus back (sheet-focus).
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeBtn = useRef<HTMLButtonElement>(null);
+  useModal(dialogRef, close, { initial: closeBtn });
 
   const save = async () => {
     if (!draft) return;
@@ -921,7 +917,7 @@ export function AgentSettings({ catalog, onClose }: { catalog: AgentDef[]; onClo
 
   return (
     <div className="fixed inset-0 z-30 flex justify-end bg-ink/20" onClick={close}>
-      <div role="dialog" aria-modal="true" aria-label={tr("agents.sheet.title")} onClick={(e) => e.stopPropagation()} className="flex h-full w-[min(920px,96vw)] flex-col border-l border-line bg-sheet shadow-e3">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={tr("agents.sheet.title")} onClick={(e) => e.stopPropagation()} className="flex h-full w-[min(920px,96vw)] flex-col border-l border-line bg-sheet shadow-e3">
         <div className="flex flex-wrap items-center gap-3 border-b border-line px-6 py-4">
           <h2 className="mr-auto text-[15px] font-semibold">{tr("agents.sheet.title")}</h2>
           <Segmented
@@ -934,7 +930,7 @@ export function AgentSettings({ catalog, onClose }: { catalog: AgentDef[]; onClo
             ]}
             onChange={setTab}
           />
-          <button onClick={close} aria-label={tr("common.actions.close")} className="rounded-md p-1 text-ink-3 hover:text-ink">
+          <button ref={closeBtn} onClick={close} aria-label={tr("common.actions.close")} className="rounded-md p-1 text-ink-3 hover:text-ink">
             <X size={18} />
           </button>
         </div>

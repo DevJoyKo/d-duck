@@ -10,6 +10,7 @@ import { DuckAvatar } from "./DuckAvatar";
 import { DEFAULT_ROLE, loadOrder, moveInOrder, orderCards, roleOf, saveOrder, type OrderMode, type Role } from "../lib/roles";
 import { Button, Empty, MoreInfo, PageHeader, Segmented, fieldClass } from "./ui";
 import { AgentSettings } from "./AgentSettings";
+import { useModal } from "../lib/useModal";
 import { useLanguage, useT } from "../i18n/react";
 import { offState, takeAgentSettingsRequest, useAgentControls, useTeamConfig, type OffState } from "../lib/team";
 
@@ -38,20 +39,14 @@ function Editor({ def, onClose }: { def: AgentDef; onClose: () => void }) {
   const close = () => {
     if (!dirty || window.confirm(t("agents.editor.unsavedClose"))) onClose();
   };
-  const closeRef = useRef(close);
-  useEffect(() => {
-    closeRef.current = close;
-  });
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && closeRef.current();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  // Focus in, Tab inside, Escape through `close`, focus back to the card (sheet-focus).
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeBtn = useRef<HTMLButtonElement>(null);
+  useModal(dialogRef, close, { initial: closeBtn });
 
   return (
     <div className="fixed inset-0 z-30 flex justify-end bg-ink/20" onClick={close}>
-      <div role="dialog" aria-modal="true" aria-label={t("agents.editor.dialog", { name: def.name })} onClick={(e) => e.stopPropagation()} className="flex h-full w-[min(720px,92vw)] flex-col border-l border-line bg-sheet shadow-e3">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={t("agents.editor.dialog", { name: def.name })} onClick={(e) => e.stopPropagation()} className="flex h-full w-[min(720px,92vw)] flex-col border-l border-line bg-sheet shadow-e3">
         <div className="flex items-start gap-3 border-b border-line px-6 py-4">
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-[14px] font-semibold">{def.name}</h2>
@@ -59,7 +54,7 @@ function Editor({ def, onClose }: { def: AgentDef; onClose: () => void }) {
               {def.path ?? sourceText(def)}
             </p>
           </div>
-          <button onClick={close} aria-label={t("common.actions.close")} className="rounded-md p-1 text-ink-3 hover:text-ink">
+          <button ref={closeBtn} onClick={close} aria-label={t("common.actions.close")} className="rounded-md p-1 text-ink-3 hover:text-ink">
             <X size={18} />
           </button>
         </div>
