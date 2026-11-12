@@ -1,0 +1,107 @@
+name: Windows probe
+
+# windows-support group 0 (premises): not a required check. It records what fails to build on Windows and what the
+# Claude CLI offers there, so groups 1–5 start from facts. Uses no secrets and never logs in.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/**"
+      - ".github/workflows/windows-probe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust check (Windows, probe)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: app
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
+        with:
+          toolchain: stable
+          components: clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: app
+          shared-key: windows-latest
+          cache-on-failure: true
+      - name: cargo check (workspace)
+        run: cargo check --workspace --all-targets 2>&1 | tee ../check.log
+      - name: cargo clippy (workspace)
+        if: always()
+        run: cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee ../clippy.log
+      - name: Summary of errors
+        if: always()
+        run: |
+          for f in ../check.log ../clippy.log; do
+            echo "== $f"; grep -E '^(error|warning)(\[[A-Z0-9]+\])?:' "$f" | sort | uniq -c | sort -rn | head -60 || true
+            grep -E '^\s+--> ' "$f" | sed -E 's/:[0-9]+:[0-9]+$//' | sort | uniq -c | sort -rn | head -60 || true
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: windows-rust-logs
+          path: |
+            check.log
+            clippy.log
+
+  cli:
+    name: Claude CLI facts (Windows, probe)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - name: Install with the native installer
+        shell: pwsh
+        run: irm https://claude.ai/install.ps1 | iex
+      - name: Record CLI facts (no login)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $exe = Join-Path $env:USERPROFILE '.local\bin\claude.exe'
+          $out = New-Item -ItemType Directory -Force cli-facts
+          function Rec($name, [string[]]$a) {
+            "### claude $($a -join ' ')" | Out-File -Append "$out\$name.txt"
+            & $exe @a *>&1 | Select-Object -First 200 | Out-File -Append "$out\$name.txt"
+            "exit=$LASTEXITCODE" | Out-File -Append "$out\$name.txt"
+          }
+          "exe exists: $(Test-Path $exe)" | Out-File "$out\where.txt"
+          Get-Command claude -All -ErrorAction SilentlyContinue | Format-List Source | Out-File -Append "$out\where.txt"
+          Rec version @('--version')
+          Rec help @('--help')
+          foreach ($c in 'agents','logs','stop','attach') { Rec "help-$c" @($c, '--help') }
+          # A -p run without login: the init message (tools list) if the CLI prints one before the auth error.
+          $p = Start-Process -FilePath $exe -ArgumentList @('-p','hi','--output-format','stream-json','--verbose','--max-turns','1') -NoNewWindow -PassThru -RedirectStandardOutput "$out\p-init.jsonl" -RedirectStandardError "$out\p-init.err"
+          if (-not $p.WaitForExit(60000)) { $p.Kill(); "timeout" | Out-File -Append "$out\p-init.err" }
+          # Does auth / plugin / mcp list leave a background service running?
+          foreach ($c in @(@('auth','status'), @('plugin','list'), @('mcp','list'))) {
+            $before = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '*claude*' } | ForEach-Object Id)
+            Rec ("cmd-" + ($c -join '-')) $c
+            Start-Sleep -Seconds 3
+            $after = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '*claude*' -and $before -notcontains $_.Id }
+            "after claude $($c -join ' '): $(@($after).Count) new claude processes" | Out-File -Append "$out\background.txt"
+            $after | Format-Table Id, ProcessName, Path -AutoSize | Out-String -Width 300 | Out-File -Append "$out\background.txt"
+          }
+          Get-ChildItem $out | ForEach-Object { "===== $($_.Name)"; Get-Content $_.FullName -TotalCount 120 }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: windows-cli-facts
+          path: cli-facts
