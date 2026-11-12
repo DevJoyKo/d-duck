@@ -86,6 +86,67 @@ const NEW_ON_FETCH: Seed[] = [
   },
 ];
 
+// news-apply: the optional apply fields. Nine items have a key fact (command, name and number shapes); three have
+// none (the category card stays), one of them with an adopt tag only.
+type Adopt = "update" | "config" | "opt_in";
+type ApplyText = { fact?: string; steps: string[]; verify: string };
+type Apply = { adopt: Adopt; ko?: ApplyText; en?: ApplyText };
+
+const APPLY: Record<string, Apply> = {
+  "2.1.322-vertex-fast-mode": {
+    adopt: "opt_in",
+    ko: { fact: "/fast", steps: ["Vertex 계정으로 Claude Code를 2.1.322 이상으로 올려요.", "응답 속도가 중요한 대화에서 /fast를 입력해요."], verify: "상태 줄에 빠른 모드 표시가 보이면 켜진 거예요." },
+    en: { fact: "/fast", steps: ["Update Claude Code to 2.1.322 or later on your Vertex account.", "Type /fast in a conversation where response time matters."], verify: "The status line shows fast mode." },
+  },
+  "2.1.321-remote-control-settings": {
+    adopt: "config",
+    ko: { fact: "claude remote-control", steps: ["팀 규칙을 담은 설정 파일을 저장소에 둬요.", "claude remote-control에 --settings로 그 파일을 넘겨 시작해요.", "파일을 바꾼 뒤에는 remote-control을 다시 시작해요."], verify: "새 원격 세션의 /status에 그 설정 파일이 보여요." },
+    en: { fact: "claude remote-control", steps: ["Keep a settings file with your team rules in the repository.", "Start claude remote-control with --settings pointing at that file.", "Restart remote-control after you change the file."], verify: "/status in a new remote session lists that settings file." },
+  },
+  "2.1.321-fable-5-2": {
+    adopt: "opt_in",
+    ko: { fact: "1M 컨텍스트", steps: ["어려운 설계·리뷰 세션에서 /model로 Fable을 골라요.", "끝나면 기본 모델로 돌려 둬요."], verify: "/model 목록에 claude-fable-5-2가 기본으로 보여요." },
+    en: { fact: "1M context", steps: ["Pick Fable with /model for a hard design or review session.", "Switch back to the default model when you're done."], verify: "/model lists claude-fable-5-2 as the Fable default." },
+  },
+  "2.1.318-skill-doctor": {
+    adopt: "update",
+    ko: { fact: "/skill-doctor", steps: ["Claude Code를 2.1.318 이상으로 올려요.", "프로젝트 세션에서 /skill-doctor를 입력해요."], verify: "스킬마다 컨텍스트 비용과 사용 횟수가 표로 나와요." },
+    en: { fact: "/skill-doctor", steps: ["Update Claude Code to 2.1.318 or later.", "Type /skill-doctor in a project session."], verify: "A table shows each skill's context cost and usage." },
+  },
+  "2.1.315-plugin-eval": {
+    adopt: "opt_in",
+    ko: { fact: "claude plugin eval", steps: ["자주 맡기는 작업 5개로 케이스 묶음을 만들어요.", "플러그인을 고칠 때마다 같은 묶음으로 돌려 점수를 비교해요."], verify: "플러그인 있음·없음 점수가 나란히 나와요." },
+    en: { fact: "claude plugin eval", steps: ["Make a suite of 5 tasks you often hand off.", "Run the same suite after each plugin change and compare scores."], verify: "Scores with and without the plugin show side by side." },
+  },
+  "2.1.309-max-effort-level": {
+    adopt: "config",
+    ko: { fact: "maxEffortLevel", steps: ["프로젝트 설정에 maxEffortLevel을 high로 적어요.", "세션을 다시 열어요."], verify: "/effort에서 high보다 높은 수준을 고를 수 없어요." },
+    en: { fact: "maxEffortLevel", steps: ["Set maxEffortLevel to high in the project settings.", "Open a new session."], verify: "/effort can't pick anything above high." },
+  },
+  "2.1.298-resume-in-desktop": {
+    adopt: "update",
+    ko: { fact: "/resume", steps: ["터미널 세션에 이름을 붙여 둬요.", "데스크톱 입력창에서 /resume으로 그 세션을 골라요."], verify: "데스크톱에 터미널 대화가 그대로 이어져요." },
+    en: { fact: "/resume", steps: ["Name your terminal session.", "Pick it with /resume in the Desktop prompt box."], verify: "The terminal conversation continues in Desktop." },
+  },
+  "2.1.296-restricted-flag": {
+    adopt: "opt_in",
+    ko: { fact: "claude --restricted", steps: ["평가 스크립트의 claude 실행에 --restricted를 붙여요."], verify: "세션의 도구 목록에 명령 실행 도구가 없어요." },
+    en: { fact: "claude --restricted", steps: ["Add --restricted to the claude call in your evaluation script."], verify: "The session's tool list has no command-running tool." },
+  },
+  "2.1.292-model-picker-setting": {
+    adopt: "config",
+    ko: { fact: "modelPicker", steps: ["프로젝트 설정의 modelPicker에 팀이 쓰는 모델만 적어요.", "availableModels도 같은 목록으로 맞춰요."], verify: "/model 목록에 적은 모델만 보여요." },
+    en: { fact: "modelPicker", steps: ["List only your team's models in modelPicker in the project settings.", "Set availableModels to the same list."], verify: "/model shows only the models you listed." },
+  },
+  // Adopt tag only: the category card stays, with the tag under it.
+  "2.1.312-desktop-pop-out": { adopt: "update" },
+  "2.1.323-diff-panel": {
+    adopt: "update",
+    ko: { fact: "/diff", steps: ["Claude Code를 2.1.323 이상으로 올려요.", "전체 화면에서 작업을 맡긴 뒤 /diff를 입력해요."], verify: "대화 옆에 diff 패널이 열리고 고칠 때마다 새로 고쳐져요." },
+    en: { fact: "/diff", steps: ["Update Claude Code to 2.1.323 or later.", "In fullscreen, hand off a task and type /diff."], verify: "A diff panel opens beside the chat and refreshes on every edit." },
+  },
+};
+
 const lang = () => backendLang();
 const seedLang = (): "ko" | "en" => (param === "other" ? (lang() === "ko" ? "en" : "ko") : lang());
 
@@ -126,9 +187,12 @@ function view() {
     .filter((r) => r.lang === l)
     .map((r) => {
       const t = r.seed[r.lang];
+      const a = APPLY[r.seed.id];
+      const at = a?.[r.lang];
       return {
         id: r.seed.id, title: t.title, version: r.seed.version, date: ymd(r.seed.ago), category: r.seed.category, summary: t.summary,
         what: t.what, whenToUse: t.when, bestPractice: t.best, sourceUrl: r.seed.url, firstSeenMs: r.firstSeenMs, seen: seen.has(`${r.seed.id}:${r.lang}`),
+        keyFact: at?.fact ?? null, adopt: a?.adopt ?? null, applySteps: at?.steps ?? null, verify: at?.verify ?? null,
       };
     })
     .sort((a, b) => (a.date === b.date ? cmpVersion(b.version, a.version) || a.id.localeCompare(b.id) : b.date.localeCompare(a.date)));
