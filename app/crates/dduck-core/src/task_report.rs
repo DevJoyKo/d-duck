@@ -524,7 +524,7 @@ pub fn read(root: &Path, id: &str) -> Result<Report, ReportError> {
     let path = dir.join(FILE);
     let file = open_flags(&path).map_err(|e| io_reason(&e))?;
     let meta = single_link_regular(&file).ok_or(ReportError::Refused)?;
-    if fd_path(&file).is_some_and(|real| real != path) {
+    if fd_path(&file).map_or(cfg!(windows), |real| real != path) {
         return Err(ReportError::Refused);
     }
     let s = sig(&meta);

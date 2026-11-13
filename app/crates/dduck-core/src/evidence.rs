@@ -339,7 +339,7 @@ pub(crate) fn read_in(dir: &Path, name: &str, max: u64) -> Result<(Vec<u8>, Sig)
     let path = dir.join(name);
     let file = open_flags(&path).map_err(|e| if e.kind() == std::io::ErrorKind::NotFound { Status::Missing } else { Status::Refused })?;
     let meta = single_link_regular(&file).ok_or(Status::Refused)?;
-    if fd_path(&file).is_some_and(|real| real != path) {
+    if fd_path(&file).map_or(cfg!(windows), |real| real != path) {
         return Err(Status::Refused);
     }
     if meta.len() > max {

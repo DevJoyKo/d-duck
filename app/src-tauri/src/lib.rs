@@ -180,7 +180,6 @@ impl AppState {
     }
 }
 
-/// `HOME` on macOS, `USERPROFILE` first on Windows (windows-support decision 1); empty when neither is set.
 /// Hook-gated features (News fetch, insights, brief refinement, cloud routines): Mac only in the Windows preview, and
 /// a CLI that blocks when a hook cannot start (decisions 7 and 8). An unknown CLI passes here and fails later as
 /// "not found".
@@ -189,6 +188,7 @@ pub(crate) fn hook_ready() -> Result<(), login_cmds::CmdError> {
     if cli_path::hooks_allowed() { Ok(()) } else { Err(login_cmds::CmdError::Cli(CliError::invalid(ReasonCode::CliUpdateNeeded))) }
 }
 
+/// `HOME` on macOS, `USERPROFILE` first on Windows (windows-support decision 1); empty when neither is set.
 fn home_dir() -> PathBuf {
     dduck_core::platform::home().unwrap_or_default()
 }

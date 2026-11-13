@@ -632,8 +632,10 @@ pub fn git_bash() -> Option<PathBuf> {
         return None;
     }
     let env = std::env::var_os("CLAUDE_CODE_GIT_BASH_PATH").map(PathBuf::from);
-    let roots = ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"].into_iter().filter_map(std::env::var_os);
-    env.into_iter().chain(roots.map(|r| PathBuf::from(r).join("Git").join("bin").join("bash.exe"))).find(|p| p.is_absolute() && p.is_file())
+    // The same install roots as `git_program` (review LOW).
+    let roots = ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"].into_iter().filter_map(std::env::var_os).map(PathBuf::from);
+    let user = std::env::var_os("LOCALAPPDATA").map(|l| PathBuf::from(l).join("Programs"));
+    env.into_iter().chain(roots.chain(user).map(|r| r.join("Git").join("bin").join("bash.exe"))).find(|p| p.is_absolute() && p.is_file())
 }
 
 /// Two paths name the same location: component by component, and on Windows without letter-case differences (NTFS).

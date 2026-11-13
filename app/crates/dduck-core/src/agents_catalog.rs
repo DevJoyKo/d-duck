@@ -539,7 +539,7 @@ pub struct SavePlan {
     pub permission_warning: bool,
     pub risk: Risk,
     pub frontmatter_preview: String,
-    #[cfg(unix)]
+    /// File index on Windows, inode on macOS (swap check on save, also on Windows: review LOW).
     ino: u64,
     #[cfg(unix)]
     mode: u32,
@@ -610,8 +610,7 @@ pub fn plan_save_path(path: PathBuf, content: String, token: &str) -> Result<Sav
         frontmatter_preview: preview,
         old_token: token.to_string(),
         content,
-        #[cfg(unix)]
-        ino: std::os::unix::fs::MetadataExt::ino(&m),
+        ino: crate::platform::ids(&path, &m).1,
         #[cfg(unix)]
         mode: std::os::unix::fs::MetadataExt::mode(&m),
         path,
@@ -628,8 +627,7 @@ pub fn commit_save(plan: &SavePlan) -> Result<(), SaveError> {
     if !parent_ok {
         return Err(SaveError::Conflict);
     }
-    #[cfg(unix)]
-    if std::os::unix::fs::MetadataExt::ino(&m) != plan.ino || !owned_private(&m) {
+    if crate::platform::ids(&plan.path, &m).1 != plan.ino || !owned_private(&m) {
         return Err(SaveError::Conflict);
     }
     let current = std::fs::read(&plan.path).map_err(|_| SaveError::Conflict)?;

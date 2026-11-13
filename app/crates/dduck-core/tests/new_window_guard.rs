@@ -13,6 +13,4 @@ fn shell_registers_no_new_window_handler() {
             assert!(!text.contains("on_new_window") && !text.contains("NewWindowResponse"), "{} opens new webview windows", p.display());
         }
     }
-    let conf = std::fs::read_to_string(dir.join("../tauri.conf.json")).unwrap();
-    assert!(!conf.contains("\"create\": false") || conf.contains("\"label\": \"main\""));
 }

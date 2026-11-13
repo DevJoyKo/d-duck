@@ -723,7 +723,7 @@ pub fn first_line(report_id: &str, report_dir: &Path, a: &Attachment, size: evid
     let path = dir.join(&a.file);
     let file = open_flags(&path).ok()?;
     let meta = single_link_regular(&file)?;
-    if fd_path(&file).is_some_and(|real| real != path) || meta.len() > a.max() {
+    if fd_path(&file).map_or(cfg!(windows), |real| real != path) || meta.len() > a.max() {
         return None;
     }
     let key = (report_id.to_string(), a.file.clone(), a.title.clone(), evidence::sig(&meta));

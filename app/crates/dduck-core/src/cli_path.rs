@@ -286,7 +286,16 @@ const NPM_SHIM_TARGET: &str = r"node_modules\@anthropic-ai\claude-code\bin\claud
 /// case). Anything else is refused, so a `.cmd` or `.bat` is never executed.
 pub fn resolve_npm_shim(shim: &Path) -> Result<PathBuf, Rejection> {
     let dir = shim.parent().ok_or(Rejection::UnsupportedShim)?;
-    let text = std::fs::read(shim).ok().filter(|b| b.len() <= 16 * 1024).ok_or(Rejection::NotFound)?;
+    let mut text = Vec::new();
+    {
+        use std::io::Read;
+        // At most 16 KB + 1 is read, never the whole file (review LOW).
+        let f = std::fs::File::open(shim).map_err(|_| Rejection::NotFound)?;
+        f.take(16 * 1024 + 1).read_to_end(&mut text).map_err(|_| Rejection::NotFound)?;
+    }
+    if text.len() > 16 * 1024 {
+        return Err(Rejection::NotFound);
+    }
     let text = String::from_utf8(text).map_err(|_| Rejection::UnsupportedShim)?;
     let targets: Vec<&str> = text.match_indices("%dp0%\\").map(|(i, m)| &text[i + m.len()..]).map(|rest| rest.split(['"', ' ', '\r', '\n']).next().unwrap_or("")).collect();
     if targets.is_empty() || !targets.iter().all(|t| t.eq_ignore_ascii_case(NPM_SHIM_TARGET)) {
