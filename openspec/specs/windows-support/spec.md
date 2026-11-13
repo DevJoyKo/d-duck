@@ -1,8 +1,9 @@
-## Purpose
+# windows-support Specification
 
+## Purpose
 D.Duck runs on Windows 10/11 x64 as a preview. It finds and runs the Claude CLI safely, handles Windows paths, and refuses, with a clear message, the features whose protection is not verified on Windows.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Windows installer
 The project SHALL produce a Windows x64 NSIS installer that installs WebView2 when it is missing, starts D.Duck from the Start menu, and keeps one running instance.
