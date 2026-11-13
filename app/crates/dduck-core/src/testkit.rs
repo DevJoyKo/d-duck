@@ -29,7 +29,7 @@ pub fn ensure_basic() -> PathBuf {
     static ERR: Mutex<Option<String>> = Mutex::new(None);
     let dir = fixtures_dir().join("basic");
     ONCE.call_once(|| {
-        if let Err(e) = with_lock(&fixtures_dir(), || ensure_at(&dir, "python3")) {
+        if let Err(e) = with_lock(&fixtures_dir(), || ensure_at(&dir, &python())) {
             if let Ok(mut slot) = ERR.lock() {
                 *slot = Some(e);
             }
@@ -39,6 +39,31 @@ pub fn ensure_basic() -> PathBuf {
         panic!("{e}");
     }
     dir
+}
+
+/// The first interpreter that runs: `python3`, `python`, then the Windows launcher `py -3` (windows-support 5.2; on
+/// Windows `python3` can be the Store alias that only prints an error). Falls back to `python3` for the error message.
+#[doc(hidden)]
+pub fn python() -> String {
+    static FOUND: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    FOUND
+        .get_or_init(|| {
+            ["python3", "python", "py"]
+                .into_iter()
+                .find(|p| python_command(p).arg("--version").output().is_ok_and(|o| o.status.success()))
+                .unwrap_or("python3")
+                .to_string()
+        })
+        .clone()
+}
+
+/// `py` is the Windows launcher and needs `-3` to pick Python 3.
+fn python_command(python: &str) -> Command {
+    let mut c = Command::new(python);
+    if python == "py" {
+        c.arg("-3");
+    }
+    c
 }
 
 /// Generates the fixture into `dir` with `python` unless every output already exists.
@@ -54,7 +79,7 @@ pub fn ensure_at(dir: &Path, python: &str) -> Result<(), String> {
 #[doc(hidden)]
 pub fn generate(dir: &Path, python: &str) -> Result<(), String> {
     let script = fixtures_dir().join("gen_fixtures.py");
-    let out = Command::new(python).arg("-I").arg(&script).arg(dir).output().map_err(|e| {
+    let out = python_command(python).arg("-I").arg(&script).arg(dir).output().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             format!(
                 "테스트 픽스처를 만들 수 없어요: `{python}`을 찾지 못했어요. \
@@ -76,6 +101,46 @@ pub fn generate(dir: &Path, python: &str) -> Result<(), String> {
         Some(f) => Err(format!("테스트 픽스처 생성기가 끝났지만 {f} 파일이 없어요.")),
         None => Ok(()),
     }
+}
+
+/// An absolute path literal on this OS for tests: `/work/a` on macOS, `C:\work\a` on Windows (windows-support 5.2).
+#[doc(hidden)]
+pub fn abs(unix: &str) -> String {
+    if cfg!(windows) { format!("C:{}", unix.replace('/', "\\")) } else { unix.to_string() }
+}
+
+/// A path for a JSON string literal in a test fixture: `\` doubled, so Windows paths stay valid JSON.
+#[doc(hidden)]
+pub fn js(p: &Path) -> String {
+    p.display().to_string().replace('\\', "\\\\")
+}
+
+/// Sets the modification time of a file or folder in a test. Windows needs write-attributes access and
+/// backup semantics to open a folder; macOS opens it read-only as before.
+#[doc(hidden)]
+pub fn set_mtime(p: &Path, t: std::time::SystemTime) {
+    let mut o = std::fs::OpenOptions::new();
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        o.access_mode(0x100).custom_flags(0x0200_0000); // FILE_WRITE_ATTRIBUTES, FILE_FLAG_BACKUP_SEMANTICS
+    }
+    #[cfg(not(windows))]
+    o.read(true);
+    if let Err(e) = o.open(p).and_then(|f| f.set_modified(t)) {
+        panic!("set_mtime {}: {e}", p.display());
+    }
+}
+
+/// The `fake_claude` example binary (`cargo test` builds examples next to the test binaries), for spawn, job and
+/// CLI-discovery tests on Windows CI where shell scripts cannot stand in for `claude.exe`.
+#[doc(hidden)]
+pub fn fake_claude() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let name = if cfg!(windows) { "fake_claude.exe" } else { "fake_claude" };
+    // Test binaries live in `<profile>/deps` or, with cargo's newer build-dir layout, deeper under
+    // `<profile>/build/<pkg>/<hash>/out`: the first ancestor with `examples/fake_claude` is the profile folder.
+    exe.ancestors().skip(1).take(8).map(|a| a.join("examples").join(name)).find(|p| p.is_file())
 }
 
 #[cfg(unix)]
@@ -120,8 +185,8 @@ mod tests {
     #[test]
     fn generator_is_deterministic() {
         let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-        generate(a.path(), "python3").unwrap();
-        generate(b.path(), "python3").unwrap();
+        generate(a.path(), &python()).unwrap();
+        generate(b.path(), &python()).unwrap();
         assert_eq!(digest(a.path()), digest(b.path()));
         // The shared fixture is the same generator output.
         assert_eq!(digest(&ensure_basic()), digest(a.path()));
@@ -138,7 +203,7 @@ mod tests {
     #[test]
     fn existing_fixture_is_not_regenerated() {
         let tmp = tempfile::tempdir().unwrap();
-        generate(tmp.path(), "python3").unwrap();
+        generate(tmp.path(), &python()).unwrap();
         // With every output present the interpreter is never invoked.
         ensure_at(tmp.path(), "/nonexistent/python3").unwrap();
     }

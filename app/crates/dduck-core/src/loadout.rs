@@ -5,6 +5,7 @@
 //! "only the chosen servers": every server of the static list (D-114) that was not chosen goes into
 //! `disallowedTools: mcp__<server>__*`. The app never writes `mcpServers` (AG-09), so no server is defined here.
 
+use crate::platform::CanonExt;
 use std::collections::BTreeSet;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -152,7 +153,7 @@ pub fn scan_skills(config_dir: &Path, project_dirs: &[PathBuf], only: Option<&BT
     let found = skills_catalog::discover(config_dir, project_dirs);
     // Skill folders the catalog skipped (linked folder or SKILL.md, not UTF-8): Claude Code may still load them.
     let listed: BTreeSet<PathBuf> = found.iter().filter_map(|s| s.path.clone()).collect();
-    let dirs = std::iter::once(config_dir.join("skills")).chain(project_dirs.iter().take(40).filter_map(|p| p.canonicalize().ok()).map(|c| c.join(".claude/skills")));
+    let dirs = std::iter::once(config_dir.join("skills")).chain(project_dirs.iter().take(40).filter_map(|p| p.canon().ok()).map(|c| c.join(".claude/skills")));
     for dir in dirs {
         let Ok(entries) = std::fs::read_dir(&dir) else { continue };
         for e in entries.filter_map(Result::ok).take(500) {

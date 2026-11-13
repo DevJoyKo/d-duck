@@ -4,6 +4,7 @@
 //! Installing moves exactly those bytes into `<config>/skills/<name>` with an exclusive rename — never overwriting.
 //! Nothing here runs downloaded code or sets an executable bit.
 
+use crate::platform::CanonExt;
 use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -50,7 +51,7 @@ pub fn valid_skill_name(n: &str) -> bool {
 
 /// One file or folder name inside a skill: ASCII letters, digits, `. _ -`, not starting with a dot.
 pub fn valid_part(p: &str) -> bool {
-    PART_RE.is_match(p) && p != ".."
+    PART_RE.is_match(p) && p != ".." && crate::platform::relative_ok(p)
 }
 
 pub fn valid_market(n: &str) -> bool {
@@ -499,6 +500,7 @@ fn plan_files(entries: &[TreeEntry], path: &str) -> Result<(Vec<Planned>, Vec<St
 }
 
 fn mkdir_private(p: &Path) -> std::io::Result<()> {
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut b = std::fs::DirBuilder::new();
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
@@ -589,10 +591,10 @@ pub fn ensure_real_dir(dir: &Path) -> Result<(), String> {
 /// link `~/.claude` or `~/.claude/skills` (QA MEDIUM). The resolved folder must be a directory; created 0700 under
 /// the resolved config dir when missing. Project folders keep refusing links (see `authoring`).
 pub fn user_dir(dir: &Path) -> Result<PathBuf, String> {
-    if let Ok(real) = dir.canonicalize() {
+    if let Ok(real) = dir.canon() {
         return if real.is_dir() { Ok(real) } else { Err(crate::i18n::Fail::InstallDirNotDir.str().into()) };
     }
-    let parent = dir.parent().and_then(|p| p.canonicalize().ok()).filter(|p| p.is_dir()).ok_or(crate::i18n::Fail::ConfigDirMissing.str())?;
+    let parent = dir.parent().and_then(|p| p.canon().ok()).filter(|p| p.is_dir()).ok_or(crate::i18n::Fail::ConfigDirMissing.str())?;
     let real = parent.join(dir.file_name().ok_or(crate::i18n::Fail::PathError.str())?);
     ensure_real_dir(&real)?;
     Ok(real)
@@ -645,9 +647,8 @@ pub fn install_staged(stage: &Path, skills_root: &Path, name: &str) -> Result<Pa
 
 /// 32 hex characters from the OS random source.
 pub fn random_token() -> String {
-    use std::io::Read;
     let mut b = [0u8; 16];
-    let ok = std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut b)).is_ok();
+    let ok = crate::platform::random_bytes(&mut b);
     if !ok {
         let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
         let h = crate::agents_catalog::token_of(format!("{n}-{}-{:p}", std::process::id(), &b).as_bytes());
@@ -957,7 +958,7 @@ mod tests {
         std::fs::create_dir_all(stage.join("payload")).unwrap();
         std::fs::write(stage.join("payload/SKILL.md"), "x").unwrap();
         let dest = install_staged(&stage, &tmp.path().join("cfg/skills"), "s1").unwrap();
-        assert!(real.join("s1/SKILL.md").is_file() && dest.starts_with(real.canonicalize().unwrap()));
+        assert!(real.join("s1/SKILL.md").is_file() && dest.starts_with(real.canon().unwrap()));
         // A missing skills folder is created under a linked config dir.
         std::os::unix::fs::symlink(tmp.path().join("cfg"), tmp.path().join("cfglink")).unwrap();
         assert!(user_dir(&tmp.path().join("cfglink/commands")).unwrap().ends_with("cfg/commands"));

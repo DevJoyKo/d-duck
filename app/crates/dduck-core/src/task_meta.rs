@@ -539,7 +539,7 @@ mod tests {
     fn deleting_a_record_removes_its_report_folder_now() {
         let conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(t.path()).unwrap().join(crate::task_report::DIR_NAME);
+        let root = crate::platform::canon(t.path()).unwrap().join(crate::task_report::DIR_NAME);
         let (a, b) = (crate::task_report::new_id().unwrap(), crate::task_report::new_id().unwrap());
         for id in [&a, &b] {
             let d = crate::task_report::prepare_dir(&root, id).unwrap();

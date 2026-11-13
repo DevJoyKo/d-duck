@@ -288,7 +288,7 @@ function EditorForm({
   onSaved: () => void;
   onEdited: () => void;
   onReload: () => void;
-  onGone: () => void;
+  onGone: (unconfirmed?: boolean) => void;
   onDirty: (d: boolean) => void;
 }) {
   const t = useT();
@@ -303,7 +303,7 @@ function EditorForm({
     mutationFn: () => rulesApi.save(project, { id: doc.id, token: doc.token, body, ...(doc.pathsEditable ? { paths } : {}) }),
     onSuccess: onSaved,
   });
-  const trash = useMutation({ mutationFn: () => rulesApi.trash(project, doc.id, doc.token), onSuccess: (done) => done && onGone() });
+  const trash = useMutation({ mutationFn: () => rulesApi.trash(project, doc.id, doc.token), onSuccess: (r) => r.done && onGone(r.unconfirmed) });
   const err = save.error ?? trash.error;
   const edit = <T,>(set: (v: T) => void) => (v: T) => {
     set(v);
@@ -397,7 +397,7 @@ function EditorForm({
   );
 }
 
-function Editor({ project, row, onGone, onDirty, guard, onReady, focusTick }: { project: string | null; row: RuleRow; onGone: () => void; onDirty: (d: boolean) => void; guard: () => boolean; onReady: () => void; focusTick: number }) {
+function Editor({ project, row, onGone, onDirty, guard, onReady, focusTick }: { project: string | null; row: RuleRow; onGone: (unconfirmed?: boolean) => void; onDirty: (d: boolean) => void; guard: () => boolean; onReady: () => void; focusTick: number }) {
   const t = useT();
   const qc = useQueryClient();
   const [saved, setSaved] = useState(false);
@@ -594,6 +594,7 @@ export function RulesSection({ project, hasPath, onDirtyChange, scope }: { proje
   const editorRef = useRef<HTMLDivElement>(null);
   const dirtyRef = useRef(false);
   const [selected, setSelected] = useState<string | null>(null);
+  const [goneNote, setGoneNote] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [filter, setFilter] = useState("");
   const [focusTick, setFocusTick] = useState(0);
@@ -635,6 +636,7 @@ export function RulesSection({ project, hasPath, onDirtyChange, scope }: { proje
   const taken: Record<RuleScope, string[]> = { global: data?.global?.rules.map((r) => r.rel) ?? [], project: data?.project?.rules.map((r) => r.rel) ?? [] };
   const startNew = () => {
     if (creating || !guard()) return;
+    setGoneNote(null);
     setSelected(null);
     setCreating(true);
     setFocusTick((t) => t + 1);
@@ -658,6 +660,11 @@ export function RulesSection({ project, hasPath, onDirtyChange, scope }: { proje
         </Button>
       </div>
       {toggle.isError && <p className="text-xs text-danger">{errText(toggle.error)}</p>}
+      {goneNote && (
+        <p role="status" data-tone="warn" className="rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 text-xs text-ink">
+          {goneNote}
+        </p>
+      )}
       <div className="grid items-start gap-4 min-[1100px]:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
         <div className="space-y-3">
           {groups.map((g) => (
@@ -673,6 +680,7 @@ export function RulesSection({ project, hasPath, onDirtyChange, scope }: { proje
                   return;
                 }
                 if (!guard()) return;
+                setGoneNote(null);
                 setCreating(false);
                 setSelected(r.id);
                 setFocusTick((t) => t + 1);
@@ -714,8 +722,9 @@ export function RulesSection({ project, hasPath, onDirtyChange, scope }: { proje
               onDirty={setDirty}
               onReady={scrollToEditor}
               focusTick={focusTick}
-              onGone={() => {
+              onGone={(unconfirmed) => {
                 setSelected(null);
+                setGoneNote(unconfirmed ? t("common.trash.unconfirmed") : null);
                 qc.invalidateQueries({ queryKey: ["rules", project] });
               }}
             />

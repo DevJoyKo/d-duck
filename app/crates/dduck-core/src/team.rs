@@ -2,6 +2,7 @@
 //! worktree naming and a git-free repository check. Team rules and task types are editable data (`team_config`,
 //! D-081); everything injected into `claude` is still built by the backend (AG-09).
 
+use crate::platform::CanonExt;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -88,8 +89,8 @@ pub enum RepoStatus {
 /// Git-free check (AG-12): finds `.git` (directory, or a `gitdir:` file for linked worktrees) upward from `cwd`,
 /// refuses a repository rooted at `home`, and requires `HEAD` to resolve to a commit ref.
 pub fn repo_status(cwd: &Path, home: &Path) -> RepoStatus {
-    let Ok(cwd) = cwd.canonicalize() else { return RepoStatus::NotRepo };
-    let home = home.canonicalize().unwrap_or_else(|_| home.to_path_buf());
+    let Ok(cwd) = cwd.canon() else { return RepoStatus::NotRepo };
+    let home = home.canon().unwrap_or_else(|_| home.to_path_buf());
     for dir in cwd.ancestors() {
         let dot = dir.join(".git");
         let Ok(m) = std::fs::symlink_metadata(&dot) else { continue };

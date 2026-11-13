@@ -585,6 +585,10 @@ table! {
         ListChanged => ("목록이 바뀌었어요. 다시 열어 주세요", "The list changed. Open it again"),
         ChangedOutside => ("파일이 밖에서 바뀌었어요. 다시 불러오세요", "The file changed outside the app. Load it again"),
         FileChanged => ("파일이 바뀌었어요. 다시 불러오세요", "The file changed. Load it again"),
+        // windows-support: features whose protection is not verified on Windows (decision 7), and the CreateProcess limit.
+        MacOnly => ("Mac 전용이에요 · Windows 미리보기에서는 아직 쓸 수 없어요", "Mac only · Not available in the Windows preview yet"),
+        WindowsCommandTooLong => ("Windows에서는 지시와 설정이 너무 길어요 · 줄여서 다시 보내 주세요", "The instructions and settings are too long for Windows · Shorten them and try again"),
+        CliUpdateNeeded => ("Claude Code를 업데이트해 주세요 · 2.1.295 이상이 필요해요", "Update Claude Code · Version 2.1.295 or later is needed"),
     }
 }
 
@@ -611,6 +615,10 @@ impl ReasonCode {
             ReasonCode::GuardManagedBlocks
         } else if reason == dg::DANGER_REFUSED {
             ReasonCode::GuardDangerRefused
+        } else if reason == dg::MAC_ONLY {
+            ReasonCode::MacOnly
+        } else if reason == dg::CLI_OUTDATED {
+            ReasonCode::CliUpdateNeeded
         } else {
             ReasonCode::GuardUnreadable
         }
@@ -660,6 +668,7 @@ table! {
         LocalNotIgnored => (".claude/settings.local.json이 .gitignore에 없어요. 커밋되지 않게 추가해 두세요.", ".claude/settings.local.json isn't in .gitignore. Add it so it isn't committed."),
         BadPath => ("경로를 처리할 수 없어요", "Couldn't handle the path"),
         TrashFailed => ("휴지통으로 옮기지 못했어요", "Couldn't move it to the Trash"),
+        TrashUnconfirmed => ("지웠지만 휴지통에서 찾지 못했어요 · 영구 삭제됐을 수 있어요", "Deleted, but it isn't in the Recycle Bin · It may be gone for good"),
         TrashMacOnly => ("휴지통 이동은 macOS에서만 지원해요", "Moving to the Trash works only on macOS"),
         AgentInUse => ("이 agent를 쓰는 작업이 실행 중이에요. 끝난 뒤에 지우세요", "A task using this agent is running. Delete it after it ends"),
         BadAgentName => ("agent 이름이 올바르지 않아요", "The agent name isn't valid"),
@@ -718,6 +727,7 @@ table! {
         NotSkillLink => ("스킬 링크가 아니에요", "This isn't a skill link"),
         ConfigDirMissing => ("Claude 설정 폴더를 찾을 수 없어요", "Couldn't find the Claude config folder"),
         ItemNameFormat => ("이름은 영문·숫자·-·_ 만, 1–64자여야 해요", "Names use letters, numbers, - and _ only, 1–64 characters"),
+        ReservedWindowsName => ("con·nul·com1 같은 Windows 예약 이름은 쓸 수 없어요", "Windows reserved names such as con, nul or com1 can't be used"),
         ItemNotListed => ("목록에 없는 항목이에요. 다시 열어 주세요", "This item isn't in the list. Open it again"),
         NoDefinitionFile => ("정의 파일이 없어요", "There's no definition file"),
         FileNotFound => ("파일을 찾을 수 없어요", "Couldn't find the file"),
@@ -858,6 +868,8 @@ table! {
         CliBadChars => ("경로에 허용되지 않는 문자(제어문자, \\, !)가 있어요", "The path has characters that aren't allowed (control characters, \\, !)"),
         CliVersionFailed => ("--version 실행에 실패했어요", "Running --version failed"),
         CliNotCode => ("Claude Code 실행 파일이 아니에요", "Not a Claude Code executable"),
+        CliShimUnsupported => ("npm 설치본을 확인하지 못했어요 · 공식 설치 프로그램으로 설치해 주세요", "Couldn't check the npm install · Install with the official installer"),
+        CliBadCharsWin => ("경로에 허용되지 않는 문자(제어문자, \")가 있거나 이름이 점·공백으로 끝나요", "The path has characters that aren't allowed (control characters, \") or a name ending in a dot or space"),
         RedactPrivateKey => ("[개인 키 숨김]", "[private key hidden]"),
         RedactKey => ("[키 숨김]", "[key hidden]"),
         RedactToken => ("[토큰 숨김]", "[token hidden]"),

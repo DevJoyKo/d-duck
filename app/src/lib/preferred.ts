@@ -2,6 +2,7 @@
 // and builds the line at start; this file only shapes data for the picker.
 import { invoke } from "@tauri-apps/api/core";
 import { useQuery } from "@tanstack/react-query";
+import { baseName } from "./platform";
 
 export type PreferredKind = "plugin" | "skill" | "agent";
 
@@ -84,4 +85,4 @@ export function addable(options: PreferredOption[], chosen: PreferredItem[], que
 }
 
 /** Last part of a project folder, for the row. */
-export const folderName = (scope: string | null | undefined) => (scope ? (scope.split("/").filter(Boolean).pop() ?? scope) : null);
+export const folderName = (scope: string | null | undefined) => (scope ? baseName(scope) : null);

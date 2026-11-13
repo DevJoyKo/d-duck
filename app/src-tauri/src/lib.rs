@@ -16,8 +16,10 @@ mod report_save_cmds;
 mod delivery_cmds;
 mod lifecycle_cmds;
 mod timing;
+mod trash_flow;
 mod workflow_check_cmds;
 
+use dduck_core::platform::CanonExt;
 use dduck_core::i18n::Fail;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
@@ -164,6 +166,8 @@ impl AppState {
         let setting = self.conn().ok().and_then(|c| settings::cli_path(&c).ok().flatten());
         let info = cli_path::resolve(setting.as_deref(), &home, &self.probe);
         let env = self.config.read().ok().and_then(|c| c.env_value().map(PathBuf::from));
+        // The hook-gated runs read the version from core (cli_path::hooks_allowed).
+        cli_path::set_active_version(info.as_ref().map(|i| i.version.as_str()));
         let client = info.as_ref().map(|i| ClaudeCli::new(i.path.clone(), env).with_path_env(self.probe.path.clone()));
         if let Ok(mut cli) = self.cli.write() {
             *cli = Cli { info, client };
@@ -177,8 +181,17 @@ impl AppState {
     }
 }
 
+/// Hook-gated features (News fetch, insights, brief refinement, cloud routines): Mac only in the Windows preview, and
+/// a CLI that blocks when a hook cannot start (decisions 7 and 8). An unknown CLI passes here and fails later as
+/// "not found".
+pub(crate) fn hook_ready() -> Result<(), login_cmds::CmdError> {
+    login_cmds::mac_only()?;
+    if cli_path::hooks_allowed() { Ok(()) } else { Err(login_cmds::CmdError::Cli(CliError::invalid(ReasonCode::CliUpdateNeeded))) }
+}
+
+/// `HOME` on macOS, `USERPROFILE` first on Windows (windows-support decision 1); empty when neither is set.
 fn home_dir() -> PathBuf {
-    std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from).unwrap_or_default()
+    dduck_core::platform::home().unwrap_or_default()
 }
 
 // ---------- ingestion worker ----------
@@ -541,10 +554,11 @@ fn update_tray(app: &AppHandle, state: &AppState, sessions: &[AgentSession], lan
     if let Ok(menu) = build_tray_menu(app, &waiting) {
         let _ = tray.set_menu(Some(menu));
     }
-    let count = (review > 0).then(|| review.to_string());
     #[cfg(target_os = "macos")]
-    let _ = tray.set_title(count.as_deref());
+    let _ = tray.set_title((review > 0).then(|| review.to_string()).as_deref());
     let _ = tray.set_tooltip(Some(dduck_core::task_lifecycle::tooltip(review, pending, i18n::current())));
+    // Windows has no dock badge: the count is in the tooltip above (windows-support 4.4).
+    #[cfg(not(windows))]
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_badge_count((review > 0).then_some(review as i64));
     }
@@ -576,9 +590,14 @@ fn create_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
             }
         }
     });
-    // Monochrome template image: macOS tints it for light/dark menu bars and it stays legible at 22pt.
-    match tauri::image::Image::from_bytes(include_bytes!("../icons/tray-template@2x.png")) {
-        Ok(img) => builder = builder.icon(img).icon_as_template(true),
+    // Monochrome template image: macOS tints it for light/dark menu bars and it stays legible at 22pt. Windows does
+    // not tint (a black template would vanish on a dark taskbar), so it gets the colour app icon (windows-support 4.4).
+    #[cfg(windows)]
+    let tray_png: &[u8] = include_bytes!("../icons/32x32.png");
+    #[cfg(not(windows))]
+    let tray_png: &[u8] = include_bytes!("../icons/tray-template@2x.png");
+    match tauri::image::Image::from_bytes(tray_png) {
+        Ok(img) => builder = builder.icon(img).icon_as_template(cfg!(target_os = "macos")),
         Err(_) => {
             if let Some(icon) = app.default_window_icon() {
                 builder = builder.icon(icon.clone());
@@ -710,6 +729,12 @@ fn set_language(app: AppHandle, state: State<'_, AppState>, choice: String) -> R
     Ok(info)
 }
 
+/// The OS and whether Git Bash is installed (windows-support 4.1, lib/platform.ts).
+#[tauri::command]
+fn platform() -> dduck_core::platform::PlatformInfo {
+    dduck_core::platform::info()
+}
+
 #[tauri::command(async)]
 fn get_onboarding_state(state: State<'_, AppState>) -> Res<Option<settings::OnboardingState>> {
     settings::onboarding_state(&*state.conn()?).map_err(err)
@@ -729,7 +754,8 @@ fn app_data_dir<R: tauri::Runtime, M: Manager<R>>(app: &M) -> tauri::Result<std:
         std::fs::create_dir_all(&dir)?;
         return Ok(dir);
     }
-    app.path().app_data_dir()
+    // Windows: `%LOCALAPPDATA%`, not the roaming folder, so app data never syncs to other machines (decision 5).
+    if cfg!(windows) { app.path().app_local_data_dir() } else { app.path().app_data_dir() }
 }
 
 #[tauri::command(async)]
@@ -941,6 +967,7 @@ impl Drop for InsightsBusy<'_> {
 /// Native confirmation with the exact summary and the estimated cost, then one guarded headless run (D-078).
 #[tauri::command]
 async fn usage_insights_claude(app: AppHandle, q: Query) -> Result<InsightRun, login_cmds::CmdError> {
+    hook_ready()?;
     // Login gate first (claude-login): before any claim, confirmation or CLI run. Unknown passes.
     login_cmds::gate_async(&app, dduck_core::auth_status::Need::Model).await?;
     tauri::async_runtime::spawn_blocking(move || {
@@ -1029,6 +1056,7 @@ fn refine_failed(e: dduck_core::brief_refine::RefineError, cost_usd: Option<f64>
 /// stored or logged; errors are fixed messages.
 #[tauri::command]
 async fn refine_brief(app: AppHandle, req: dduck_core::brief_refine::Request) -> Result<RefineRun, login_cmds::CmdError> {
+    hook_ready()?;
     // A cancel pressed from here on stops this run wherever it is (D-159); one pressed for an earlier run does not.
     let ticket = app.state::<AppState>().refine_cancel.begin();
     // Login gate first (claude-login): before any claim, confirmation or CLI run. Unknown passes.
@@ -1800,10 +1828,10 @@ fn permission_projects(state: &AppState) -> Res<Vec<PathBuf>> {
             dirs.push(PathBuf::from(c));
         }
     }
-    let home = home_dir().canonicalize().ok();
+    let home = home_dir().canon().ok();
     let mut out: Vec<PathBuf> = Vec::new();
     for d in dirs {
-        let Ok(c) = d.canonicalize() else { continue };
+        let Ok(c) = d.canon() else { continue };
         if c.is_dir() && Some(&c) != home.as_ref() && c.parent().is_some() && !out.contains(&c) {
             out.push(c);
         }
@@ -1951,7 +1979,7 @@ fn loadout_env(state: &AppState, cwd: &std::path::Path, team: Option<&str>) -> d
     use dduck_core::loadout;
     let names: std::collections::BTreeSet<String> = dduck_core::team_config::load(team).types.iter().flat_map(|t| t.def.skills.iter().map(|s| s.name.clone())).collect();
     let Ok(cfg) = state.config.read().map(|c| c.clone()) else { return loadout::Env { mcp_unreadable: true, ..loadout::Env::default() } };
-    let canon = std::fs::canonicalize(cwd).ok();
+    let canon = dduck_core::platform::canon(cwd).ok();
     let scan = if names.is_empty() { loadout::SkillScan::default() } else { loadout::scan_skills(&cfg.path, canon.as_slice(), Some(&names)) };
     let file = dduck_core::mcp_config::user_file(&home_dir(), cfg.explicit.then_some(cfg.path.as_path()));
     let list = dduck_core::mcp_config::list(&file, canon.as_deref());
@@ -1962,7 +1990,7 @@ fn loadout_env(state: &AppState, cwd: &std::path::Path, team: Option<&str>) -> d
 /// "먼저 살펴볼 스킬·에이전트" installed for one folder (preferred-skills): the extension and agent catalog readers,
 /// with project items from `cwd` and its ancestors only and agents usable there. Read only when the list is not empty (the bundled default counts, preferred-default).
 fn preferred_for(config_dir: &std::path::Path, cwd: &std::path::Path) -> Vec<dduck_core::preferred::Available> {
-    let canon = std::fs::canonicalize(cwd).ok();
+    let canon = dduck_core::platform::canon(cwd).ok();
     let skills = dduck_core::skills_catalog::discover(config_dir, canon.as_slice());
     let roots = agents_catalog::Roots { config_dir: config_dir.to_path_buf(), project_dirs: Vec::new() };
     let agents = agents_catalog::discover_for(&roots, canon.as_deref());
@@ -2343,7 +2371,7 @@ fn deny_scopes(state: &AppState, cwd: Option<&std::path::Path>) -> Res<Vec<dduck
     let mut out = vec![p::read_scope(&config_dir.join("settings.json"))];
     out.extend(p::managed(&p::default_managed_roots(), &p::default_mdm_files()).sources);
     let mut dirs = permission_projects(state)?;
-    if let Some(c) = cwd.and_then(|c| c.canonicalize().ok()) {
+    if let Some(c) = cwd.and_then(|c| c.canon().ok()) {
         dirs.extend(c.ancestors().take(12).map(std::path::Path::to_path_buf));
     }
     for d in dirs {
@@ -2443,17 +2471,33 @@ fn set_agent_hidden(state: State<'_, AppState>, name: String, hidden: bool) -> R
     settings::set_agent_hidden(&*state.conn()?, &name, hidden).map_err(err)
 }
 
+/// Moves to the Trash / Recycle Bin. `Ok(true)` = it is there. `Ok(false)` (Windows only) = it is gone but the bin
+/// did not show it: the delete still succeeds with `unconfirmed: true` (`trash_flow`, 9.1); only the bundled
+/// `/dduck-new`, which has no list, reports it as [`trash_unconfirmed`].
 #[cfg(target_os = "macos")]
-fn move_to_trash(path: &std::path::Path) -> Res<()> {
+fn move_to_trash(_app: &AppHandle, path: &std::path::Path) -> Res<bool> {
     use objc2_foundation::{NSFileManager, NSString, NSURL};
     let s = path.to_str().ok_or_else(|| Fail::BadPath.now())?;
     let url = NSURL::fileURLWithPath(&NSString::from_str(s));
-    NSFileManager::defaultManager().trashItemAtURL_resultingItemURL_error(&url, None).map_err(|_| Fail::TrashFailed.now())
+    NSFileManager::defaultManager().trashItemAtURL_resultingItemURL_error(&url, None).map(|_| true).map_err(|_| Fail::TrashFailed.now())
 }
 
-#[cfg(not(target_os = "macos"))]
-fn move_to_trash(_path: &std::path::Path) -> Res<()> {
+/// Windows: the Recycle Bin through the shell; its warning (before anything is destroyed) belongs to the main window.
+#[cfg(windows)]
+fn move_to_trash(app: &AppHandle, path: &std::path::Path) -> Res<bool> {
+    let owner = app.get_webview_window("main").and_then(|w| w.hwnd().ok()).map_or(0, |h| h.0 as isize);
+    dduck_core::platform::shell::trash(path, owner).map_err(|_| Fail::TrashFailed.now())
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn move_to_trash(_app: &AppHandle, _path: &std::path::Path) -> Res<bool> {
     Err(Fail::TrashMacOnly.now().into())
+}
+
+/// `Ok(false)` from [`move_to_trash`] for commands without a list to refresh (the bundled `/dduck-new`): an error
+/// after the cleanup, so the user still hears it may be gone for good (re-review 8.3).
+fn trash_unconfirmed(in_bin: bool) -> Res<()> {
+    if in_bin { Ok(()) } else { Err(Fail::TrashUnconfirmed.now()) }
 }
 
 #[derive(Serialize)]
@@ -2464,6 +2508,8 @@ struct TrashResult {
     /// A same-named `Agent(<name>)` deny rule or hidden entry remains; the UI offers to clean it up.
     off: bool,
     hidden: bool,
+    /// Gone, but the Recycle Bin did not show it (Windows): the screen says it may be deleted for good (9.1).
+    unconfirmed: bool,
 }
 
 /// Moves a user or project agent definition to the Trash. The target comes from the catalog id only; the file is
@@ -2496,16 +2542,16 @@ async fn trash_agent(app: AppHandle, id: String) -> Res<TrashResult> {
         if !ok {
             return Err(ReasonCode::Cancelled.now());
         }
-        ac::recheck(&plan).map_err(|e| e.to_string())?;
-        move_to_trash(&plan.path)?;
-        let _ = fresh_catalog(&state);
-        let target = match &plan.project {
-            Some(p) => p.join(".claude/settings.local.json"),
-            None => config_dir.join("settings.json"),
-        };
-        let off = ac::denied_names(&dduck_core::permissions::read_scope(&target)).contains(&plan.name);
-        let hidden = settings::hidden_agents(&*state.conn()?).map_err(err)?.contains(&plan.name);
-        Ok(TrashResult { name: plan.name, project: plan.project.map(|p| p.display().to_string()), off, hidden })
+        let done = trash_flow::finish_agent(
+            &plan,
+            &config_dir,
+            |p| move_to_trash(&app, p),
+            || {
+                let _ = fresh_catalog(&state);
+            },
+            || settings::hidden_agents(&*state.conn()?).map_err(err),
+        )?;
+        Ok(TrashResult { name: plan.name, project: plan.project.map(|p| p.display().to_string()), off: done.off, hidden: done.hidden, unconfirmed: done.unconfirmed })
     })
     .await
     .map_err(err)?
@@ -2729,7 +2775,7 @@ async fn start_task(app: AppHandle, mut spec: TaskSpec, start_id: Option<String>
             }
             (Some(mode), _) => {
                 // Show exactly what will run, so a request altered in the webview cannot be approved blindly.
-                let cwd = std::fs::canonicalize(&spec.cwd).unwrap_or_else(|_| spec.cwd.clone());
+                let cwd = dduck_core::platform::canon(&spec.cwd).unwrap_or_else(|_| spec.cwd.clone());
                 let mut preview = dduck_core::text::display_safe(&spec.prompt.replace('\n', " "), 200);
                 if spec.prompt.chars().count() > 200 {
                     preview.push('…');
@@ -2938,7 +2984,7 @@ const TRUST_WAIT: Duration = Duration::from_secs(180);
 /// The folder is not trusted yet (D-047): ask, open Claude in that folder so the user can accept the trust prompt,
 /// watch Claude's config (read-only) until the folder is trusted, then start the task again.
 fn trust_then_retry(app: &AppHandle, client: &ClaudeCli, spec: &TaskSpec, stderr_tail: String) -> Result<String, CliError> {
-    let dir = std::fs::canonicalize(&spec.cwd).unwrap_or_else(|_| spec.cwd.clone());
+    let dir = dduck_core::platform::canon(&spec.cwd).unwrap_or_else(|_| spec.cwd.clone());
     let ok = app
         .dialog()
         .message(trp(C::DlgTrustBody, &P::new().text("folder", &dir.display().to_string(), 200)))
@@ -3018,7 +3064,12 @@ fn open_url(state: &AppState, url: &str) -> Res<()> {
         };
         if ok { Ok(()) } else { Err(Fail::BrowserFailed.now()) }
     }
-    #[cfg(not(target_os = "macos"))]
+    // Windows: the shell's default browser for the already vetted https URL (decision 6), re-checked in core.
+    #[cfg(windows)]
+    {
+        if dduck_core::platform::shell::open_url(url) { Ok(()) } else { Err(Fail::BrowserFailed.now()) }
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         Err(Fail::CopyLinkInstead.now().into())
     }
@@ -3059,6 +3110,7 @@ async fn artifact_preview(
 /// Lists Claude cloud routines through a guarded headless `claude` run (D-066). Button-triggered only.
 #[tauri::command]
 async fn cloud_routines(app: AppHandle) -> Result<dduck_core::cloud_routines::CloudList, login_cmds::CmdError> {
+    hook_ready()?;
     // Login gate first (claude-login): before any claim, confirmation or CLI run. Unknown passes.
     login_cmds::gate_async(&app, dduck_core::auth_status::Need::ClaudeAi).await?;
     tauri::async_runtime::spawn_blocking(move || -> Result<_, login_cmds::CmdError> {
@@ -3146,6 +3198,7 @@ enum CloudEdit {
 /// run, parse with the allowed-field parser, then clean in the D-072 order. The response (it holds the routine's
 /// prompt) stays in memory and is never logged.
 fn cloud_call(app: &AppHandle, expected: &serde_json::Value) -> Result<(dduck_core::cloud_routines::CloudRoutine, Option<f64>), login_cmds::CmdError> {
+    hook_ready()?;
     cloud_exact(app, expected, |body, cost| dduck_core::cloud_routines::parse_one(body).map(|r| (r, cost)))
 }
 
@@ -3221,6 +3274,7 @@ fn cloud_exact<T>(
 /// A cloud routine's recent runs (D-166): one guarded, read-only `list_runs` call, first page only.
 #[tauri::command]
 async fn cloud_routine_runs(app: AppHandle, id: String) -> Result<dduck_core::cloud_routines::CloudRuns, login_cmds::CmdError> {
+    hook_ready()?;
     login_cmds::gate_async(&app, dduck_core::auth_status::Need::ClaudeAi).await?;
     tauri::async_runtime::spawn_blocking(move || -> Result<_, login_cmds::CmdError> {
         use dduck_core::cloud_routines as cr;
@@ -3237,6 +3291,7 @@ async fn cloud_routine_runs(app: AppHandle, id: String) -> Result<dduck_core::cl
 /// display; never stored or logged.
 #[tauri::command]
 async fn cloud_run_log(app: AppHandle, session_id: String) -> Result<dduck_core::cloud_routines::CloudRunLog, login_cmds::CmdError> {
+    hook_ready()?;
     login_cmds::gate_async(&app, dduck_core::auth_status::Need::ClaudeAi).await?;
     tauri::async_runtime::spawn_blocking(move || -> Result<_, login_cmds::CmdError> {
         use dduck_core::cloud_routines as cr;
@@ -3543,7 +3598,7 @@ async fn review_inbox(app: AppHandle, project: Option<String>, filter: dduck_cor
         let scope = match project {
             Some(id) => {
                 let folder = projects_cmds::usable_folder(&state, &id)?;
-                Some(std::fs::canonicalize(folder).map_err(|_| Fail::ProjectFolderMissing.now())?)
+                Some(dduck_core::platform::canon(folder).map_err(|_| Fail::ProjectFolderMissing.now())?)
             }
             None => None,
         };
@@ -3740,7 +3795,12 @@ async fn open_terminal(state: State<'_, AppState>, key: String) -> Result<Attach
             if !dir.is_absolute() || !dir.is_dir() || !cli_path::is_shell_safe_path(&dir) {
                 return Err(CliError::invalid(ReasonCode::SessionFolder));
             }
-            let command = format!("cd '{}'", s.cwd.replace('\'', r"'\''"));
+            // Windows: a PowerShell line, and the folder must pass the terminal rule (decision 6).
+            let command = if cfg!(windows) {
+                dduck_core::terminal_win::copy_line(&dduck_core::terminal_win::Target::Folder(&dir)).ok_or(CliError::invalid(ReasonCode::SessionFolder))?
+            } else {
+                format!("cd '{}'", s.cwd.replace('\'', r"'\''"))
+            };
             (TerminalTarget::Folder(dir), command)
         }
     };
@@ -3790,9 +3850,21 @@ fn open_terminal_os(client: &ClaudeCli, target: &TerminalTarget) -> bool {
     cmd.status().map(|s| s.success()).unwrap_or(false)
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Windows: Windows Terminal or PowerShell; values as argv, the command only as `-EncodedCommand` (decision 6).
+#[cfg(windows)]
+fn open_terminal_os(client: &ClaudeCli, target: &TerminalTarget) -> bool {
+    use dduck_core::terminal_win::{Target, launch};
+    let cfg = client.config_dir_env.as_deref();
+    match target {
+        TerminalTarget::Attach(id) => launch(&Target::Attach { cli: &client.path, id, config_dir: cfg }),
+        TerminalTarget::Folder(dir) => launch(&Target::Folder(dir)),
+        TerminalTarget::Trust(dir) => launch(&Target::Trust { dir, cli: &client.path, config_dir: cfg }),
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn open_terminal_os(_client: &ClaudeCli, _target: &TerminalTarget) -> bool {
-    // Linux/Windows terminal launching is a follow-up (design Open Questions); the UI offers the copy command.
+    // Linux terminal launching is a follow-up; the UI offers the copy command.
     false
 }
 
@@ -3800,6 +3872,9 @@ fn open_terminal_os(_client: &ClaudeCli, _target: &TerminalTarget) -> bool {
 /// Terminal sessions: a native confirmation (it may drop unsent input), then SIGTERM → SIGKILL on the verified pid.
 #[tauri::command]
 async fn force_stop(app: AppHandle, key: String) -> Result<(), CliError> {
+    if !cfg!(target_os = "macos") {
+        return Err(CliError::invalid(ReasonCode::MacOnly));
+    }
     let state = app.state::<AppState>();
     let s = listed_session(&state, &key)?;
     let client = state.client().ok();
@@ -3930,6 +4005,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_status,
+            platform,
             limit_cmds::limit_status,
             limit_cmds::limit_cancel,
             limit_cmds::set_limit_opt_out,
@@ -4106,6 +4182,7 @@ pub fn run() {
         eprintln!("D.Duck failed to start");
         std::process::exit(1);
     };
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
     app.run(|app, event| match event {
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => show_main(app),
@@ -4126,3 +4203,44 @@ mod poll_tests {
         assert_eq!(poll_interval(true, 1_000 + FAST_POLL_FOR_MS, 1_000 + FAST_POLL_FOR_MS), POLL_VISIBLE, "back to normal after 30 s");
     }
 }
+
+/// Review 7.10 [CI]: the Mac-only refusals (decision 7) and the hook gate, on both OSes.
+#[cfg(test)]
+mod mac_only_tests {
+    #[test]
+    fn hook_features_refuse_off_macos() {
+        let r = super::hook_ready();
+        assert_eq!(r.is_ok(), cfg!(target_os = "macos"));
+        if let Err(e) = r {
+            assert!(serde_json::to_string(&e).unwrap().contains("macOnly"), "reason code macOnly");
+        }
+    }
+
+    /// Each refusing command checks before doing anything (a source guard: these commands need a running app).
+    #[test]
+    fn refusing_commands_check_first() {
+        let lib = include_str!("lib.rs");
+        let news = include_str!("news_cmds.rs");
+        let delivery = include_str!("delivery_cmds.rs");
+        let first = |src: &str, sig: &str, guard: &str| {
+            let at = src.find(sig).unwrap_or_else(|| panic!("{sig}"));
+            let body = &src[at..];
+            let line = body.lines().nth(1).unwrap_or("").trim();
+            assert!(!line.starts_with("//") && line.contains(guard), "{sig}: first line is {line:?}");
+        };
+        first(news, "pub async fn news_fetch(", "hook_ready()");
+        first(news, "pub async fn news_set_daily(", "target_os = \"macos\"");
+        assert!(news.contains("if enabled && !dduck_core::cli_path::hooks_allowed() {"), "news_set_daily asks for a CLI update");
+        // Every News run (also the daily one) asks for a CLI update before the hook self-test.
+        let run = &news[news.find("fn run(").unwrap()..];
+        let (gate, self_test) = (run.find("hooks_allowed()").unwrap(), run.find("guard_self_test(").unwrap());
+        assert!(gate < self_test && run[gate..self_test].contains("NewsError::CliOutdated"));
+        first(lib, "async fn force_stop(", "target_os = \"macos\"");
+        first(delivery, "pub async fn set_local_only(", "target_os = \"macos\"");
+        first(delivery, "pub async fn set_local_only_cwd(", "target_os = \"macos\"");
+        first(lib, "async fn usage_insights_claude(", "hook_ready()");
+        first(lib, "async fn refine_brief(", "hook_ready()");
+        first(lib, "async fn cloud_routines(", "hook_ready()");
+    }
+}
+

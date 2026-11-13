@@ -3,6 +3,7 @@
 import type { NewsCategory, NewsItem } from "./api";
 import type { ProjectsPayload } from "./projects";
 import { DUCK_COLORS, type DuckColor } from "../components/DuckAvatar";
+import { splitPath } from "./platform";
 
 /** Items dated more than this many days ago go under "이미 나온 기능". */
 export const EARLIER_DAYS = 30;
@@ -66,7 +67,7 @@ export function newsTargets(data: Pick<ProjectsPayload, "projects" | "recent"> |
   const firstRecent = sorted.find((p) => data.recent.includes(p.id));
   // Two projects with the same name (a fork, a worktree) get their parent folder's name after them (test review L3).
   const count = (name: string) => sorted.filter((p) => p.name === name).length;
-  const parent = (p: (typeof sorted)[number]) => (p.parentDir ?? "").split("/").filter(Boolean).pop() ?? "";
+  const parent = (p: (typeof sorted)[number]) => splitPath(p.parentDir ?? "").pop() ?? "";
   const label = (p: (typeof sorted)[number]) => (count(p.name) > 1 && parent(p) ? `${p.name} · ${parent(p)}` : p.name);
   return { targets: sorted.map((p) => ({ path: p.path as string, name: label(p) })), fallback: firstRecent?.path ?? "" };
 }

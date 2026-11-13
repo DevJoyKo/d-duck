@@ -15,6 +15,8 @@ import { isGateError } from "../lib/auth";
 import { GateLine } from "./LoginBits";
 import { t } from "../i18n";
 import { useT } from "../i18n/react";
+import { isWindows, shortcut } from "../lib/platform";
+import { MacOnlyChip } from "./MacOnly";
 
 type Mode = "grill" | "rewrite";
 
@@ -291,7 +293,9 @@ export function BriefRefiner({
   );
 
   const checks = useMemo(() => precheck(brief), [brief]);
-  const enabled = cliReady && !!brief.goal.trim();
+  // Windows preview: refinement needs the app-owned hook, verified on macOS only (MacOnly in the backend too).
+  const macOnly = isWindows();
+  const enabled = !macOnly && cliReady && !!brief.goal.trim();
   const finished = !!current && (current.finished || stopped);
   const round = history.length + (current ? 1 : 0);
   const diffs = useMemo(() => (current ? diffBrief(brief, current.rewrite) : []), [brief, current]);
@@ -410,7 +414,7 @@ export function BriefRefiner({
     }
   };
 
-  const reason = !cliReady ? t("tasks.composer.noCli") : !brief.goal.trim() ? t("tasks.refiner.noGoal") : null;
+  const reason = macOnly ? t("common.macOnly.refine") : !cliReady ? t("tasks.composer.noCli") : !brief.goal.trim() ? t("tasks.refiner.noGoal") : null;
   const tab = (v: "questions" | "proposal", label: string) => (
     <button
       type="button"
@@ -428,6 +432,7 @@ export function BriefRefiner({
       <div className="flex flex-wrap items-center gap-2">
         <MessageCircleQuestion size={15} className="text-ink-2" aria-hidden />
         <h3 className="text-[13px] font-semibold">{t("tasks.refiner.title")}</h3>
+        {macOnly && <MacOnlyChip />}
         {cost && (
           <span className="rounded-full border border-line bg-sheet px-2 py-0.5 text-[11px] text-ink-2" aria-label={t("tasks.refiner.costLabel")}>
             {costText(cost)}
@@ -514,7 +519,7 @@ export function BriefRefiner({
                     {!finished && (
                       <>
                         <Button type="button" variant="primary" size="sm" disabled={pending} onClick={submitAnswers}>
-                          {t("tasks.refiner.submit")} <kbd className="ml-0.5 text-[11px] opacity-70">⌘↵</kbd>
+                          {t("tasks.refiner.submit")} <kbd className="ml-0.5 text-[11px] opacity-70">{shortcut("↵")}</kbd>
                         </Button>
                         <Button type="button" size="sm" disabled={pending} onClick={skipAll}>
                           {t("tasks.refiner.skipAll")}

@@ -101,6 +101,8 @@ export interface TrashResult {
   project: string | null;
   off: boolean;
   hidden: boolean;
+  /** Gone, but the Windows Recycle Bin did not show it. */
+  unconfirmed: boolean;
 }
 
 export const teamApi = {

@@ -31,6 +31,11 @@ pub enum CmdError {
     Msg(String),
 }
 
+/// windows-support decision 7: hook-gated features refuse off macOS before any login gate, claim or CLI run.
+pub fn mac_only() -> Result<(), CmdError> {
+    if cfg!(target_os = "macos") { Ok(()) } else { Err(CmdError::Cli(CliError::invalid(dduck_core::i18n::ReasonCode::MacOnly))) }
+}
+
 impl From<String> for CmdError {
     fn from(m: String) -> Self {
         Self::Msg(m)
@@ -215,6 +220,9 @@ pub async fn cancel_login(app: AppHandle) -> Res<LoginStatus> {
 pub async fn open_login_link() -> Res<bool> {
     tauri::async_runtime::spawn_blocking(move || {
         let Some(url) = LOGIN.link() else { return Ok(false) };
+        #[cfg(windows)]
+        return Ok(dduck_core::platform::shell::open_url(url.as_str()));
+        #[cfg(not(windows))]
         let ok = std::process::Command::new("/usr/bin/open")
             .arg(url.as_str())
             .stdin(std::process::Stdio::null())
@@ -222,6 +230,7 @@ pub async fn open_login_link() -> Res<bool> {
             .stderr(std::process::Stdio::null())
             .status()
             .is_ok_and(|s| s.success());
+        #[cfg(not(windows))]
         Ok(ok)
     })
     .await
@@ -276,7 +285,19 @@ pub fn terminal_args(cli: &Path, config_dir: Option<&Path>, method: LoginMethod)
     args
 }
 
+fn login_flag(method: LoginMethod) -> &'static str {
+    match method {
+        LoginMethod::ClaudeAi => "--claudeai",
+        LoginMethod::Console => "--console",
+    }
+}
+
 fn open_terminal_login(client: &ClaudeCli, method: LoginMethod) -> bool {
+    // Windows: PowerShell with the login as `-EncodedCommand` (decision 6).
+    if cfg!(windows) {
+        let (cli, cfg) = client.login_terminal_parts();
+        return dduck_core::terminal_win::launch(&dduck_core::terminal_win::Target::Login { cli, flag: login_flag(method), config_dir: cfg });
+    }
     if !cfg!(target_os = "macos") {
         return false;
     }
@@ -296,6 +317,9 @@ fn quote(s: &str) -> String {
 
 fn command_line(client: &ClaudeCli, method: LoginMethod) -> String {
     let (cli, cfg) = client.login_terminal_parts();
+    if cfg!(windows) {
+        return dduck_core::terminal_win::copy_line(&dduck_core::terminal_win::Target::Login { cli, flag: login_flag(method), config_dir: cfg }).unwrap_or_default();
+    }
     let prefix = match cfg {
         Some(dir) => format!("CLAUDE_CONFIG_DIR={} ", quote(&dir.to_string_lossy())),
         None => "env -u CLAUDE_CONFIG_DIR ".to_string(),
@@ -370,6 +394,14 @@ mod tests {
 
     #[test]
     fn copy_command_matches_the_profile() {
+        if cfg!(windows) {
+            // PowerShell syntax with all five single quotes doubled (windows-support 3.2).
+            let c = ClaudeCli::new(r"C:\c\claude.exe".into(), Some(r"C:\p\it's".into()));
+            assert_eq!(command_line(&c, LoginMethod::Console), r"$env:CLAUDE_CONFIG_DIR = 'C:\p\it''s'; & 'C:\c\claude.exe' auth login --console");
+            let c = ClaudeCli::new(r"C:\c\claude.exe".into(), None);
+            assert!(command_line(&c, LoginMethod::ClaudeAi).starts_with("Remove-Item Env:CLAUDE_CONFIG_DIR"));
+            return;
+        }
         let c = ClaudeCli::new("/c/claude".into(), None);
         assert_eq!(command_line(&c, LoginMethod::ClaudeAi), "env -u CLAUDE_CONFIG_DIR '/c/claude' auth login --claudeai");
         let c = ClaudeCli::new("/c/claude".into(), Some("/p/it's".into()));

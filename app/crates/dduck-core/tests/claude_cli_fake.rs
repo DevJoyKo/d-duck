@@ -165,7 +165,7 @@ fn resume_runs_in_the_session_folder_and_reports_copies_and_failures() {
     assert_eq!(&argv[..3], ["--bg", "--resume=0f3b2a8e-1111-4222-8333-444455556666", "--name=job"]);
     assert!(argv.contains(&"--permission-mode=acceptEdits".to_string()));
     assert!(argv.contains(&dduck_core::limit_resume::RESUME_PROMPT.to_string()));
-    let cwd = std::fs::canonicalize(&f.workdir).unwrap();
+    let cwd = dduck_core::platform::canon(&f.workdir).unwrap();
     assert!(argv.iter().any(|l| l == &format!("CWD={}", cwd.display())));
 
     let c = fake("copy");

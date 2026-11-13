@@ -39,7 +39,7 @@ pub fn valid_id(id: &str) -> bool {
 /// there is no weaker fallback.
 pub fn new_id() -> Option<String> {
     let mut b = [0u8; 16];
-    std::fs::File::open("/dev/urandom").ok()?.read_exact(&mut b).ok()?;
+    crate::platform::random_bytes(&mut b).then_some(())?;
     Some(b.iter().map(|x| format!("{x:02x}")).collect())
 }
 
@@ -505,7 +505,7 @@ fn real_dir(root: &Path, id: &str) -> Result<PathBuf, ReportError> {
             return Err(ReportError::Refused);
         }
     }
-    let real_root = std::fs::canonicalize(root).map_err(|_| ReportError::Unknown)?;
+    let real_root = crate::platform::canon(root).map_err(|_| ReportError::Unknown)?;
     Ok(real_root.join(id))
 }
 
@@ -524,7 +524,7 @@ pub fn read(root: &Path, id: &str) -> Result<Report, ReportError> {
     let path = dir.join(FILE);
     let file = open_flags(&path).map_err(|e| io_reason(&e))?;
     let meta = single_link_regular(&file).ok_or(ReportError::Refused)?;
-    if fd_path(&file).is_some_and(|real| real != path) {
+    if fd_path(&file).map_or(cfg!(windows), |real| real != path) {
         return Err(ReportError::Refused);
     }
     let s = sig(&meta);
@@ -874,7 +874,7 @@ mod tests {
 
     fn root() -> (tempfile::TempDir, PathBuf) {
         let t = tempfile::tempdir().unwrap();
-        let r = std::fs::canonicalize(t.path()).unwrap().join(DIR_NAME);
+        let r = crate::platform::canon(t.path()).unwrap().join(DIR_NAME);
         (t, r)
     }
 
@@ -1206,7 +1206,7 @@ mod tests {
         // Age the unreferenced ones (and one referenced) past the grace period.
         let old = std::time::SystemTime::now() - std::time::Duration::from_secs(SWEEP_GRACE_SECS + 60);
         for id in &ids {
-            std::fs::File::open(root.join(id)).unwrap().set_modified(old).unwrap();
+            crate::testkit::set_mtime(&root.join(id), old);
         }
         std::fs::create_dir(root.join("not-a-report")).unwrap();
         assert_eq!(sweep(&conn, &root), 5);

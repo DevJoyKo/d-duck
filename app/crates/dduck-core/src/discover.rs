@@ -33,7 +33,7 @@ pub struct TranscriptFile {
 
 /// `<config>/projects`, canonicalized. Returns `None` when it does not exist.
 pub fn projects_root(config_dir: &Path) -> Option<PathBuf> {
-    std::fs::canonicalize(config_dir.join("projects")).ok().filter(|p| p.is_dir())
+    crate::platform::canon(config_dir.join("projects")).ok().filter(|p| p.is_dir())
 }
 
 pub fn discover(root: &Path) -> Vec<TranscriptFile> {
@@ -57,11 +57,11 @@ pub fn discover(root: &Path) -> Vec<TranscriptFile> {
 /// symlink anywhere in the chain (file or directory), including links that point back inside `projects/`.
 pub fn classify(root: &Path, path: &Path) -> Option<TranscriptFile> {
     let meta = std::fs::symlink_metadata(path).ok()?;
-    if !meta.file_type().is_file() || hard_linked(&meta) {
+    if !meta.file_type().is_file() || hard_linked(path, &meta) {
         return None;
     }
     let rel = path.strip_prefix(root).ok()?;
-    let canonical = std::fs::canonicalize(path).ok()?;
+    let canonical = crate::platform::canon(path).ok()?;
     if canonical != root.join(rel) {
         return None;
     }
@@ -102,15 +102,8 @@ pub fn classify(root: &Path, path: &Path) -> Option<TranscriptFile> {
 }
 
 /// A transcript is written by one process into one place; extra hard links mean it was linked in from elsewhere.
-#[cfg(unix)]
-fn hard_linked(meta: &std::fs::Metadata) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    meta.nlink() > 1
-}
-
-#[cfg(not(unix))]
-fn hard_linked(_meta: &std::fs::Metadata) -> bool {
-    false
+fn hard_linked(path: &Path, meta: &std::fs::Metadata) -> bool {
+    crate::platform::nlink(path, meta) > 1
 }
 
 fn is_forbidden_name(name: &str) -> bool {
@@ -180,7 +173,7 @@ mod tests {
         let root = projects_root(&config).unwrap();
         let found = discover(&root);
         let rel: Vec<String> =
-            found.iter().map(|f| f.path.strip_prefix(&root).unwrap().to_string_lossy().into_owned()).collect();
+            found.iter().map(|f| f.path.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/")).collect();
         assert_eq!(rel, vec![format!("-tmp-proj/{S}/subagents/agent-a1b2.jsonl"), format!("-tmp-proj/{S}.jsonl")]);
 
         assert_eq!(found[1].rel_path, format!("-tmp-proj/{S}.jsonl"));

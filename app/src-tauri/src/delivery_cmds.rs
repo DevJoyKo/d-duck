@@ -81,6 +81,9 @@ pub async fn local_only_projects(app: AppHandle) -> Res<Vec<LocalOnlyRow>> {
 /// Ticks (directly) or unticks (after a native confirmation) a project by its opaque id.
 #[tauri::command]
 pub async fn set_local_only(app: AppHandle, id: String, on: bool) -> Res<bool> {
+    if on && !cfg!(target_os = "macos") {
+        return Err(ReasonCode::MacOnly.now());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         if !projects::valid_id(&id) || id.starts_with("key:") {
@@ -115,6 +118,9 @@ pub async fn set_local_only(app: AppHandle, id: String, on: bool) -> Res<bool> {
 /// Composer: ticks the chosen folder even when the registry does not list it yet. Ticking only.
 #[tauri::command]
 pub async fn set_local_only_cwd(app: AppHandle, cwd: String) -> Res<()> {
+    if !cfg!(target_os = "macos") {
+        return Err(ReasonCode::MacOnly.now());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let folder = dg::checked_folder(Path::new(&cwd)).ok_or_else(|| Fail::FolderUnchecked.now())?;

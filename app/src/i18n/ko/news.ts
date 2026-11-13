@@ -84,6 +84,7 @@ export default {
     malformed: "답의 형식이 맞지 않아 저장하지 않았어요",
     busy: "이미 가져오는 중이에요",
     guard: "보안 가드를 확인하지 못해 실행하지 않았어요",
+    cliOutdated: "Claude Code를 업데이트해 주세요 · 2.1.295 이상이 필요해요",
   },
   error: {
     cancelled: "취소했어요",

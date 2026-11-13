@@ -669,8 +669,8 @@ pub fn verify_cwd(start_cwd: &Path, worktree: bool, session_cwd: &Path, trusted:
     if !session_cwd.is_absolute() || has_link(session_cwd) {
         return Err(Reason::Link);
     }
-    let cwd = std::fs::canonicalize(session_cwd).map_err(|_| Reason::CwdMismatch)?;
-    let start = std::fs::canonicalize(start_cwd).map_err(|_| Reason::CwdMismatch)?;
+    let cwd = crate::platform::canon(session_cwd).map_err(|_| Reason::CwdMismatch)?;
+    let start = crate::platform::canon(start_cwd).map_err(|_| Reason::CwdMismatch)?;
     let ok = if worktree {
         cwd.parent().is_some_and(|p| p == start.join(".claude").join("worktrees"))
     } else {
@@ -1093,7 +1093,7 @@ mod tests {
     #[test]
     fn folder_checks() {
         let d = tempfile::tempdir().unwrap();
-        let repo = std::fs::canonicalize(d.path()).unwrap().join("repo");
+        let repo = crate::platform::canon(d.path()).unwrap().join("repo");
         let wt = repo.join(".claude/worktrees/fix-1");
         std::fs::create_dir_all(&wt).unwrap();
         let other = repo.join("elsewhere");

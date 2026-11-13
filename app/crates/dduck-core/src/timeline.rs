@@ -428,6 +428,7 @@ pub fn read(projects_root: &Path, session_id: &str) -> Option<Timeline> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    use crate::platform::CanonExt;
     use super::*;
 
     #[test]
@@ -493,7 +494,7 @@ mod tests {
             r#"{"type":"user","timestamp":"2026-11-07T10:00:07Z","message":{"content":"<task-notification>x</task-notification>"}}"#,
         ];
         std::fs::write(dir.join(format!("{sid}.jsonl")), lines.join("\n")).unwrap();
-        let root = root.canonicalize().unwrap();
+        let root = root.canon().unwrap();
         let t = read(&root, sid).unwrap();
         let json = serde_json::to_string(&t).unwrap();
         for c in ["CANARY_THINK", "CANARY_TOK", "CANARY_BODY", "CANARY_FILE_BODY", "CANARY_SUMMARY"] {
@@ -539,7 +540,7 @@ mod tests {
         std::fs::write(sub.join("agent-new1.meta.json"), r#"{"agentType":"Explore","toolUseId":"tu_a1"}"#).unwrap();
         std::fs::write(sub.join("agent-old2.jsonl"), "{}\n").unwrap();
         std::fs::write(sub.join("agent-old2.meta.json"), r#"{"agentType":"Explore"}"#).unwrap();
-        let root = root.canonicalize().unwrap();
+        let root = root.canon().unwrap();
         let t = read(&root, sid).unwrap();
         let json = serde_json::to_string(&t).unwrap();
         assert!(!json.contains("CANARY"), "no args or prompts in the flow: {json}");

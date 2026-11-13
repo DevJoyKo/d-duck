@@ -109,7 +109,7 @@ impl RoutineInput {
         if !self.cwd.is_absolute() || self.cwd.to_str().is_none_or(|s| s.chars().any(char::is_control)) {
             return Err(crate::i18n::Fail::TaskDirAbsolute.str());
         }
-        let cwd = std::fs::canonicalize(&self.cwd).map_err(|_| crate::i18n::Fail::TaskDirMissing.str())?;
+        let cwd = crate::platform::canon(&self.cwd).map_err(|_| crate::i18n::Fail::TaskDirMissing.str())?;
         if !cwd.is_dir() {
             return Err(crate::i18n::Fail::TaskDirMissing.str());
         }
@@ -495,7 +495,7 @@ fn verified_spec(conn: &Connection, id: i64) -> Result<TaskSpec, &'static str> {
     spec.team_policy = true;
     let stored = crate::settings::team_config(conn).ok().flatten();
     // Delivery scope (delivery-guard): a ticked project runs local-only; an unreadable list refuses the run.
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let home = crate::platform::home();
     // Routines never get a worktree, so a default-branch checkout gets the bare-push rules. The hook is the app
     // executable (tests have none: `local_only` is then refused at spawn).
     let exe = if cfg!(test) { None } else { std::env::current_exe().ok() };
@@ -518,7 +518,7 @@ pub fn add_preferred(spec: &mut TaskSpec, conn: &Connection, installed: &[crate:
     let Some(line) = crate::preferred::line(&config.preferred, installed, config.lang, crate::preferred::Ctx::default()) else { return };
     let guard = spec.guard_ctx.as_ref().map_or(crate::delivery_guard::Guard::DraftPr, |g| g.guard);
     let before = spec.policy_text.replace(crate::team_config::policy_text_with(&config, false, guard, None, Some(&line)));
-    if !spec.args_fit() {
+    if !spec.args_fit() || cfg!(windows) && !spec.fits_windows_cmdline() {
         spec.policy_text = before;
     }
 }
@@ -697,6 +697,8 @@ pub fn is_dir(p: &Path) -> bool {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    #[cfg_attr(not(unix), allow(unused_imports))]
+    use crate::platform::CanonExt;
     use super::*;
     use chrono::{FixedOffset, Utc};
     use chrono_tz::America::New_York;
@@ -809,11 +811,13 @@ mod tests {
         assert!(args.iter().any(|a| a.contains("8. 커밋 메시지는 한국어로 쓴다")), "{args:?}");
     }
 
+    // Local-only starts are Mac-only in the Windows preview (decision 7; the refusal is tested in `mac_only`).
+    #[cfg(target_os = "macos")]
     #[test]
     fn routine_in_a_local_only_project_gets_the_rule_and_bad_list_refuses() {
         let kst = FixedOffset::east_opt(9 * 3600).unwrap();
         let (d, mut conn, _id) = setup();
-        let dir = d.path().canonicalize().unwrap();
+        let dir = d.path().canon().unwrap();
         crate::delivery_guard::add(&conn, &dir, None).unwrap();
         let claims = tick(&mut conn, ms("2026-11-07T09:00:10+09:00"), &kst).unwrap();
         assert!(claims[0].spec.policy_text.as_deref().unwrap().contains(crate::delivery_guard::LOCAL_ONLY_RULE));
@@ -823,12 +827,14 @@ mod tests {
         assert_eq!(verified_spec(&conn2, id2).err(), Some("guardUnreadable"));
     }
 
+    // Local-only starts are Mac-only in the Windows preview (decision 7; the refusal is tested in `mac_only`).
+    #[cfg(target_os = "macos")]
     #[test]
     fn routine_runs_get_the_preferred_line_and_keep_the_local_only_rule() {
         use crate::preferred::{Available, Kind, PreferredItem};
         let kst = FixedOffset::east_opt(9 * 3600).unwrap();
         let (d, mut conn, _id) = setup();
-        crate::delivery_guard::add(&conn, &d.path().canonicalize().unwrap(), None).unwrap();
+        crate::delivery_guard::add(&conn, &d.path().canon().unwrap(), None).unwrap();
         assert!(wants_preferred(&conn), "the bundled default (mattpocock-skills) is a list");
         let mut input = crate::team_config::TeamInput {
             rules: crate::team_config::defaults().rules.iter().map(|r| crate::team_config::RuleInput { id: r.id.clone(), text: r.text.clone(), extra: String::new() }).collect(),

@@ -1,7 +1,9 @@
 // Memory tab (memory-tab, D-091): typed wrappers and small pure helpers. The webview only sends an opaque project id
 // from `projects_known` (project-switcher), a file name and hash tokens; Rust resolves every path.
 import { invoke } from "@tauri-apps/api/core";
+import type { Trashed } from "./api";
 import { t } from "../i18n";
+import { baseName } from "./platform";
 
 export type MemoryKind = "user" | "feedback" | "project" | "reference";
 export const KINDS: MemoryKind[] = ["user", "feedback", "project", "reference"];
@@ -129,7 +131,7 @@ export const memoryApi = {
     invoke<string | null>("save_memory", { project, file, token, indexToken, edit }),
   setEnabled: (project: string, file: string, enabled: boolean, token: string, indexToken: string) =>
     invoke<string | null>("set_memory_enabled", { project, file, enabled, token, indexToken }),
-  trash: (project: string, file: string, token: string, indexToken: string) => invoke<boolean>("trash_memory", { project, file, token, indexToken }),
+  trash: (project: string, file: string, token: string, indexToken: string) => invoke<Trashed>("trash_memory", { project, file, token, indexToken }),
   autoMemory: () => invoke<AutoMemory>("auto_memory_setting"),
   setAutoMemory: (enabled: boolean, token: string) => invoke<boolean>("set_auto_memory", { enabled, token }),
   /** `null` = global only (the user's CLAUDE.md). */
@@ -159,7 +161,7 @@ export function secretText(hits: SecretHit[]): string {
 
 /** Last path component, for showing a folder name before the project key. */
 export function folderName(path: string | null): string | null {
-  return path ? (path.split("/").filter(Boolean).pop() ?? path) : null;
+  return path ? baseName(path) : null;
 }
 
 export function sizeText(n: number | null): string {

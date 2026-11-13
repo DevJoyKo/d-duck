@@ -8,6 +8,7 @@
 //! Everything injected is built here from constants; the webview never supplies rules. Scope lookups return
 //! `Result`: a caller that cannot tell the scope must refuse the start, never fall back to `draft_pr`.
 
+use crate::platform::CanonExt;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -216,7 +217,7 @@ const PROTO_KEYS: &[(&str, &str)] = &[
 
 /// Where the app keeps the local-only global git config (inside its own data folder).
 pub fn global_config_path(home: &Path) -> PathBuf {
-    home.join("Library/Application Support/dev.dduck.desktop/local-only-gitconfig")
+    crate::platform::app_data_under(home).join("local-only-gitconfig")
 }
 
 /// Writes the local-only global git config: only identity and harmless keys copied from the user's own global config
@@ -289,10 +290,61 @@ pub fn deny_rules(guard: Guard, start_on_default: bool, detected_default: Option
         out.extend(LOCAL_ONLY_RULES.iter().map(|s| s.to_string()));
         out.extend(GITHUB_WRITE_TOOLS.iter().map(|t| format!("mcp__*__{t}")));
     }
+    if cfg!(windows) {
+        out = windows_variants(out);
+    }
     let mut seen = std::collections::BTreeSet::new();
     out.retain(|r| seen.insert(r.clone()));
     out
 }
+
+/// Windows additions (decision 9, re-check fixes): the `PowerShell` and `Monitor` tools are off, so Bash (Git Bash)
+/// is the only shell tool the `Bash(...)` rules cover; Bash commands that start another shell are refused; and each
+/// `git`/`gh` rule also gets three letter cases (`git`, `Git`, `GIT`) each with no suffix, `.exe` or `.EXE`. Mixed
+/// case (`gIt`), absolute paths (`/mingw64/bin/git`), `git -C … push` and `bash -c "git push"` stay known gaps, as on
+/// macOS: these rules prevent mistakes and are not a security boundary. Real enforcement is a [manual] scenario.
+pub fn windows_variants(rules: Vec<String>) -> Vec<String> {
+    // Rules match case-sensitively but Windows runs `Git.exe` or `GIT` the same (review MEDIUM): each git/gh rule
+    // also gets the capitalised and upper-case names, with and without `.exe`/`.EXE`.
+    let mut out = Vec::with_capacity(rules.len() * 9 + WINDOWS_RULES.len());
+    for r in rules {
+        let tool = ["git", "gh"].iter().find_map(|t| r.strip_prefix(&format!("Bash({t} ")).map(|rest| (*t, rest.to_string())));
+        out.push(r);
+        if let Some((t, rest)) = tool {
+            for name in case_forms(t) {
+                for ext in ["", ".exe", ".EXE"] {
+                    let v = format!("Bash({name}{ext} {rest}");
+                    if !(name == t && ext.is_empty()) {
+                        out.push(v);
+                    }
+                }
+            }
+        }
+    }
+    out.extend(WINDOWS_RULES.iter().map(|s| s.to_string()));
+    out
+}
+
+/// `git` → `git`, `Git`, `GIT`.
+fn case_forms(t: &str) -> [String; 3] {
+    let mut cap = t.to_string();
+    if let Some(f) = cap.get_mut(..1) {
+        f.make_ascii_uppercase();
+    }
+    [t.to_string(), cap, t.to_ascii_uppercase()]
+}
+
+/// Tools and shell launches refused on Windows on top of the shared rules: other shells (with any letter case, bare
+/// or with arguments), `start` (opens another program), `wsl` and `winpty`.
+pub const WINDOWS_RULES: &[&str] = &[
+    "PowerShell", "Monitor",
+    "Bash(powershell*)", "Bash(Powershell*)", "Bash(PowerShell*)", "Bash(POWERSHELL*)",
+    "Bash(pwsh*)", "Bash(Pwsh*)", "Bash(PWSH*)",
+    "Bash(cmd)", "Bash(cmd *)", "Bash(cmd.exe*)", "Bash(Cmd)", "Bash(Cmd *)", "Bash(Cmd.exe*)", "Bash(CMD)", "Bash(CMD *)", "Bash(CMD.EXE*)", "Bash(cmd.EXE*)",
+    "Bash(start *)", "Bash(Start *)", "Bash(START *)",
+    "Bash(wsl*)", "Bash(Wsl*)", "Bash(WSL*)",
+    "Bash(winpty*)", "Bash(Winpty*)", "Bash(WINPTY*)",
+];
 
 /// Shell-quoted hook command: `'<exe>' --dduck-guard-local-only`.
 pub fn hook_command(exe: &Path) -> String {
@@ -406,6 +458,10 @@ pub fn guard_args_with(ctx: &GuardCtx, extra_settings: &[serde_json::Value]) -> 
     Ok(args)
 }
 
+/// Refusal of a local-only start with a CLI older than 2.1.295 (reads as `ReasonCode::CliUpdateNeeded`).
+pub const CLI_OUTDATED: &str = "Claude Code를 업데이트해 주세요 · 2.1.295 이상이 필요해요";
+/// Refusal of a local-only start off macOS (reads as `ReasonCode::MacOnly`).
+pub const MAC_ONLY: &str = "Mac 전용이에요 · Windows 미리보기에서는 아직 쓸 수 없어요";
 pub const HOOK_MISSING: &str = "로컬만 작업에 필요한 D.Duck 훅을 준비하지 못했어요";
 pub const MANAGED_BLOCKS: &str = "관리 설정이 D.Duck 훅을 막아 로컬만 작업을 시작할 수 없어요";
 pub const DANGER_REFUSED: &str = "로컬만 프로젝트는 이 권한 모드를 아직 쓸 수 없어요";
@@ -431,7 +487,7 @@ pub struct StartCtx {
 /// commit that isn't the home folder. Decided by the folder, not by where the draft came from (test review C1), so a
 /// news or insight draft in a project on its default branch gets its own branch like any other task.
 pub fn worktree_possible(cwd: &Path, home: &Path) -> bool {
-    let canon = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let canon = |p: &Path| p.canon().unwrap_or_else(|_| p.to_path_buf());
     canon(cwd) != canon(home) && crate::team::repo_status(cwd, home) == crate::team::RepoStatus::Ok
 }
 
@@ -448,9 +504,17 @@ pub fn start_ctx_with(conn: &Connection, cwd: &Path, home: Option<&Path>, worktr
 /// [`start_ctx_with`] from an already-read "로컬만" list, so the caller need not hold the DB during the git reads and
 /// the hook self-test (up to 10 s) that follow (D-161).
 pub fn start_ctx_for_items(items: &[LocalOnlyItem], cwd: &Path, home: Option<&Path>, worktree_possible: bool, hook_exe: Option<&Path>, global_config: Option<&Path>) -> Result<StartCtx, &'static str> {
-    let folder = cwd.canonicalize().map_err(|_| UNREADABLE)?;
+    let folder = cwd.canon().map_err(|_| UNREADABLE)?;
     let repo = repo_info(&folder, home).map_err(|_| UNREADABLE)?;
     let guard = guard_for(&folder, repo.as_ref(), items);
+    // Local-only and its guard are Mac-only in the Windows preview (decision 7): refused before any git or hook run.
+    if guard == Guard::LocalOnly && !cfg!(target_os = "macos") {
+        return Err(MAC_ONLY);
+    }
+    // An old CLI ignores `onFailure: block`: say so before the hook self-test would fail as "hook missing".
+    if guard == Guard::LocalOnly && !crate::cli_path::hooks_allowed() {
+        return Err(CLI_OUTDATED);
+    }
     let (detected, on_default, head) = match &repo {
         Some(r) => {
             let detected = detect_default_branch(&r.root).map_err(|_| UNREADABLE)?;
@@ -516,6 +580,13 @@ pub struct ManagedSources {
 impl ManagedSources {
     /// The macOS locations, for this user and Claude config folder.
     pub fn system(config_dir: Option<&Path>, user: Option<&str>) -> Self {
+        // Windows: Program Files only (a `\Library` path would be a user-creatable `C:\Library`, review MEDIUM).
+        if cfg!(windows) {
+            let root = crate::permissions::windows_managed_root();
+            let mut files: Vec<PathBuf> = root.iter().map(|r| r.join("managed-settings.json")).collect();
+            files.extend(config_dir.map(|c| c.join("remote-settings.json")));
+            return ManagedSources { files, dropin_dirs: root.iter().map(|r| r.join("managed-settings.d")).collect(), plists: Vec::new() };
+        }
         let mut files = vec![PathBuf::from(MANAGED_SETTINGS)];
         if let Some(c) = config_dir {
             files.push(c.join("remote-settings.json"));
@@ -527,10 +598,10 @@ impl ManagedSources {
         ManagedSources { files, dropin_dirs: vec![PathBuf::from("/Library/Application Support/ClaudeCode/managed-settings.d")], plists }
     }
 
-    /// From the environment: `CLAUDE_CONFIG_DIR` or `~/.claude`, and `USER`.
+    /// From the environment: `CLAUDE_CONFIG_DIR` or `~/.claude`, and the login name.
     pub fn from_env(config_dir: Option<&Path>) -> Self {
-        let cfg = config_dir.map(Path::to_path_buf).or_else(|| std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from)).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".claude")));
-        let user = std::env::var("USER").ok();
+        let cfg = config_dir.map(Path::to_path_buf).or_else(|| std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from)).or_else(|| crate::platform::home().map(|h| h.join(".claude")));
+        let user = crate::platform::user_name();
         Self::system(cfg.as_deref(), user.as_deref())
     }
 
@@ -596,6 +667,8 @@ pub const SELF_TEST_PASS: &str = r#"{"tool_name":"Read","tool_input":{"file_path
 /// Comparison key: NFC, lowercase (APFS is case-insensitive by default; matching more is the safe side).
 pub fn norm_key(p: &Path) -> String {
     let s: String = p.to_string_lossy().nfc().collect();
+    // Windows: `/` between parts, so `key_within` reads `C:/Users/me/app` like a macOS path (decision 1).
+    let s = if cfg!(windows) { s.replace('\\', "/") } else { s };
     let s = s.to_lowercase();
     let t = s.trim_end_matches('/');
     if t.is_empty() { "/".into() } else { t.to_string() }
@@ -628,7 +701,7 @@ fn read_small(p: &Path) -> std::io::Result<String> {
 /// worktree git dir whose `commondir` is the shared one). Stops below `home` (the home folder itself is never a
 /// project root) and after 40 levels. `Ok(None)` = not inside a repository; a `.git` that cannot be read is `Err`.
 pub fn repo_info(cwd: &Path, home: Option<&Path>) -> Result<Option<RepoInfo>, Error> {
-    let home_key = home.and_then(|h| h.canonicalize().ok()).map(|h| norm_key(&h));
+    let home_key = home.and_then(|h| h.canon().ok()).map(|h| norm_key(&h));
     let mut cur = Some(cwd);
     let mut depth = 0;
     while let Some(dir) = cur {
@@ -642,14 +715,14 @@ pub fn repo_info(cwd: &Path, home: Option<&Path>) -> Result<Option<RepoInfo>, Er
                 let text = read_small(&dot)?;
                 let line = text.lines().next().unwrap_or("");
                 let target = line.strip_prefix("gitdir:").map(str::trim).filter(|t| !t.is_empty()).ok_or(Error::Config("unreadable .git file"))?;
-                let gitdir = dir.join(target).canonicalize()?;
+                let gitdir = dir.join(target).canon()?;
                 let common = match read_small(&gitdir.join("commondir")) {
                     Ok(c) => {
                         let c = c.trim();
                         if c.is_empty() {
                             return Err(Error::Config("unreadable commondir"));
                         }
-                        gitdir.join(c).canonicalize()?
+                        gitdir.join(c).canon()?
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => gitdir.clone(),
                     Err(e) => return Err(e.into()),
@@ -718,7 +791,7 @@ pub fn checked_folder(p: &Path) -> Option<PathBuf> {
     if meta.file_type().is_symlink() || !meta.is_dir() {
         return None;
     }
-    p.canonicalize().ok()
+    p.canon().ok()
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -801,6 +874,8 @@ pub fn app_git(dir: &Path) -> Command {
                 cmd.arg("-c").arg(format!("filter.{n}.required=false"));
             }
         }
+        // Windows: a "nonexistent" path like C:\nonexistent could be created by another user, so nothing runs.
+        None if cfg!(windows) => return refused_git(),
         None => {
             cmd.env("GIT_DIR", "/nonexistent/dduck-filter-check-failed");
         }
@@ -808,14 +883,76 @@ pub fn app_git(dir: &Path) -> Command {
     cmd
 }
 
+/// A command that fails to start (an empty program name): the Windows fail-closed branch runs no git at all.
+fn refused_git() -> Command {
+    Command::new("")
+}
+
+/// macOS: `git` with hooks off through `/dev/null`. Windows (task 1.5, 8.5): the resolved, ACL-checked `git.exe` and
+/// an empty app-owned hooks folder, or no git. Neither OS reads the system config (`GIT_CONFIG_NOSYSTEM`); Windows
+/// only adds Git for Windows' `core.autocrlf` as a fallback when the user and repository leave it unset.
 fn base_git(dir: &Path) -> Command {
-    let mut cmd = Command::new("git");
-    cmd.args(["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "protocol.allow=never"])
-        .arg("-C")
-        .arg(dir)
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_OPTIONAL_LOCKS", "0");
+    base_git_with(dir, crate::platform::git_autocrlf(), &[])
+}
+
+/// [`base_git`] with Git for Windows' `core.autocrlf` (`default_crlf`) as a fallback only: it is passed with `-c` just
+/// when neither the user's global config nor the repository sets the key, so their own value always wins
+/// (group 8 check MEDIUM). macOS passes `None` and runs exactly as before.
+/// Whether neither the global nor the repository config sets `core.autocrlf` for `dir` (exit 1 from `config --get`).
+/// Cached per folder for a minute (one extra git per folder, not per command, group 9 check LOW); a check that does not
+/// finish counts as unset, so Git for Windows' default still applies (no 8.5 regression). `cache` false for tests.
+fn autocrlf_unset(dir: &Path, cache: bool, query: impl FnOnce() -> Command) -> bool {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    use std::time::Instant;
+    static SEEN: Mutex<Option<HashMap<PathBuf, (Instant, bool)>>> = Mutex::new(None);
+    if cache {
+        if let Some(&(at, v)) = SEEN.lock().ok().as_ref().and_then(|g| g.as_ref()?.get(dir)) {
+            if at.elapsed() < Duration::from_secs(60) {
+                return v;
+            }
+        }
+    }
+    let unset = match crate::process::run(&mut query(), Duration::from_secs(2), 1024, crate::process::Keep::Head, 1024) {
+        Ok(o) => o.status.code() == Some(1),
+        Err(_) => true,
+    };
+    if cache {
+        if let Ok(mut g) = SEEN.lock() {
+            let m = g.get_or_insert_with(HashMap::new);
+            if m.len() > 256 {
+                m.clear();
+            }
+            m.insert(dir.to_path_buf(), (Instant::now(), unset));
+        }
+    }
+    unset
+}
+
+/// `env` is for tests only (a fake HOME for both the check and the command).
+fn base_git_with(dir: &Path, default_crlf: Option<&str>, env: &[(&str, &Path)]) -> Command {
+    let (Some(program), Some(hooks)) = (crate::platform::git_program(), crate::platform::git_hooks_path()) else { return refused_git() };
+    let hardened = || {
+        let mut c = Command::new(&program);
+        c.arg("-c").arg("core.fsmonitor=false").arg("-c").arg(format!("core.hooksPath={}", hooks.display())).args(["-c", "protocol.allow=never"]);
+        c.env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_TERMINAL_PROMPT", "0").env("GIT_OPTIONAL_LOCKS", "0");
+        for (k, v) in env {
+            c.env(k, v);
+        }
+        c
+    };
+    let mut cmd = hardened();
+    if let Some(v) = default_crlf {
+        let unset = autocrlf_unset(dir, env.is_empty(), || {
+            let mut q = hardened();
+            q.arg("-C").arg(dir).args(["config", "--get", "core.autocrlf"]);
+            q
+        });
+        if unset {
+            cmd.arg("-c").arg(format!("core.autocrlf={v}"));
+        }
+    }
+    cmd.arg("-C").arg(dir);
     cmd
 }
 
@@ -1037,7 +1174,7 @@ pub fn post_check(conn: &Connection, bg_id: &str, home: Option<&Path>, now_s: i6
         .optional()?;
     let Some((Some(cwd), Some(code), created_ms, branch, head)) = row else { return Ok(None) };
     let Some(guard) = Guard::from_code(&code) else { return Ok(None) };
-    let Ok(folder) = Path::new(&cwd).canonicalize() else { return Ok(None) };
+    let Ok(folder) = Path::new(&cwd).canon() else { return Ok(None) };
     let Some(repo) = repo_info(&folder, home)? else { return Ok(None) };
     let pushed = push_detected(&repo.common_dir, guard, branch.as_deref(), created_ms / 1000 - 1, now_s + 1)?;
     let b = branch.clone().unwrap_or_else(|| "main".into());
@@ -1733,7 +1870,7 @@ fn path_is_git(prog: &str, scan: &Scan) -> bool {
             None => base.join(prog),
         }
     };
-    match p.canonicalize() {
+    match p.canon() {
         Ok(real) => real.file_name().map(|n| n.to_string_lossy().into_owned()).is_some_and(|n| is_git_like(&n)),
         Err(_) => !prog.starts_with('/'),
     }
@@ -1966,7 +2103,7 @@ mod tests {
     #[test]
     fn app_git_never_runs_planted_fsmonitor() {
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let repo = base.join("r");
         std::fs::create_dir(&repo).unwrap();
         init_repo(&repo);
@@ -1993,8 +2130,15 @@ mod tests {
         let c = app_git(&repo);
         let args: Vec<String> = c.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
         assert!(args.windows(2).any(|w| w[0] == "-c" && w[1] == "core.fsmonitor=false"));
+        // No system config on either OS; Windows passes only core.autocrlf and uses an app-owned hooks folder.
         assert!(c.get_envs().any(|(k, v)| k == "GIT_CONFIG_NOSYSTEM" && v.is_some_and(|v| v == "1")));
         assert!(c.get_envs().any(|(k, v)| k == "GIT_TERMINAL_PROMPT" && v.is_some_and(|v| v == "0")));
+        let hooks = args.iter().find_map(|a| a.strip_prefix("core.hooksPath=")).unwrap();
+        if cfg!(windows) {
+            assert!(hooks.ends_with("git-empty-hooks") && Path::new(hooks).is_dir(), "{hooks}");
+        } else {
+            assert_eq!(hooks, "/dev/null");
+        }
     }
 
     #[test]
@@ -2012,6 +2156,8 @@ mod tests {
         assert_eq!(draft.len(), 2);
     }
 
+    // Local-only and its guard are Mac-only in the Windows preview (windows-support decision 7).
+    #[cfg(unix)]
     #[test]
     fn local_only_refusals() {
         let t = tempfile::tempdir().unwrap();
@@ -2051,11 +2197,13 @@ mod tests {
         assert!(sys.plists.contains(&PathBuf::from("/Library/Managed Preferences/me/com.anthropic.claudecode.plist")));
     }
 
+    // Local-only starts are Mac-only in the Windows preview (decision 7; the refusal is tested in `mac_only`).
+    #[cfg(target_os = "macos")]
     #[test]
     fn start_ctx_forces_worktree_on_default_and_refuses_bad_list() {
         let conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let repo = t.path().canonicalize().unwrap().join("r");
+        let repo = t.path().canon().unwrap().join("r");
         std::fs::create_dir(&repo).unwrap();
         init_repo(&repo);
         let s = start_ctx(&conn, &repo, None, true, None).unwrap();
@@ -2355,7 +2503,7 @@ mod tests {
     #[test]
     fn hook_relative_and_linked_programs() {
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         #[cfg(unix)]
         std::os::unix::fs::symlink("/usr/bin/git", base.join("g")).unwrap();
         std::fs::write(base.join("build.sh"), "#!/bin/sh\n").unwrap();
@@ -2389,7 +2537,7 @@ mod tests {
         assert_eq!(v["env"]["GIT_CONFIG_GLOBAL"], "/dev/null");
         // A local bare remote: with the env every push form fails before any transport, and the remote stays empty.
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let remote = base.join("remote.git");
         assert!(Command::new("git").args(["init", "-q", "--bare"]).arg(&remote).status().unwrap().success());
         let work = base.join("w");
@@ -2421,13 +2569,15 @@ mod tests {
         assert!(Command::new("git").arg("-C").arg(&work).args(["push", "-q", "origin", "main"]).status().unwrap().success());
     }
 
+    // Local-only and its guard are Mac-only in the Windows preview (windows-support decision 7).
+    #[cfg(unix)]
     #[test]
     fn backstop_beats_longer_rewrites_global_local_and_included() {
         // H1: a longer `pushInsteadOf` from the global, the repository or an included file wins the URL rewrite, but
         // the protocol rules still refuse the transport. A `-c` override is denied by the hook (not tested here:
         // command-line config is the same scope as the backstop and the later one wins).
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let remote = base.join("remote.git");
         assert!(Command::new("git").args(["init", "-q", "--bare"]).arg(&remote).status().unwrap().success());
         let work = base.join("w");
@@ -2484,9 +2634,9 @@ mod tests {
     #[test]
     fn local_only_global_config_keeps_identity_only() {
         let t = tempfile::tempdir().unwrap();
-        let home = t.path().canonicalize().unwrap();
+        let home = t.path().canon().unwrap();
         std::fs::write(home.join(".gitconfig"), "[user]\n\tname = Kim \"K\"\n\temail = k@example.invalid\n[url \"x\"]\n\tpushInsteadOf = y\n[alias]\n\tp = push\n[core]\n\tsshCommand = evil\n").unwrap();
-        let path = home.join("Library/Application Support/dev.dduck.desktop/local-only-gitconfig");
+        let path = if cfg!(windows) { home.join(r"AppData\Local\dev.dduck.desktop\local-only-gitconfig") } else { home.join("Library/Application Support/dev.dduck.desktop/local-only-gitconfig") };
         assert_eq!(global_config_path(&home), path);
         write_global_config(&path, &home).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -2505,7 +2655,7 @@ mod tests {
     fn second_clone_matches_by_origin_slug() {
         let conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let mk = |name: &str| {
             let d = base.join(name);
             std::fs::create_dir(&d).unwrap();
@@ -2542,7 +2692,7 @@ mod tests {
     fn post_check_stores_alert_bits() {
         let conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let remote = base.join("remote.git");
         assert!(Command::new("git").args(["init", "-q", "--bare"]).arg(&remote).status().unwrap().success());
         let work = base.join("w");
@@ -2635,7 +2785,7 @@ mod tests {
     fn worktree_is_possible_by_folder_not_by_origin() {
         let conn = crate::db::open_in_memory().unwrap();
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let home = base.join("home");
         let repo = home.join("proj");
         std::fs::create_dir_all(&repo).unwrap();
@@ -2661,7 +2811,7 @@ mod tests {
     #[test]
     fn repo_info_worktrees_and_guard() {
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let client = base.join("client");
         std::fs::create_dir_all(client.join("packages/api")).unwrap();
         init_repo(&client);
@@ -2670,13 +2820,13 @@ mod tests {
         // External `git worktree add`
         let wt = base.join("wt");
         assert!(Command::new("git").arg("-C").arg(&client).args(["worktree", "add", "-q", "-b", "fix-1"]).arg(&wt).status().unwrap().success());
-        let wt_info = repo_info(&wt.canonicalize().unwrap(), None).unwrap().unwrap();
+        let wt_info = repo_info(&wt.canon().unwrap(), None).unwrap().unwrap();
         assert_eq!(wt_info.root, client, "worktree resolves to its main repository");
         // D.Duck worktree location
         let dd = client.join(".claude/worktrees/x");
         assert!(Command::new("git").arg("-C").arg(&client).args(["worktree", "add", "-q", "-b", "x"]).arg(&dd).status().unwrap().success());
         let items = vec![LocalOnlyItem { folder: client.to_string_lossy().into(), root: client.to_string_lossy().into(), slug: None }];
-        for cwd in [client.clone(), client.join("packages/api"), wt.canonicalize().unwrap(), dd.canonicalize().unwrap()] {
+        for cwd in [client.clone(), client.join("packages/api"), wt.canon().unwrap(), dd.canon().unwrap()] {
             let r = repo_info(&cwd, None).unwrap();
             assert_eq!(guard_for(&cwd, r.as_ref(), &items), Guard::LocalOnly, "{}", cwd.display());
         }
@@ -2708,7 +2858,7 @@ mod tests {
         let conn = crate::db::open_in_memory().unwrap();
         assert_eq!(guard_for_folder(&conn, Path::new("/x"), None).unwrap(), Guard::DraftPr);
         let t = tempfile::tempdir().unwrap();
-        let dir = t.path().canonicalize().unwrap();
+        let dir = t.path().canon().unwrap();
         add(&conn, &dir, None).unwrap();
         add(&conn, &dir, None).unwrap();
         let items = load_items(&conn).unwrap();
@@ -2726,7 +2876,7 @@ mod tests {
     #[test]
     fn checked_folder_rejects_links_and_files() {
         let t = tempfile::tempdir().unwrap();
-        let dir = t.path().canonicalize().unwrap();
+        let dir = t.path().canon().unwrap();
         let real = dir.join("real");
         std::fs::create_dir(&real).unwrap();
         std::fs::write(dir.join("f"), "x").unwrap();
@@ -2745,7 +2895,7 @@ mod tests {
         assert!(!default_moved(Some("a"), Some("a")));
         assert!(!default_moved(None, Some("a")));
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let remote = base.join("remote.git");
         assert!(Command::new("git").args(["init", "-q", "--bare"]).arg(&remote).status().unwrap().success());
         let work = base.join("work");
@@ -2766,6 +2916,8 @@ mod tests {
         assert_eq!(reflog_push_at("0 1 CANARY_NAME <t@example.invalid> 1700000000 +0900\tupdate by push"), Some(1_700_000_000));
         assert_eq!(reflog_push_at("0 1 n <e> 1700000000 +0900\tfetch: fast-forward"), None);
         // origin slug for cloud routines
+        // (Windows writes the local path with escaped backslashes; only GitHub URLs matter for slugs.)
+        #[cfg(unix)]
         assert_eq!(origin_url(&info.common_dir).as_deref(), Some(remote.to_string_lossy().as_ref()));
     }
 
@@ -2792,3 +2944,128 @@ mod tests {
         assert_eq!(Guard::DraftPr.code(), "draft_pr");
     }
 }
+
+/// windows-support 2.4 [CI]: the rules a Windows task gets.
+#[cfg(test)]
+mod windows_rules {
+    use super::*;
+
+    #[test]
+    fn git_and_gh_rules_get_exe_forms_and_other_shells_are_refused() {
+        let base = deny_rules(Guard::DraftPr, false, Some("main"));
+        let w = windows_variants(base.clone());
+        for r in base.iter().filter(|r| r.starts_with("Bash(git ") || r.starts_with("Bash(gh ")) {
+            let exe = r.replacen("Bash(git ", "Bash(git.exe ", 1).replacen("Bash(gh ", "Bash(gh.exe ", 1);
+            assert!(w.contains(&exe), "{exe} missing");
+        }
+        assert!(w.contains(&"Bash(git.exe push * main)".to_string()));
+        for r in WINDOWS_RULES {
+            assert!(w.contains(&r.to_string()), "{r}");
+        }
+        assert!(base.iter().all(|r| w.contains(r)), "nothing shared is dropped");
+        for v in ["Bash(Git push * main)", "Bash(GIT.EXE push * main)", "Bash(Git.exe push * main)", "Bash(git.EXE push * main)"] {
+            assert!(w.contains(&v.to_string()), "{v} missing");
+        }
+        for r in base.iter().filter_map(|r| r.strip_prefix("Bash(gh ")) {
+            assert!(w.contains(&format!("Bash(GH.exe {r}")) && w.contains(&format!("Bash(Gh {r}")), "gh {r}");
+        }
+        for v in ["Bash(CMD *)", "Bash(cmd)", "Bash(PowerShell*)", "Bash(start *)", "Bash(wsl*)", "Bash(winpty*)"] {
+            assert!(w.contains(&v.to_string()), "{v}");
+        }
+    }
+
+    #[test]
+    fn windows_rules_fit_the_command_line() {
+        // The worst case: on the default branch with a detected default branch.
+        // On Windows `deny_rules` already adds the Windows forms.
+        let base = deny_rules(Guard::DraftPr, true, Some("main"));
+        let rules = if cfg!(windows) { base } else { windows_variants(base) };
+        let arg = std::ffi::OsString::from(format!("--disallowedTools={}", rules.join(",")));
+        let n = crate::claude_cli::windows_cmdline_len(&[arg]);
+        assert!(n < 12_000, "{n} UTF-16 units leave too little room for the prompt");
+    }
+
+    #[test]
+    fn emitted_rules_follow_the_os() {
+        let rules = deny_rules(Guard::DraftPr, true, Some("main"));
+        assert_eq!(rules.iter().any(|r| r == "PowerShell"), cfg!(windows));
+        assert_eq!(rules.iter().any(|r| r.starts_with("Bash(git.exe ")), cfg!(windows));
+    }
+}
+
+/// windows-support 3.3 [CI] spec "Direct request": a local-only start is refused off macOS before anything runs.
+#[cfg(all(test, not(target_os = "macos")))]
+#[allow(clippy::unwrap_used)]
+mod mac_only {
+    use super::*;
+
+    #[test]
+    fn local_only_start_is_refused() {
+        let t = tempfile::tempdir().unwrap();
+        let dir = t.path().canon().unwrap();
+        let items = vec![LocalOnlyItem { folder: dir.display().to_string(), root: dir.display().to_string(), slug: None }];
+        let r = start_ctx_for_items(&items, &dir, None, false, None, None);
+        assert_eq!(r.err(), Some(MAC_ONLY));
+        assert_eq!(crate::i18n::ReasonCode::from_guard(MAC_ONLY), crate::i18n::ReasonCode::MacOnly);
+    }
+}
+
+/// Re-review 8.6: a local-only start with an old CLI says "update Claude Code" before any hook self-test.
+#[cfg(all(test, target_os = "macos"))]
+#[allow(clippy::unwrap_used)]
+mod cli_outdated {
+    use super::*;
+
+    #[test]
+    fn local_only_start_asks_for_an_update() {
+        let t = tempfile::tempdir().unwrap();
+        let dir = t.path().canon().unwrap();
+        let items = vec![LocalOnlyItem { folder: dir.display().to_string(), root: dir.display().to_string(), slug: None }];
+        crate::cli_path::set_test_version(Some(Some("2.1.200")));
+        let r = start_ctx_for_items(&items, &dir, None, false, None, None);
+        crate::cli_path::set_test_version(None);
+        assert_eq!(r.err(), Some(CLI_OUTDATED));
+        assert_eq!(crate::i18n::ReasonCode::from_guard(CLI_OUTDATED), crate::i18n::ReasonCode::CliUpdateNeeded);
+    }
+}
+
+/// Group 8 check MEDIUM [both OSes]: the Windows autocrlf fallback never overrides a repository or global value.
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod autocrlf_fallback {
+    use super::*;
+
+    #[test]
+    fn repo_false_stays_false_and_unset_gets_the_default() {
+        let t = tempfile::tempdir().unwrap();
+        let base = t.path().canon().unwrap();
+        let (repo, home) = (base.join("r"), base.join("home"));
+        std::fs::create_dir(&repo).unwrap();
+        std::fs::create_dir(&home).unwrap();
+        // An empty HOME/XDG/USERPROFILE, so the machine's own global config cannot answer.
+        let env: [(&str, &Path); 3] = [("HOME", &home), ("XDG_CONFIG_HOME", &home), ("USERPROFILE", &home)];
+        let get = |default: Option<&str>| {
+            let mut c = base_git_with(&repo, default, &env);
+            c.args(["config", "--get", "core.autocrlf"]);
+            let o = crate::process::run(&mut c, Duration::from_secs(5), 1024, crate::process::Keep::Head, 1024).unwrap();
+            String::from_utf8_lossy(&o.stdout).trim().to_string()
+        };
+        let git = |args: &[&str]| {
+            let mut c = Command::new("git");
+            c.arg("-C").arg(&repo).args(args).env("GIT_CONFIG_NOSYSTEM", "1");
+            for (k, v) in env {
+                c.env(k, v);
+            }
+            assert!(c.status().unwrap().success(), "{args:?}");
+        };
+        git(&["init", "-q"]);
+        assert_eq!(get(Some("true")), "true", "unset everywhere: the Git for Windows default applies");
+        assert_eq!(get(None), "", "macOS: nothing is added");
+        git(&["config", "core.autocrlf", "false"]);
+        assert_eq!(get(Some("true")), "false", "the repository value wins");
+        std::fs::write(home.join(".gitconfig"), "[core]\n\tautocrlf = input\n").unwrap();
+        git(&["config", "--unset", "core.autocrlf"]);
+        assert_eq!(get(Some("true")), "input", "the user's global value wins");
+    }
+}
+

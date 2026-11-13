@@ -29,6 +29,7 @@ import enTour from "./en/tour";
 import enErrors from "./en/errors";
 import enNews from "./en/news";
 import { currentLang, localeOf, type Lang } from "./language";
+import { osWords } from "./osWords";
 import type { ArgsFor, At, Message, Paths, Plural, Shape, Tree } from "./types";
 
 export const ko = {
@@ -119,7 +120,7 @@ export function translate(lang: Lang, key: string, params?: Record<string, strin
     warn(`unknown key "${key}"`);
     return key;
   }
-  return fill(pick(m, params, lang), params, lang);
+  return fill(osWords(pick(m, params, lang), lang), params, lang);
 }
 
 /** Text in the current language. Always a plain string: put links and markup around it with `tx()`, never HTML. */

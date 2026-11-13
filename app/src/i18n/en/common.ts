@@ -10,6 +10,9 @@ export default {
   language: {
     system: "System language",
   },
+  trash: {
+    unconfirmed: "Deleted, but it isn't in the Recycle Bin · It may be gone for good",
+  },
   actions: {
     close: "Close",
     cancel: "Cancel",
@@ -53,5 +56,16 @@ export default {
     readOnly: "Read-only agent · Copy it to your own to change it",
     original: "The original task ran on {model}{ro}",
     saved: "Saved",
+  },
+  macOnly: {
+    chip: "Mac only",
+    localOnly: "Local-only tasks aren't available in the Windows preview yet",
+    forceStop: "Force stop isn't available in the Windows preview yet",
+    news: "Fetching news isn't available in the Windows preview yet · Saved items still show",
+    insights: "Claude analysis isn't available in the Windows preview yet",
+    refine: "Brief refinement isn't available in the Windows preview yet",
+    cloud: "Loading and editing cloud routines isn't available in the Windows preview yet",
+    gitBash: "Without Git for Windows, tasks can't run commands",
+    gitBashLink: "Install Git for Windows",
   },
 } satisfies Shape<typeof ko>;

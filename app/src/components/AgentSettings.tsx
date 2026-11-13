@@ -179,7 +179,7 @@ function AgentsTab({ catalog, types }: { catalog: AgentDef[]; types: TeamType[] 
   const qc = useQueryClient();
   const controls = useAgentControls();
   const [busy, setBusy] = useState<string | null>(null);
-  const [msg, setMsg] = useState<{ tone: "ok" | "error"; text: Shown } | null>(null);
+  const [msg, setMsg] = useState<{ tone: "ok" | "warn" | "error"; text: Shown } | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const loadout = useLoadoutOptions();
   const mcpNames = (loadout.data?.mcp ?? []).map((s) => s.name);
@@ -222,6 +222,8 @@ function AgentsTab({ catalog, types }: { catalog: AgentDef[]; types: TeamType[] 
       if ((r.off || r.hidden) && window.confirm(tr("agents.manage.trashed", { name: r.name, what: [r.off ? tr("agents.manage.offRule") : "", r.hidden ? tr("agents.manage.hiddenMark") : ""].filter(Boolean).join("·") }))) {
         await teamApi.forget(r.name, r.project);
       }
+      // After the deny-rule and hidden cleanup above, as on a confirmed move (re-review 9.1).
+      if (r.unconfirmed) setMsg({ tone: "warn", text: tr("common.trash.unconfirmed") });
       return null;
     });
 
@@ -246,7 +248,7 @@ function AgentsTab({ catalog, types }: { catalog: AgentDef[]; types: TeamType[] 
       </div>
       {controls.isError && <p className="text-xs text-danger">{tr("agents.manage.controlsFailed", { error: String(controls.error) })}</p>}
       {msg && (
-        <p role="status" className={`text-xs ${msg.tone === "error" ? "text-danger" : "text-ink-3"}`}>
+        <p role="status" data-tone={msg.tone} className={msg.tone === "warn" ? "rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 text-xs text-ink" : `text-xs ${msg.tone === "error" ? "text-danger" : "text-ink-3"}`}>
           {shown(msg.text)}
         </p>
       )}

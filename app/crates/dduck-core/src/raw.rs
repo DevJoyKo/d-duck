@@ -395,6 +395,7 @@ fn scrub(v: &mut Value, key: Option<&str>, reveal: bool) {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    use crate::platform::CanonExt;
     use super::*;
 
     const SID: &str = "bbbbbbbb-2222-4222-8222-222222222222";
@@ -405,7 +406,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join(format!("{SID}.jsonl"));
         std::fs::write(&file, lines.join("\n") + "\n").unwrap();
-        let root = tmp.path().join("projects").canonicalize().unwrap();
+        let root = tmp.path().join("projects").canon().unwrap();
         (tmp, root, file)
     }
 

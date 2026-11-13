@@ -608,17 +608,17 @@ fn locate(start: &Path, session_cwd: Option<&Path>) -> Located {
     let Some(sc) = session_cwd.filter(|p| p.is_absolute()) else { return Located::Unknown };
     let Some(name) = sc.file_name().filter(|n| Path::new(n).components().count() == 1 && *n != "..") else { return Located::Unknown };
     let Some(parent) = sc.parent() else { return Located::Unknown };
-    let Ok(start) = std::fs::canonicalize(start) else { return Located::Unknown };
+    let Ok(start) = crate::platform::canon(start) else { return Located::Unknown };
     let base_lex = start.join(".claude").join("worktrees");
     // The worktrees folder must be the real one: no link anywhere under the repository (a linked `.claude` fails).
-    let base = match std::fs::canonicalize(&base_lex) {
+    let base = match crate::platform::canon(&base_lex) {
         Ok(b) if b == base_lex => b,
         Ok(_) => return Located::Unknown,
         // The whole folder is gone: only when the session folder was exactly there.
         Err(e) if e.kind() == std::io::ErrorKind::NotFound && parent == base_lex => return Located::Gone,
         Err(_) => return Located::Unknown,
     };
-    let parent_real = std::fs::canonicalize(parent).ok();
+    let parent_real = crate::platform::canon(parent).ok();
     if parent_real.as_deref() != Some(base.as_path()) && parent != base {
         return Located::Unknown;
     }
@@ -626,7 +626,7 @@ fn locate(start: &Path, session_cwd: Option<&Path>) -> Located {
     match std::fs::symlink_metadata(&path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Located::Gone,
         Ok(m) if m.file_type().is_dir() => {
-            let real_ok = std::fs::canonicalize(&path).is_ok_and(|r| r == path && r.starts_with(&base) && r != start);
+            let real_ok = crate::platform::canon(&path).is_ok_and(|r| r == path && r.starts_with(&base) && r != start);
             if real_ok && listed_worktree(&start, &path) { Located::Present(path) } else { Located::Unknown }
         }
         _ => Located::Unknown,
@@ -636,7 +636,7 @@ fn locate(start: &Path, session_cwd: Option<&Path>) -> Located {
 /// `git worktree list --porcelain` of the repository names this folder.
 fn listed_worktree(repo: &Path, path: &Path) -> bool {
     let Some(out) = git_out(repo, &["worktree", "list", "--porcelain"], 2, 256 * 1024) else { return false };
-    out.lines().filter_map(|l| l.strip_prefix("worktree ")).any(|w| std::fs::canonicalize(w).is_ok_and(|w| w == path))
+    out.lines().filter_map(|l| l.strip_prefix("worktree ")).any(|w| crate::platform::canon(w).is_ok_and(|w| w == path))
 }
 
 fn git_out(dir: &Path, args: &[&str], secs: u64, cap: u64) -> Option<String> {
@@ -759,7 +759,7 @@ pub fn remove_plan(rec: &Record, live_cwd: Option<&Path>, running: bool) -> Resu
         Some(_) => return Err(Refusal::Changes),
         None => return Err(Refusal::NotChecked),
     }
-    let repo = std::fs::canonicalize(&start).map_err(|_| Refusal::NoWorktree)?;
+    let repo = crate::platform::canon(&start).map_err(|_| Refusal::NoWorktree)?;
     Ok(RemovePlan { folder: folder_name(&path), branch: branch_of(&path), ignored: count_ignored(&path), repo, path, start, session: session_cwd })
 }
 
@@ -796,6 +796,7 @@ pub fn remove(plan: &RemovePlan) -> Result<(), Refusal> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    use crate::platform::CanonExt;
     use super::*;
     use crate::claude_cli::SessionKind;
     use crate::task_meta::{NewRecord, record_start};
@@ -1120,7 +1121,7 @@ mod tests {
     #[test]
     fn checklist_reads_worktree_branch_changes_pr_and_never_runs_fsmonitor() {
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let (repo, wt) = repo_with_worktree(&base);
         let marker = base.join("PWNED");
         let script = base.join("fsmon.sh");
@@ -1157,7 +1158,7 @@ mod tests {
     #[test]
     fn removing_a_clean_worktree_counts_ignored_files_and_keeps_the_branch() {
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let (repo, wt) = repo_with_worktree(&base);
         std::fs::create_dir(wt.join("build")).unwrap();
         for i in 0..120 {
@@ -1192,7 +1193,7 @@ mod tests {
     #[test]
     fn a_planned_limit_resume_blocks_wrap_up_and_worktree_removal() {
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let (repo, wt) = repo_with_worktree(&base);
         let conn = crate::db::open_in_memory().unwrap();
         rec(&conn, "abcd0001", repo.to_str().unwrap(), Some(&rid(1)), SINCE + 1, true);
@@ -1251,7 +1252,7 @@ mod tests {
     #[test]
     fn a_linked_claude_folder_is_not_a_worktree() {
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let (_repo, _wt) = repo_with_worktree(&base);
         // Another repository whose `.claude` is a link into the first one's.
         let other = base.join("other");
@@ -1272,7 +1273,7 @@ mod tests {
     #[test]
     fn a_folder_swapped_after_the_confirm_is_not_removed() {
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let (repo, wt) = repo_with_worktree(&base);
         let conn = crate::db::open_in_memory().unwrap();
         rec(&conn, "fffffff5", repo.to_str().unwrap(), None, SINCE + 1, true);
@@ -1287,7 +1288,7 @@ mod tests {
     #[test]
     fn a_plain_folder_under_worktrees_is_not_removed() {
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let (repo, _wt) = repo_with_worktree(&base);
         let stray = repo.join(".claude/worktrees/stray");
         std::fs::create_dir(&stray).unwrap();
@@ -1300,7 +1301,7 @@ mod tests {
     #[test]
     fn status_never_runs_a_planted_clean_filter() {
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let (_repo, wt) = repo_with_worktree(&base);
         let marker = base.join("FILTER-RAN");
         let script = base.join("clean.sh");
@@ -1331,7 +1332,7 @@ mod tests {
     #[test]
     fn worktree_outside_the_folder_or_a_link_is_refused() {
         let t = tempfile::tempdir().unwrap();
-        let base = t.path().canonicalize().unwrap();
+        let base = t.path().canon().unwrap();
         let (repo, _wt) = repo_with_worktree(&base);
         let conn = crate::db::open_in_memory().unwrap();
         rec(&conn, "fffffff2", repo.to_str().unwrap(), None, SINCE + 1, true);

@@ -7,6 +7,7 @@
 //! - "Claude에게 부탁하기" jobs write into an app-data folder; the user reviews the result and installs it through
 //!   the same create path.
 
+use crate::platform::CanonExt;
 use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -31,8 +32,21 @@ static NAME_RE: LazyLock<Regex> = LazyLock::new(|| re(r"\A[A-Za-z0-9][A-Za-z0-9_
 static STR: &str = r#"(?:'([^'\n\\]*)'|"([^"\n\\]*)")"#;
 static PHASE_CALL_RE: LazyLock<Regex> = LazyLock::new(|| re(&format!(r"(?:^|[^A-Za-z0-9_.$])phase\(\s*{STR}")));
 
+/// A skill, command or workflow name: also never a Windows device name (`nul`, `con`, `com1`, `aux.md`, …) on any
+/// OS, so `create_item` cannot make `commands\nul.md` or `skills\con\` (QA re-review MEDIUM).
 pub fn valid_name(n: &str) -> bool {
-    NAME_RE.is_match(n)
+    NAME_RE.is_match(n) && !crate::platform::is_device_name(n)
+}
+
+/// Why `n` is refused: a Windows reserved name gets its own sentence (group 8 check LOW), anything else `otherwise`.
+pub fn name_error(n: &str, otherwise: crate::i18n::Fail) -> Option<String> {
+    if valid_name(n) {
+        None
+    } else if NAME_RE.is_match(n) {
+        Some(crate::i18n::Fail::ReservedWindowsName.str().to_string())
+    } else {
+        Some(otherwise.str().to_string())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -958,6 +972,7 @@ impl Target {
 }
 
 fn mkdir(p: &Path, mode: u32) -> std::io::Result<()> {
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut b = std::fs::DirBuilder::new();
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut b, mode);
@@ -1006,8 +1021,8 @@ fn kind_dir(target: &Target, kind: Kind) -> Result<PathBuf, String> {
 
 /// Creates a new item; never overwrites. Returns the file path.
 pub fn create_item(target: &Target, kind: Kind, name: &str, content: &str) -> Result<PathBuf, String> {
-    if !valid_name(name) {
-        return Err(crate::i18n::Fail::ItemNameFormat.str().into());
+    if let Some(e) = name_error(name, crate::i18n::Fail::ItemNameFormat) {
+        return Err(e);
     }
     check_content(kind, name, content)?;
     let mode = target.dir_mode();
@@ -1041,14 +1056,9 @@ pub struct ItemText {
     pub extra_files: Vec<String>,
 }
 
-#[cfg(unix)]
-fn nlink(m: &std::fs::Metadata) -> u64 {
-    std::os::unix::fs::MetadataExt::nlink(m)
-}
-
-#[cfg(not(unix))]
-fn nlink(_m: &std::fs::Metadata) -> u64 {
-    1
+/// Link count of `p` (metadata `m`); Windows reads it from a handle and refuses when unknown (platform::ids).
+fn nlink(p: &Path, m: &std::fs::Metadata) -> u64 {
+    crate::platform::nlink(p, m)
 }
 
 /// Reads one catalog file for the editor.
@@ -1060,7 +1070,7 @@ pub fn read_item(path: &Path, kind: &'static str, name: &str, location: String, 
     let mut buf = Vec::new();
     std::fs::File::open(path).and_then(|f| f.take(MAX_CONTENT as u64 + 1).read_to_end(&mut buf)).map_err(|_| crate::i18n::Fail::ReadFileFailed.str().to_string())?;
     let content = String::from_utf8(buf).map_err(|_| crate::i18n::Fail::NotUtf8Text.str().to_string())?;
-    let readonly = readonly.map(str::to_string).or_else(|| (nlink(&m) != 1).then(|| crate::i18n::Fail::HardlinkNoEdit.str().to_string()));
+    let readonly = readonly.map(str::to_string).or_else(|| (nlink(path, &m) != 1).then(|| crate::i18n::Fail::HardlinkNoEdit.str().to_string()));
     let k = match kind {
         "command" => Kind::Command,
         "workflow" => Kind::Workflow,
@@ -1165,13 +1175,19 @@ const MAX_JOB_FILES: usize = 200;
 const MAX_JOB_BYTES: u64 = 5 * 1024 * 1024;
 
 /// Every regular file under a produced skill folder (no links, valid names, ≤4 deep, size caps).
+/// A relative path with `/` between its parts on every OS (Windows walks give `\`), for the part checks and the
+/// `/`-split rebuild below (windows-support 1.4).
+fn rel_slash(rel: &Path) -> String {
+    rel.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/")
+}
+
 fn skill_files(dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
     let mut out = Vec::new();
     let mut total = 0u64;
     let mut seen = HashSet::new();
     for e in walkdir::WalkDir::new(dir).follow_links(false).min_depth(1).max_depth(5).into_iter() {
         let e = e.map_err(|_| crate::i18n::Fail::ReadDirFailed.str().to_string())?;
-        let rel = e.path().strip_prefix(dir).map_err(|_| crate::i18n::Fail::PathError.str().to_string())?.to_string_lossy().to_string();
+        let rel = rel_slash(e.path().strip_prefix(dir).map_err(|_| crate::i18n::Fail::PathError.str().to_string())?);
         if e.file_type().is_symlink() {
             return Err(crate::tr_fmt!(crate::i18n::Fail::HasLink, a0 = display_safe(&rel, 100)));
         }
@@ -1187,7 +1203,7 @@ fn skill_files(dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
         if e.file_type().is_file() {
             let m = e.metadata().map_err(|_| crate::i18n::Fail::ReadFileFailed.str().to_string())?;
             total += m.len();
-            if m.len() > 1024 * 1024 || total > MAX_JOB_BYTES || out.len() >= MAX_JOB_FILES || nlink(&m) != 1 {
+            if m.len() > 1024 * 1024 || total > MAX_JOB_BYTES || out.len() >= MAX_JOB_FILES || nlink(e.path(), &m) != 1 {
                 return Err(crate::i18n::Fail::TooBigOrMany.str().into());
             }
             out.push((rel, e.path().to_path_buf()));
@@ -1227,7 +1243,7 @@ pub fn copy_risk(src_main: &Path) -> Result<SkillRisk, String> {
 fn produced_one(kind: Kind, name: &str, main: &Path, files: Result<Vec<String>, String>) -> Produced {
     let text = read_text(main);
     let content = text.as_deref().map(|t| display_marked(t, 200_000)).unwrap_or_default();
-    let mut problem = if valid_name(name) { None } else { Some(crate::i18n::Fail::ItemNameFormat.str().to_string()) };
+    let mut problem = name_error(name, crate::i18n::Fail::ItemNameFormat);
     let mut warnings = Vec::new();
     let mut risk = SkillRisk::default();
     match &text {
@@ -1296,8 +1312,8 @@ pub fn jobs(root: &Path) -> Vec<Job> {
 
 /// Installs one produced item at `target` through the same checks as a direct create (never overwrites).
 pub fn install_produced(root: &Path, token: &str, kind: Kind, name: &str, target: &Target) -> Result<PathBuf, String> {
-    if !valid_name(name) {
-        return Err(crate::i18n::Fail::NameBad.str().into());
+    if let Some(e) = name_error(name, crate::i18n::Fail::NameBad) {
+        return Err(e);
     }
     job_meta(root, token).ok_or(crate::i18n::Fail::JobNotFound.str())?;
     let work = root.join(token).join("work").join(kind.folder());
@@ -1354,7 +1370,7 @@ pub fn job_spec(work: &Path, kind: Kind, request: &str) -> Result<crate::claude_
     if req.is_empty() || req.chars().count() > MAX_REQUEST || req.contains('\0') {
         return Err(crate::i18n::ReasonCode::RequestLength.now());
     }
-    let work = work.canonicalize().map_err(|_| crate::i18n::Fail::TaskDirMissing.str().to_string())?;
+    let work = work.canon().map_err(|_| crate::i18n::Fail::TaskDirMissing.str().to_string())?;
     let shown = work.to_string_lossy().to_string();
     if shown.chars().any(|c| c.is_control() || crate::text::is_unsafe_char(c)) {
         return Err(crate::i18n::Fail::JobDirPath.str().into());
@@ -1456,12 +1472,12 @@ fn copy_list(dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
     for e in walk.filter_entry(|e| !e.file_type().is_symlink()) {
         let Ok(e) = e else { continue };
         let Ok(rel) = e.path().strip_prefix(dir) else { continue };
-        let rel = rel.to_string_lossy().to_string();
+        let rel = rel_slash(rel);
         if !e.file_type().is_file() || rel.split('/').any(|p| !crate::install_link::valid_part(p)) || !seen.insert(rel.to_ascii_lowercase()) {
             continue;
         }
         let Ok(m) = std::fs::symlink_metadata(e.path()) else { continue };
-        if !m.file_type().is_file() || nlink(&m) != 1 {
+        if !m.file_type().is_file() || nlink(e.path(), &m) != 1 {
             continue;
         }
         total += m.len();
@@ -1509,8 +1525,8 @@ pub fn retitle(kind: Kind, text: &str, name: &str, origin: &str) -> String {
 /// The source is never changed and nothing is overwritten: a skill is built in a hidden folder next to the target
 /// and renamed exclusively. Returns the new main file.
 pub fn copy_item(src_main: &Path, kind: Kind, origin: &str, name: &str, target: &Target) -> Result<PathBuf, String> {
-    if !valid_name(name) {
-        return Err(crate::i18n::Fail::ItemNameFormat2.str().into());
+    if let Some(e) = name_error(name, crate::i18n::Fail::ItemNameFormat2) {
+        return Err(e);
     }
     if kind == Kind::Workflow {
         return Err(crate::i18n::Fail::WorkflowNoCopy.str().into());
@@ -1589,7 +1605,7 @@ mod tests {
         assert!(!args.iter().filter(|a| !a.starts_with("--disallowedTools=")).any(|a| a.starts_with("--add-dir") || a.starts_with("--allowedTools") || a.contains("Bash")), "{args:?}");
         assert!(args[..dash].iter().any(|a| a.starts_with("--disallowedTools=Bash(gh pr merge *)")));
         let sys = args.iter().find(|a| a.starts_with("--append-system-prompt=")).unwrap();
-        assert!(sys.contains("commands/<이름>.md") && sys.contains(&work.canonicalize().unwrap().to_string_lossy().to_string()) && !sys.contains("스탠드업"));
+        assert!(sys.contains("commands/<이름>.md") && sys.contains(&work.canon().unwrap().to_string_lossy().to_string()) && !sys.contains("스탠드업"));
         assert!(job_spec(&work, Kind::Skill, "  ").is_err());
         assert!(job_spec(&tmp.path().join("missing"), Kind::Skill, "x").is_err());
     }
@@ -1902,7 +1918,7 @@ mod tests {
         let user = Target { base: cfg.clone(), project: false };
         let cmd = fill(Kind::Command, "standup", "스탠드업");
         let p = create_item(&user, Kind::Command, "standup", &cmd).unwrap();
-        assert_eq!(p, cfg.canonicalize().unwrap().join("commands/standup.md"));
+        assert_eq!(p, cfg.canon().unwrap().join("commands/standup.md"));
         assert_eq!(create_item(&user, Kind::Command, "standup", "x").unwrap_err(), "이미 있는 이름이에요");
         assert_eq!(std::fs::read_to_string(&p).unwrap(), cmd);
         let skill = fill(Kind::Skill, "pr-writer", "PR 설명");
@@ -2008,7 +2024,7 @@ mod tests {
         std::os::unix::fs::symlink("/etc/hosts", src.join("hosts")).ok();
         let user = t.path().join("config");
         std::fs::create_dir_all(&user).ok();
-        let target = Target { base: user.canonicalize().unwrap_or_else(|_| unreachable!()), project: false };
+        let target = Target { base: user.canon().unwrap_or_else(|_| unreachable!()), project: false };
         let before = std::fs::read_to_string(src.join("SKILL.md")).unwrap_or_default();
         let made = copy_item(&src.join("SKILL.md"), Kind::Skill, "example-plugin:frontend-design", "frontend-design-custom", &target).unwrap_or_else(|e| panic!("{e}"));
         let text = std::fs::read_to_string(&made).unwrap_or_default();
@@ -2041,3 +2057,24 @@ mod tests {
         assert!(copy_risk(&crlf.join("SKILL.md")).map(|r| r.allowed_tools.is_some()).unwrap_or(false));
     }
 }
+
+/// QA re-review [CI, both OSes]: authoring names refuse Windows device names.
+#[cfg(test)]
+mod device_names {
+    #[test]
+    fn device_names_are_refused() {
+        for bad in ["nul", "NUL", "con", "Con", "aux", "prn", "com1", "COM9", "lpt1", "Lpt3"] {
+            assert!(!super::valid_name(bad), "{bad}");
+        }
+        for ok in ["console", "com10", "null", "auxiliary", "nul-check", "lpt", "pr-writer"] {
+            assert!(super::valid_name(ok), "{ok}");
+        }
+        assert_eq!(super::name_error("nul", crate::i18n::Fail::ItemNameFormat).as_deref(), Some(crate::i18n::Fail::ReservedWindowsName.str()));
+        assert_eq!(super::name_error("a b", crate::i18n::Fail::ItemNameFormat).as_deref(), Some(crate::i18n::Fail::ItemNameFormat.str()));
+        assert_eq!(super::name_error("pr-writer", crate::i18n::Fail::ItemNameFormat), None);
+        for bad in ["COM¹", "lpt²", "nul.md", "con.txt", "aux "] {
+            assert!(crate::platform::is_device_name(bad), "{bad}");
+        }
+    }
+}
+

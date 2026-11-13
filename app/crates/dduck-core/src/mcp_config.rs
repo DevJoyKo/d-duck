@@ -6,6 +6,7 @@
 //! so serde skips them and they never reach memory as values. Only name, transport, scope and the host of an http(s)
 //! URL (no userinfo, port, path or query) come out. Files over 1 MB and links are refused.
 
+use crate::platform::CanonExt;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -276,7 +277,7 @@ fn push(out: &mut Vec<McpServer>, map: Option<BTreeMap<String, Entry>>, scope: M
 
 fn same_folder(key: &str, project: &Path) -> bool {
     let k = Path::new(key);
-    k == project || (k.is_absolute() && k.canonicalize().is_ok_and(|c| c == project))
+    crate::platform::same_path(k, project) || (k.is_absolute() && k.canon().is_ok_and(|c| crate::platform::same_path(&c, project)))
 }
 
 /// Servers from the user file and, when a project folder is given, its local entry and `.mcp.json`.
@@ -337,11 +338,11 @@ mod tests {
     "events": {{ "type": "sse", "url": "http://localhost:3000/events" }}
   }},
   "projects": {{
-    "{}": {{ "mcpServers": {{ "figma": {{ "type": "http", "url": "https://mcp.figma.com/mcp", "headers": {{ "X-Key": "{CANARY}" }} }} }}, "history": ["{CANARY}"] }},
+    {}: {{ "mcpServers": {{ "figma": {{ "type": "http", "url": "https://mcp.figma.com/mcp", "headers": {{ "X-Key": "{CANARY}" }} }} }}, "history": ["{CANARY}"] }},
     "/elsewhere": {{ "mcpServers": {{ "other": {{ "command": "x" }} }} }}
   }}
 }}"#,
-            project.display()
+            serde_json::to_string(&project.display().to_string()).unwrap()
         )
     }
 
@@ -350,7 +351,7 @@ mod tests {
         let t = tempfile::tempdir().unwrap();
         let proj = t.path().join("proj");
         std::fs::create_dir_all(&proj).unwrap();
-        let proj = proj.canonicalize().unwrap();
+        let proj = proj.canon().unwrap();
         let user = t.path().join(".claude.json");
         std::fs::write(&user, user_json(&proj)).unwrap();
         std::fs::write(proj.join(".mcp.json"), format!(r#"{{ "mcpServers": {{ "sentry": {{ "type": "http", "url": "https://mcp.sentry.dev/mcp", "env": {{ "K": "{CANARY}" }} }} }} }}"#)).unwrap();

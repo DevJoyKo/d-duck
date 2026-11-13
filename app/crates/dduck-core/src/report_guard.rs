@@ -62,7 +62,7 @@ fn resolve(path: &str, cwd: Option<&Path>) -> Option<PathBuf> {
     if name == ".." || name == "." {
         return None;
     }
-    let parent = std::fs::canonicalize(p.parent()?).ok()?;
+    let parent = crate::platform::canon(p.parent()?).ok()?;
     let target = parent.join(name);
     match std::fs::symlink_metadata(&target) {
         Ok(m) if m.file_type().is_symlink() => None,
@@ -85,7 +85,7 @@ pub fn decide(stdin: &str, report_dir: &Path, bash_strict: bool) -> Decision {
     let cwd = v.get("cwd").and_then(|c| c.as_str()).map(PathBuf::from).filter(|p| p.is_absolute());
     if FILE_TOOLS.contains(&tool) {
         let Some(path) = input.and_then(|i| i.get("file_path").or_else(|| i.get("notebook_path"))).and_then(|p| p.as_str()) else { return Decision::Deny };
-        let Ok(real_dir) = std::fs::canonicalize(report_dir) else { return Decision::Deny };
+        let Ok(real_dir) = crate::platform::canon(report_dir) else { return Decision::Deny };
         return match resolve(path, cwd.as_deref()) {
             Some(t) if t.starts_with(&real_dir) && t != real_dir => Decision::Allow,
             _ => Decision::Deny,
@@ -109,6 +109,8 @@ pub enum Grant {
     NoHooks,
     /// Spike 1.1 has not run.
     NotMeasured,
+    /// Off macOS (windows-support decision 7): the report-dir hook is not verified there, so no `Write` is added.
+    MacOnly,
 }
 
 /// For an inline role (`--agents` JSON) without `Write`: adds it and returns the hook fragment. `measured` is
@@ -121,10 +123,14 @@ pub fn grant(roles_json: &mut Option<String>, role: Option<&str>, report_dir: Op
     if has("Write") || has("*") {
         return Grant::NotNeeded;
     }
+    if !cfg!(target_os = "macos") {
+        return Grant::MacOnly;
+    }
     if !measured {
         return Grant::NotMeasured;
     }
-    if hooks_blocked {
+    // An older CLI ignores `onFailure: block` (decision 8): the report-dir hook could fail open, so no `Write`.
+    if hooks_blocked || !crate::cli_path::hooks_allowed() {
         return Grant::NoHooks;
     }
     let Some(exe) = exe else { return Grant::NoHooks };
@@ -146,7 +152,7 @@ mod tests {
     #[test]
     fn writes_only_inside_the_report_folder() {
         let t = tempfile::tempdir().unwrap();
-        let base = std::fs::canonicalize(t.path()).unwrap();
+        let base = crate::platform::canon(t.path()).unwrap();
         let rep = base.join("reports/abc");
         std::fs::create_dir_all(rep.join("evidence")).unwrap();
         let repo = base.join("repo");
@@ -185,6 +191,28 @@ mod tests {
         assert_eq!(b("npm test > evidence/o.txt", false), Decision::NoDecision, "QA's Bash keeps its prompts");
     }
 
+    /// windows-support 3.3 [CI]: off macOS a grant never adds `Write`.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn grant_is_mac_only() {
+        let mut r = Some(r#"{"dduck-reviewer":{"description":"d","prompt":"p","tools":["Read"]}}"#.to_string());
+        let before = r.clone();
+        assert_eq!(grant(&mut r, Some("dduck-reviewer"), Some(Path::new(r"C:\r")), Some(Path::new(r"C:\d.exe")), false, true), Grant::MacOnly);
+        assert_eq!(r, before, "the role is unchanged");
+    }
+
+    /// Re-review 8.2 [both OSes]: an old CLI gets no `Write` either (Windows answers MacOnly first).
+    #[test]
+    fn grant_needs_a_cli_that_blocks_on_hook_failure() {
+        let mut r = Some(r#"{"dduck-reviewer":{"description":"d","prompt":"p","tools":["Read"]}}"#.to_string());
+        crate::cli_path::set_test_version(Some(Some("2.1.200")));
+        let g = grant(&mut r, Some("dduck-reviewer"), Some(Path::new("/r")), Some(Path::new("/d")), false, true);
+        crate::cli_path::set_test_version(None);
+        assert_eq!(g, if cfg!(target_os = "macos") { Grant::NoHooks } else { Grant::MacOnly });
+        assert!(!r.unwrap().contains("Write"));
+    }
+
+    #[cfg(target_os = "macos")]
     #[test]
     fn grant_adds_write_only_when_measured_and_hooks_work() {
         let roles = || Some(r#"{"dduck-reviewer":{"description":"d","prompt":"p","tools":["Read","Grep","Bash(git diff:*)"]}}"#.to_string());

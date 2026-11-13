@@ -21,6 +21,7 @@ import { useBulk } from "../lib/pluginBulk";
 import { useProject, useScope } from "./ProjectContext";
 import { ScopeBar } from "./ScopeBar";
 import { Badge, Button, Empty, PageBody, PageHeader, Segmented, Sheet, fieldClass } from "./ui";
+import { splitPath } from "../lib/platform";
 
 type Kind = Exclude<ExtChip, "all">;
 const CHIPS: ExtChip[] = ["all", "skill", "command", "workflow", "plugin"];
@@ -106,7 +107,7 @@ export function rowActions(s: Skill): {
 function sourceLabel(s: Skill): string {
   if (s.source === "plugin") return pluginOf(s) ?? t("extensions.source.plugin");
   if (s.source === "builtin") return t("extensions.source.builtin");
-  if (s.source === "project") return t("extensions.source.project", { folder: s.scope?.split("/").filter(Boolean).pop() ?? "" });
+  if (s.source === "project") return t("extensions.source.project", { folder: (s.scope ? splitPath(s.scope).pop() : undefined) ?? "" });
   return s.readonly ? "claude.ai" : t("extensions.source.global");
 }
 
@@ -422,6 +423,8 @@ export function ExtensionsPage({ initialChip }: { initialChip?: ExtChip | null }
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [copying, setCopying] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  /** Windows: deleted but not seen in the Recycle Bin (9.1), shown apart from the ok-toned status line. */
+  const [trashWarn, setTrashWarn] = useState<string | null>(null);
   const [trashError, setTrashError] = useState<{
     key: string;
     text: Shown;
@@ -434,9 +437,10 @@ export function ExtensionsPage({ initialChip }: { initialChip?: ExtChip | null }
     onMutate: () => {
       setTrashError(null);
       setCopied(null);
+      setTrashWarn(null);
     },
-    onSuccess: (moved, { s }) => {
-      if (!moved) return;
+    onSuccess: (r, { s }) => {
+      if (!r.done) return;
       const id = s.id ?? "";
       deletedThisRun.set(id, { id, name: s.name, kind: s.kind });
       setDeleted([...deletedThisRun.values()]);
@@ -445,6 +449,7 @@ export function ExtensionsPage({ initialChip }: { initialChip?: ExtChip | null }
       setEditing((e) => (e === id ? null : e));
       setCopying(null);
       setCopied(t("extensions.page.trashed", { name: s.name }));
+      setTrashWarn(r.unconfirmed ? t("common.trash.unconfirmed") : null);
     },
     onError: (e, { key }) => setTrashError({ key, text: failure(e) }),
   });
@@ -495,6 +500,7 @@ export function ExtensionsPage({ initialChip }: { initialChip?: ExtChip | null }
     });
   const startCopy = (key: string) => {
     setCopied(null);
+    setTrashWarn(null);
     setTrashError(null);
     setCopying(copying === key ? null : key);
   };
@@ -623,6 +629,11 @@ export function ExtensionsPage({ initialChip }: { initialChip?: ExtChip | null }
         {copied && (
           <p role="status" className="text-xs text-ok">
             {copied}
+          </p>
+        )}
+        {trashWarn && (
+          <p role="status" data-tone="warn" className="rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 text-xs text-ink">
+            {trashWarn}
           </p>
         )}
         {error ? (

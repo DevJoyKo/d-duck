@@ -31,6 +31,8 @@ import { Button, Empty, PageHeader, Sheet } from "./ui";
 import { StartingCards } from "./StartingCards";
 import { recordLines, reworkModel } from "../lib/model";
 import { useT } from "../i18n/react";
+import { isWindows } from "../lib/platform";
+import { MacOnlyNote } from "./MacOnly";
 
 const KIND_LABEL: Record<AgentSession["kind"], string> = localized({ background: "tasks.kind.background", interactive: "tasks.kind.interactive", other: "tasks.kind.misc" });
 
@@ -489,12 +491,13 @@ function Detail({ s, onClose, tag, onDraft, label }: { s: AgentSession; onClose:
                   {t("tasks.detail.stop")}
                 </Button>
               )}
-              <Button variant="danger" disabled={!live || !s.pid} onClick={() => setConfirm("kill")}>
+              <Button variant="danger" disabled={!live || !s.pid || isWindows()} title={isWindows() ? t("common.macOnly.forceStop") : undefined} onClick={() => setConfirm("kill")}>
                 {t("tasks.detail.kill")}
               </Button>
             </>
           )}
         </div>
+        {isWindows() && live && !!s.pid && <MacOnlyNote text={t("common.macOnly.forceStop")} />}
         <p className="text-xs text-ink-3">
           {control
             ? confirm === "finish"

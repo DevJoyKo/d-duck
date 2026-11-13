@@ -12,6 +12,8 @@ import { GateLine } from "./LoginBits";
 import { t } from "../i18n";
 import { currentLocale } from "../i18n/language";
 import { useT } from "../i18n/react";
+import { isWindows } from "../lib/platform";
+import { MacOnlyNote } from "./MacOnly";
 
 type Draft = RoutineInput & { id: number | null };
 
@@ -829,6 +831,8 @@ function CloudSection() {
   // claude-login: without a claude.ai login the list can never load, so the button is off and says why.
   const authView = useAuth().view;
   const authGate = gate ?? gateFor(authView, "claudeAi");
+  // Windows preview: fetching and editing cloud routines need the app-owned hook, verified on macOS only (MacOnly).
+  const macOnly = isWindows();
   const state = (r: CloudRoutine) =>
     t(r.endedReason === "run_once_fired" ? "routines.cloud.state.endedOnce" : r.endedReason ? "routines.cloud.state.ended" : r.enabled ? "routines.cloud.state.on" : "routines.cloud.state.off");
   const listTip = `${t("routines.cloud.listTip")}${data?.list.costUsd != null ? t("routines.cloud.lastCost", { cost: `$${data.list.costUsd.toFixed(4)}` }) : ""}`;
@@ -844,12 +848,17 @@ function CloudSection() {
             <ExternalLink size={14} />
             {t("routines.cloud.openWeb")}
           </Button>
-          <Button variant={data ? "secondary" : "primary"} disabled={loading || busy != null || authGate !== null} onClick={load} title={authGate ? undefined : listTip}>
+          <Button variant={data ? "secondary" : "primary"} disabled={loading || busy != null || authGate !== null || macOnly} onClick={load} title={authGate ? undefined : listTip}>
             {loading ? t("routines.cloud.loading") : data ? t("routines.cloud.reload") : t("routines.cloud.load")}
           </Button>
         </div>
       </div>
-      {authGate && <GateLine need="claudeAi" force={authGate} more className="mt-3 justify-end" />}
+      {macOnly && (
+        <div className="mt-3">
+          <MacOnlyNote text={t("common.macOnly.cloud")} />
+        </div>
+      )}
+      {authGate && !macOnly && <GateLine need="claudeAi" force={authGate} more className="mt-3 justify-end" />}
       {error && (
         <p role="alert" className="mt-3 text-xs text-danger">
           {t("routines.cloud.loadFailed", { error: shown(error) })}

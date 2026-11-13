@@ -70,6 +70,9 @@ export default {
     modelAllowUnknown: "Couldn't check the allow list, so it was blocked",
     modelNoFallback: "No model to use instead, so it didn't start · It never switches to a pricier model",
     modelAgentUnsupported: "The model in the agent file isn't available · Change it in agent settings",
+    macOnly: "Mac only · Not available in the Windows preview yet",
+    windowsCommandTooLong: "The instructions and settings are too long for Windows · Shorten them and try again",
+    cliUpdateNeeded: "Update Claude Code · Version 2.1.295 or later is needed",
   },
   connection: {
     claudeAi: "Connected with your Claude account",

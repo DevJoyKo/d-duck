@@ -90,15 +90,9 @@ pub struct TrashPlan {
     token: String,
 }
 
-#[cfg(unix)]
-fn ids(m: &std::fs::Metadata) -> (u64, u64, u64) {
-    use std::os::unix::fs::MetadataExt;
-    (m.dev(), m.ino(), m.nlink())
-}
-
-#[cfg(not(unix))]
-fn ids(_m: &std::fs::Metadata) -> (u64, u64, u64) {
-    (0, 0, 1)
+/// (device, inode, links) of `p`, whose metadata is `m` (Windows reads them from a handle; see platform::ids).
+fn ids(p: &Path, m: &std::fs::Metadata) -> (u64, u64, u64) {
+    crate::platform::ids(p, m)
 }
 
 /// Checks one catalog entry (found by id, never by a webview path): user or project source, a regular `.md` file
@@ -126,7 +120,7 @@ pub fn plan_trash(def: &AgentDef, config_dir: &Path) -> Result<TrashPlan, TrashE
         }
     }
     let m = std::fs::symlink_metadata(&path).map_err(|_| TrashError::Unsafe(crate::i18n::Fail::FileNotFound.str()))?;
-    let (dev, ino, nlink) = ids(&m);
+    let (dev, ino, nlink) = ids(&path, &m);
     if !m.file_type().is_file() || nlink != 1 {
         return Err(TrashError::Unsafe(crate::i18n::Fail::NotRegularOrLinked.str()));
     }
@@ -145,7 +139,7 @@ pub fn plan_trash(def: &AgentDef, config_dir: &Path) -> Result<TrashPlan, TrashE
 /// Same file as when the dialog opened: device, inode, link count, type and content.
 pub fn recheck(plan: &TrashPlan) -> Result<(), TrashError> {
     let m = std::fs::symlink_metadata(&plan.path).map_err(|_| TrashError::Changed)?;
-    let (dev, ino, nlink) = ids(&m);
+    let (dev, ino, nlink) = ids(&plan.path, &m);
     if !m.file_type().is_file() || nlink != 1 || dev != plan.dev || ino != plan.ino {
         return Err(TrashError::Changed);
     }
@@ -159,6 +153,7 @@ pub fn recheck(plan: &TrashPlan) -> Result<(), TrashError> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    use crate::platform::CanonExt;
     use super::*;
     use crate::agents_catalog::{Roots, discover};
 
@@ -211,7 +206,7 @@ mod tests {
         let plan = plan_trash(&def("mine"), &cfg).unwrap();
         recheck(&plan).unwrap();
         let p = plan_trash(&def("old-helper"), &cfg).unwrap();
-        assert_eq!(p.project.as_deref(), Some(proj.canonicalize().unwrap().as_path()));
+        assert_eq!(p.project.as_deref(), Some(proj.canon().unwrap().as_path()));
         assert_eq!(plan_trash(&def("Explore"), &cfg).unwrap_err(), TrashError::NotDeletable);
         // Changed after the dialog: refused.
         std::fs::write(cfg.join("agents/mine.md"), "---\nname: mine\ndescription: other\n---\n").unwrap();

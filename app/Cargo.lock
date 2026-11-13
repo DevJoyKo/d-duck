@@ -766,8 +766,8 @@ dependencies = [
  "base64 0.23.1",
  "chrono",
  "chrono-tz",
+ "dunce",
  "libc",
- "notify",
  "proptest",
  "quick-xml",
  "regex",
@@ -778,11 +778,11 @@ dependencies = [
  "sys-locale",
  "tempfile",
  "thiserror 2.0.21",
- "tokio",
  "unicode-normalization",
  "ureq",
  "url",
  "walkdir",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4418,7 +4418,6 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
- "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",

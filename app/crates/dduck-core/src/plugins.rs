@@ -3,6 +3,7 @@
 //! used to find components, never sent to the webview). Components are read from the install folder by name and
 //! description only (64 KB per file, no symlinks); hook and MCP/LSP config files are checked for presence, not read.
 
+use crate::platform::CanonExt;
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;
@@ -175,7 +176,7 @@ fn read_json_under(root: &Path, rel: &Path) -> Option<serde_json::Value> {
     if !rel.components().all(|c| matches!(c, Component::Normal(_) | Component::CurDir)) {
         return None;
     }
-    let real = root.join(rel).canonicalize().ok()?;
+    let real = root.join(rel).canon().ok()?;
     if !real.starts_with(root) || !std::fs::symlink_metadata(&real).is_ok_and(|m| m.file_type().is_file()) {
         return None;
     }
@@ -193,7 +194,7 @@ fn sha_ok(s: &str) -> bool {
 /// `source.sha`, or a relative source's `plugin.json` version) and `known_marketplaces.json` (lastUpdated).
 pub fn local_updates(config_dir: &Path, installed: &[Installed]) -> HashMap<String, UpdateInfo> {
     let unknown = || UpdateInfo { state: UpdateState::Unknown, marketplace_updated: None };
-    let Ok(root) = config_dir.join("plugins").canonicalize() else {
+    let Ok(root) = config_dir.join("plugins").canon() else {
         return installed.iter().map(|p| (p.id.clone(), unknown())).collect();
     };
     let recorded = read_json_under(&root, Path::new("installed_plugins.json"));
@@ -274,7 +275,7 @@ pub struct Plugin {
 /// Install folder inside `<config>/plugins/cache`, canonical, with no link anywhere below the cache root.
 fn checked_root(config_dir: &Path, install: &Path) -> Option<PathBuf> {
     let literal = config_dir.join("plugins").join("cache");
-    let cache = literal.canonicalize().ok()?;
+    let cache = literal.canon().ok()?;
     let rel = install.strip_prefix(&literal).or_else(|_| install.strip_prefix(&cache)).ok()?;
     if !rel.components().all(|c| matches!(c, Component::Normal(_))) || rel.as_os_str().is_empty() {
         return None;
@@ -301,7 +302,7 @@ pub(crate) fn read_manifest(root: &Path) -> serde_json::Value {
 /// A plugin's skills: the default `skills/` folder plus every manifest `skills` path, where a path is either a folder
 /// of skills or one skill folder (it holds `SKILL.md`). Paths outside the install folder are dropped.
 pub(crate) fn plugin_skills(root: &Path, manifest: &serde_json::Value, plugin: &str, out: &mut Vec<Skill>) {
-    let Ok(root) = root.canonicalize() else { return };
+    let Ok(root) = root.canon() else { return };
     for dir in dedupe([vec![root.join("skills")], manifest_paths(manifest.get("skills"), &root)].concat()) {
         if !real_dir(&dir) {
             continue;
@@ -320,7 +321,7 @@ pub(crate) fn plugin_skills(root: &Path, manifest: &serde_json::Value, plugin: &
 /// file (not a link) whose canonical path stays inside the canonical install folder. The plugins tab and the agents
 /// tab both use this list.
 pub(crate) fn plugin_agent_files(root: &Path) -> Vec<PathBuf> {
-    let Ok(root) = root.canonicalize() else { return Vec::new() };
+    let Ok(root) = root.canon() else { return Vec::new() };
     let mut files = Vec::new();
     let default = root.join("agents");
     if real_dir(&default) {
@@ -346,8 +347,8 @@ pub(crate) fn plugin_agent_files(root: &Path) -> Vec<PathBuf> {
 /// folder (`cache/<marketplace>/<plugin>/…`).
 fn recorded_roots(config_dir: &Path) -> HashMap<String, Vec<PathBuf>> {
     let mut out: HashMap<String, Vec<PathBuf>> = HashMap::new();
-    let Ok(base) = config_dir.join("plugins").canonicalize() else { return out };
-    let Ok(cache) = config_dir.join("plugins").join("cache").canonicalize() else { return out };
+    let Ok(base) = config_dir.join("plugins").canon() else { return out };
+    let Ok(cache) = config_dir.join("plugins").join("cache").canon() else { return out };
     let Some(recorded) = read_json_under(&base, Path::new("installed_plugins.json")) else { return out };
     let Some(plugins) = recorded.get("plugins").and_then(|p| p.as_object()) else { return out };
     for (id, entries) in plugins.iter().take(500) {
@@ -408,7 +409,7 @@ pub(crate) fn plugin_roots(config_dir: &Path) -> Vec<(String, PathBuf)> {
                     newest = Some((when, v.path()));
                 }
             }
-            if let Some(root) = newest.and_then(|(_, v)| v.canonicalize().ok()) {
+            if let Some(root) = newest.and_then(|(_, v)| v.canon().ok()) {
                 out.push((name, root));
             }
         }
@@ -426,7 +427,7 @@ fn manifest_paths(v: Option<&serde_json::Value>, root: &Path) -> Vec<PathBuf> {
         .map(Path::new)
         .filter(|p| p.components().all(|c| matches!(c, Component::Normal(_) | Component::CurDir)))
         .map(|p| root.join(p))
-        .filter(|p| p.canonicalize().is_ok_and(|c| c.starts_with(root)))
+        .filter(|p| p.canon().is_ok_and(|c| c.starts_with(root)))
         .collect()
 }
 
@@ -449,7 +450,7 @@ fn file_exists(p: &Path) -> bool {
 
 fn dedupe(mut v: Vec<PathBuf>) -> Vec<PathBuf> {
     let mut seen = HashSet::new();
-    v.retain(|p| seen.insert(p.canonicalize().unwrap_or_else(|_| p.clone())));
+    v.retain(|p| seen.insert(p.canon().unwrap_or_else(|_| p.clone())));
     v
 }
 
@@ -641,7 +642,7 @@ mod tests {
         let b = cfg.join("plugins/cache/cloudflare/cloudflare/1.0.2");
         std::fs::create_dir_all(&a).unwrap();
         write(&b.join(".mcp.json"), r#"{"mcpServers":{"cloudflare":{"url":"https://CANARY_FILE"}}}"#);
-        let json = LIST.replace("INSTALL_A", &a.display().to_string()).replace("INSTALL_B", &b.display().to_string());
+        let json = LIST.replace("INSTALL_A", &crate::testkit::js(&a)).replace("INSTALL_B", &crate::testkit::js(&b));
         let installed = parse_list(json.as_bytes()).unwrap();
         assert_eq!(installed.len(), 3, "invalid id dropped");
         let plugins = build(&cfg, installed);
@@ -818,14 +819,14 @@ mod tests {
         let cache = cfg.join("plugins/cache/mk/kit");
         write(&cache.join("1.3.1/skills/old/SKILL.md"), "---\nname: old\n---\n");
         write(&cache.join("49dd158d1076/skills/new/SKILL.md"), "---\nname: new\n---\n");
-        let at = |p: &Path, s: u64| std::fs::File::open(p).unwrap().set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(s)).unwrap();
+        let at = |p: &Path, s: u64| crate::testkit::set_mtime(p, std::time::UNIX_EPOCH + std::time::Duration::from_secs(s));
         at(&cache.join("1.3.1"), 1_000);
         at(&cache.join("49dd158d1076"), 2_000);
         let plugin_skills = || {
             crate::skills_catalog::discover(&cfg, &[]).into_iter().filter(|s| s.source == SkillSource::Plugin).map(|s| s.name).collect::<Vec<_>>()
         };
         assert_eq!(plugin_skills(), ["kit:new"], "no record: newest folder");
-        write(&cfg.join("plugins/installed_plugins.json"), &format!(r#"{{"plugins":{{"kit@mk":[{{"installPath":"{}"}}]}}}}"#, cache.join("1.3.1").display()));
+        write(&cfg.join("plugins/installed_plugins.json"), &format!(r#"{{"plugins":{{"kit@mk":[{{"installPath":{}}}]}}}}"#, serde_json::to_string(&cache.join("1.3.1").display().to_string()).unwrap()));
         assert_eq!(plugin_skills(), ["kit:old"], "the recorded install path wins");
     }
 

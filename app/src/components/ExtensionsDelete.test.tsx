@@ -134,9 +134,19 @@ describe("확장 tab: delete", () => {
     expect(screen.getByRole("button", { name: /^커맨드/ }).textContent).toBe("커맨드3");
   });
 
+  it("an unconfirmed Recycle Bin move updates the list like a move and says so (windows-support 9.1)", async () => {
+    const invoke = await boot();
+    invoke.mockImplementation((c, a) => (c === "trash_extension_item" ? Promise.resolve({ done: true, unconfirmed: true }) : real(c, a)));
+    fireEvent.click(within(await rowOf("pr-writer")).getByRole("button", { name: "삭제" }));
+    const warn = await screen.findByText("지웠지만 휴지통에서 찾지 못했어요 · 영구 삭제됐을 수 있어요");
+    expect(warn.getAttribute("data-tone")).toBe("warn");
+    expect(warn.className).toContain("bg-warn-soft");
+    await waitFor(() => expect(invoke.mock.calls.filter(([c]) => c === "skill_catalog").length).toBeGreaterThan(1));
+  });
+
   it("a cancelled dialog changes nothing and shows no error", async () => {
     const invoke = await boot();
-    invoke.mockImplementation((c, a) => (c === "trash_extension_item" ? Promise.resolve(false) : real(c, a)));
+    invoke.mockImplementation((c, a) => (c === "trash_extension_item" ? Promise.resolve({ done: false, unconfirmed: false }) : real(c, a)));
     fireEvent.click(within(await rowOf("pr-writer")).getByRole("button", { name: "삭제" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("trash_extension_item", { id: "s-prwriterskill", unsaved: false }));
     expect(await rowOf("pr-writer")).toBeTruthy();

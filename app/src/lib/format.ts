@@ -1,6 +1,7 @@
 import { messageOf, type AgentSession, type BoardCard, type CliError, type Lane, type SessionStatus, type TaskTag } from "./api";
 import { currentLang, currentLocale } from "../i18n/language";
 import { t, translate, type MessageKey } from "../i18n";
+import { isWindows, splitPath } from "./platform";
 
 export function compact(n: number): string {
   if (Math.abs(n) >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
@@ -92,8 +93,9 @@ export const STATUS_LABEL: Record<SessionStatus, string> = localized({
 
 /** `/Users/me/Agents/dev_team` → `…/Agents/dev_team`: keeps the project folder visible in narrow cards. */
 export function shortPath(p: string): string {
-  const parts = p.split("/").filter(Boolean);
-  return parts.length <= 2 ? p : `…/${parts.slice(-2).join("/")}`;
+  const parts = splitPath(p);
+  const sep = isWindows() ? "\\" : "/";
+  return parts.length <= 2 ? p : `…${sep}${parts.slice(-2).join(sep)}`;
 }
 
 /** Board columns in workflow order (D-042, task-lifecycle). "review" (확인 필요) is what needs a person: waiting for

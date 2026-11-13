@@ -6,6 +6,7 @@
 //! and a fingerprint (device, inode, content, and for a skill folder every entry's size and times) re-checked.
 //! Paths are compared as configured; only the project list and the home check are canonical (security review).
 
+use crate::platform::CanonExt;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
@@ -54,14 +55,14 @@ impl TrashRoots {
     pub fn from_configured(config_dir: PathBuf, project_dirs: &[PathBuf], home: &Path) -> Self {
         let (mut projects, mut linked) = (Vec::new(), Vec::new());
         for p in project_dirs {
-            let Ok(c) = p.canonicalize() else { continue };
+            let Ok(c) = p.canon() else { continue };
             if c == *p { projects.push(c) } else { linked.push(c) }
         }
         for v in [&mut projects, &mut linked] {
             v.sort();
             v.dedup();
         }
-        TrashRoots { config_dir, projects, home: home.canonicalize().ok(), linked }
+        TrashRoots { config_dir, projects, home: home.canon().ok(), linked }
     }
 }
 
@@ -86,15 +87,9 @@ pub struct ExtTrash {
     fingerprint: String,
 }
 
-#[cfg(unix)]
-fn ids(m: &std::fs::Metadata) -> (u64, u64, u64) {
-    use std::os::unix::fs::MetadataExt;
-    (m.dev(), m.ino(), m.nlink())
-}
-
-#[cfg(not(unix))]
-fn ids(_m: &std::fs::Metadata) -> (u64, u64, u64) {
-    (0, 0, 1)
+/// (device, inode, links) of `p`, whose metadata is `m` (Windows reads them from a handle; see platform::ids).
+fn ids(p: &Path, m: &std::fs::Metadata) -> (u64, u64, u64) {
+    crate::platform::ids(p, m)
 }
 
 #[cfg(unix)]
@@ -120,7 +115,7 @@ fn stream_token(path: &Path) -> Result<(std::fs::Metadata, String), ExtTrashErro
     if !m.is_file() {
         return Err(Unsafe(crate::i18n::Fail::NotRegularFile.str()));
     }
-    if ids(&m).2 != 1 {
+    if crate::platform::handle_ids(&f, &m).2 != 1 {
         return Err(Unsafe(HARD_LINK.str()));
     }
     let mut h = Sha256::new();
@@ -154,10 +149,10 @@ fn snapshot(path: &Path, kind: &str, guard: &[PathBuf]) -> Result<Snap, ExtTrash
     if m.file_type().is_symlink() {
         return Err(Unsafe(LINK.str()));
     }
-    let (dev, ino, _) = ids(&m);
+    let (dev, ino, _) = ids(path, &m);
     if kind != "skill" {
         let (fm, token) = stream_token(path)?;
-        if ids(&fm).0 != dev || ids(&fm).1 != ino {
+        if ids(path, &fm).0 != dev || ids(path, &fm).1 != ino {
             return Err(Changed);
         }
         return Ok(Snap { dev, ino, files: 1, fingerprint: token, skill_token: None });
@@ -182,8 +177,11 @@ fn snapshot(path: &Path, kind: &str, guard: &[PathBuf]) -> Result<Snap, ExtTrash
         if ft.is_symlink() {
             return Err(Unsafe(crate::i18n::Fail::SkillDirLink.str()));
         }
-        let em = e.metadata().map_err(|_| Unsafe(crate::i18n::Fail::SkillDirPartial.str()))?;
-        let (d, i, n) = ids(&em);
+        // Windows: walkdir's metadata comes from the directory listing, whose times NTFS refreshes lazily; read the
+        // entry itself so the plan and the recheck see the same values (windows-support 5.2).
+        let em = if cfg!(windows) { std::fs::symlink_metadata(e.path()) } else { e.metadata().map_err(std::io::Error::from) };
+        let em = em.map_err(|_| Unsafe(crate::i18n::Fail::SkillDirPartial.str()))?;
+        let (d, i, n) = ids(e.path(), &em);
         if ft.is_file() {
             if n != 1 {
                 return Err(Unsafe(crate::i18n::Fail::HasHardlink.str()));
@@ -382,7 +380,7 @@ mod tests {
 
     fn fixture() -> Fx {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canon().unwrap();
         let cfg = root.join("cfg");
         let proj = root.join("proj");
         write(&cfg.join("skills/standup/SKILL.md"), "---\nname: standup\n---\n");
@@ -405,6 +403,18 @@ mod tests {
         discover(&f.cfg, std::slice::from_ref(&f.proj)).into_iter().find(|s| s.kind == kind && s.name == name).unwrap()
     }
 
+    /// Windows CI diagnostic: two snapshots of an unchanged skill folder must agree part by part.
+    #[test]
+    fn snapshot_of_an_unchanged_folder_is_stable() {
+        let f = fixture();
+        let p = f.cfg.join("skills/standup");
+        let (a, b) = (snapshot(&p, "skill", &[]).unwrap(), snapshot(&p, "skill", &[]).unwrap());
+        assert_eq!((a.dev, a.ino), (b.dev, b.ino), "folder identity");
+        assert_eq!(a.files, b.files);
+        assert_eq!(a.skill_token, b.skill_token, "SKILL.md token");
+        assert_eq!(a.fingerprint, b.fingerprint, "entry fingerprint");
+    }
+
     #[test]
     fn plans_own_skills_commands_and_workflows() {
         let f = fixture();
@@ -412,6 +422,9 @@ mod tests {
         let s = plan_trash(&find(&f, "skill", "standup"), &r).unwrap();
         assert_eq!((s.path.clone(), s.files, s.disk_name.as_str()), (f.cfg.join("skills/standup"), 2, "standup"));
         assert!(s.skill_token.as_deref().is_some_and(|t| t.len() == 64));
+        let again = snapshot(&s.path, s.kind, &s.guard).unwrap();
+        assert_eq!((again.dev, again.ino), (s.dev, s.ino), "identity at recheck");
+        assert_eq!(again.fingerprint, s.fingerprint, "fingerprint at recheck");
         recheck(&s).unwrap();
         let c = plan_trash(&find(&f, "command", "opsx:propose"), &r).unwrap();
         assert_eq!(c.path, f.cfg.join("commands/opsx/propose.md"));

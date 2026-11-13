@@ -9,6 +9,10 @@ export default {
     /** The only choice named in the current language; 한국어 and English are always shown in their own language. */
     system: "시스템 언어 따름",
   },
+  /** A Windows Recycle Bin move the bin did not confirm (Rust Fail::TrashUnconfirmed). */
+  trash: {
+    unconfirmed: "지웠지만 휴지통에서 찾지 못했어요 · 영구 삭제됐을 수 있어요",
+  },
   actions: {
     close: "닫기",
     cancel: "취소",
@@ -54,5 +58,17 @@ export default {
     readOnly: "읽기 전용 에이전트예요 · 복사해서 내 것으로 만들면 바꿀 수 있어요",
     original: "원래 작업은 {model}{ro} 돌았어요",
     saved: "저장했어요",
+  },
+  // windows-support: features whose protection is verified on macOS only. One line each, shown next to the disabled control.
+  macOnly: {
+    chip: "Mac 전용",
+    localOnly: "로컬만 작업은 Windows 미리보기에서 아직 쓸 수 없어요",
+    forceStop: "강제 종료는 Windows 미리보기에서 아직 쓸 수 없어요",
+    news: "새 소식 가져오기는 Windows 미리보기에서 아직 쓸 수 없어요 · 저장된 소식은 볼 수 있어요",
+    insights: "Claude 분석은 Windows 미리보기에서 아직 쓸 수 없어요",
+    refine: "요구사항 다듬기는 Windows 미리보기에서 아직 쓸 수 없어요",
+    cloud: "클라우드 루틴 불러오기·고치기는 Windows 미리보기에서 아직 쓸 수 없어요",
+    gitBash: "Git for Windows가 없으면 명령을 실행할 수 없어요",
+    gitBashLink: "Git for Windows 설치하기",
   },
 } as const;

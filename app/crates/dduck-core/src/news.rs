@@ -218,7 +218,7 @@ pub fn prompt(known: &Known, lang: Lang) -> String {
 
 pub fn args(guard_cmd: &str, known: &Known, lang: Lang) -> Vec<String> {
     let settings = serde_json::json!({
-        "hooks": { "PreToolUse": [ { "matcher": "*", "hooks": [ { "type": "command", "command": guard_cmd } ] } ] }
+        "hooks": { "PreToolUse": [ { "matcher": "*", "hooks": [ { "type": "command", "command": guard_cmd, "onFailure": "block" } ] } ] }
     });
     [
         "-p",
@@ -285,6 +285,8 @@ pub enum NewsError {
     Malformed { cost_usd: Option<f64> },
     Busy,
     Guard,
+    /// The CLI is older than the one that blocks on hook failure (decision 8).
+    CliOutdated,
 }
 
 impl NewsError {
@@ -301,6 +303,7 @@ impl NewsError {
             NewsError::Malformed { .. } => "malformed",
             NewsError::Busy => "busy",
             NewsError::Guard => "guard",
+            NewsError::CliOutdated => "cliOutdated",
         }
     }
 
@@ -326,6 +329,7 @@ impl NewsError {
             NewsError::Malformed { .. } => F::NewsMalformed.now(),
             NewsError::Busy => F::NewsBusy.now(),
             NewsError::Guard => F::GuardUnchecked.now(),
+            NewsError::CliOutdated => crate::i18n::ReasonCode::CliUpdateNeeded.now(),
         }
     }
 }
@@ -1351,3 +1355,16 @@ mod tests {
         assert_eq!(version_key(None), (0, 0, 0));
     }
 }
+
+/// Group 8 check LOW [both OSes]: the old-CLI refusal has its own code and the update sentence.
+#[cfg(test)]
+mod cli_outdated {
+    #[test]
+    fn code_and_message() {
+        let e = super::NewsError::CliOutdated;
+        assert_eq!(e.code(), "cliOutdated");
+        assert_eq!(e.message(), crate::i18n::ReasonCode::CliUpdateNeeded.now());
+        assert_eq!(e.cost_usd(), None);
+    }
+}
+

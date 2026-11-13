@@ -1,3 +1,4 @@
+import { trashUnconfirmed } from "./os";
 // Mock-mode data for the agent settings sheet (team rules, task types, agent on/off). Design review only: the real
 // merge, validation and confirmation logic lives in Rust (team_config.rs, agent_controls.rs).
 import rawBundle from "../../crates/dduck-core/data/team_defaults.json";
@@ -119,6 +120,6 @@ export const teamHandlers: Record<string, (a: Record<string, unknown>) => unknow
   set_agent_hidden: (a) => {
     controls.hidden = a.hidden ? [...controls.hidden, String(a.name)] : controls.hidden.filter((n) => n !== a.name);
   },
-  trash_agent: (a) => ({ name: String(a.id).replace(/^f-/, ""), project: null, off: false, hidden: false }),
+  trash_agent: (a) => ({ name: String(a.id).replace(/^f-/, ""), project: null, off: false, hidden: false, unconfirmed: trashUnconfirmed() }),
   forget_agent: () => undefined,
 };

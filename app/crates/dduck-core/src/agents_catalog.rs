@@ -2,6 +2,7 @@
 //!
 //! The webview only ever sees ids. Every write re-discovers, re-checks the file and is confirmed natively by the shell.
 
+use crate::platform::CanonExt;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -255,7 +256,7 @@ pub fn persona_risk(defs: &[AgentDef], config_dir: &Path, name: &str, cwd: &Path
     if !valid_name(name) {
         return None;
     }
-    let cwd = cwd.canonicalize().ok()?;
+    let cwd = cwd.canon().ok()?;
     let unreadable = Risk { unreadable: true, ..Default::default() };
     for dir in cwd.ancestors() {
         let claude = dir.join(".claude");
@@ -389,7 +390,7 @@ fn scan_dir(dir: &Path, source: Source, scope: Option<&Path>, prefix: Option<&st
 /// Catalog for one folder: also scans `cwd` and its ancestors, and marks which definitions `cwd` can use.
 pub fn discover_for(roots: &Roots, cwd: Option<&Path>) -> Vec<AgentDef> {
     let mut roots = Roots { config_dir: roots.config_dir.clone(), project_dirs: roots.project_dirs.clone() };
-    let canon = cwd.and_then(|c| c.canonicalize().ok());
+    let canon = cwd.and_then(|c| c.canon().ok());
     if let Some(c) = &canon {
         roots.project_dirs.splice(0..0, c.ancestors().take(12).map(Path::to_path_buf));
     }
@@ -408,7 +409,7 @@ pub fn discover(roots: &Roots) -> Vec<AgentDef> {
     let mut out = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
     for p in roots.project_dirs.iter().take(MAX_PROJECT_DIRS) {
-        let Ok(canon) = p.canonicalize() else { continue };
+        let Ok(canon) = p.canon() else { continue };
         if !seen.insert(canon.clone()) {
             continue;
         }
@@ -469,7 +470,7 @@ pub fn resolve_for_cwd<'a>(defs: &'a [AgentDef], name: &str, cwd: &Path) -> Opti
     if !valid_name(name) {
         return None;
     }
-    let cwd = cwd.canonicalize().ok()?;
+    let cwd = cwd.canon().ok()?;
     let mut best: Option<&AgentDef> = None;
     for d in defs.iter().filter(|d| d.name == name) {
         let usable = match d.source {
@@ -508,14 +509,9 @@ pub enum SaveError {
     Io,
 }
 
-#[cfg(unix)]
-fn nlink(m: &std::fs::Metadata) -> u64 {
-    std::os::unix::fs::MetadataExt::nlink(m)
-}
-
-#[cfg(not(unix))]
-fn nlink(_m: &std::fs::Metadata) -> u64 {
-    1
+/// Link count of `p` (metadata `m`); Windows reads it from a handle and refuses when unknown (platform::ids).
+fn nlink(p: &Path, m: &std::fs::Metadata) -> u64 {
+    crate::platform::nlink(p, m)
 }
 
 /// Full text for the editor plus its token.
@@ -523,7 +519,7 @@ pub fn load(defs: &[AgentDef], id: &str) -> Result<(String, String), SaveError> 
     let d = defs.iter().find(|d| d.id == id).ok_or(SaveError::NotFound)?;
     let file = d.file.as_ref().ok_or(SaveError::ReadOnly(crate::i18n::Fail::BuiltinNoFile.str()))?;
     let m = std::fs::symlink_metadata(file).map_err(|_| SaveError::Io)?;
-    if !m.file_type().is_file() || nlink(&m) != 1 {
+    if !m.file_type().is_file() || nlink(file, &m) != 1 {
         return Err(SaveError::ReadOnly(crate::i18n::Fail::NotRegularOrLinked.str()));
     }
     let bytes = std::fs::read(file).map_err(|_| SaveError::Io)?;
@@ -543,7 +539,7 @@ pub struct SavePlan {
     pub permission_warning: bool,
     pub risk: Risk,
     pub frontmatter_preview: String,
-    #[cfg(unix)]
+    /// File index on Windows, inode on macOS (swap check on save, also on Windows: review LOW).
     ino: u64,
     #[cfg(unix)]
     mode: u32,
@@ -583,7 +579,7 @@ pub fn plan_save_path(path: PathBuf, content: String, token: &str) -> Result<Sav
         return Err(SaveError::Invalid(crate::i18n::Fail::Text256Only.str()));
     }
     let m = std::fs::symlink_metadata(&path).map_err(|_| SaveError::NotFound)?;
-    if !m.file_type().is_file() || nlink(&m) != 1 {
+    if !m.file_type().is_file() || nlink(&path, &m) != 1 {
         return Err(SaveError::ReadOnly(crate::i18n::Fail::NotRegularOrLinked.str()));
     }
     let current = std::fs::read(&path).map_err(|_| SaveError::Io)?;
@@ -614,8 +610,7 @@ pub fn plan_save_path(path: PathBuf, content: String, token: &str) -> Result<Sav
         frontmatter_preview: preview,
         old_token: token.to_string(),
         content,
-        #[cfg(unix)]
-        ino: std::os::unix::fs::MetadataExt::ino(&m),
+        ino: crate::platform::ids(&path, &m).1,
         #[cfg(unix)]
         mode: std::os::unix::fs::MetadataExt::mode(&m),
         path,
@@ -625,15 +620,14 @@ pub fn plan_save_path(path: PathBuf, content: String, token: &str) -> Result<Sav
 /// Writes an approved plan. Re-checks the file first: it may have changed while the dialog was open.
 pub fn commit_save(plan: &SavePlan) -> Result<(), SaveError> {
     let m = std::fs::symlink_metadata(&plan.path).map_err(|_| SaveError::Conflict)?;
-    if !m.file_type().is_file() || nlink(&m) != 1 {
+    if !m.file_type().is_file() || nlink(&plan.path, &m) != 1 {
         return Err(SaveError::Conflict);
     }
     let parent_ok = plan.path.parent().and_then(|d| std::fs::symlink_metadata(d).ok()).is_some_and(|pm| pm.file_type().is_dir() && owned_private(&pm));
     if !parent_ok {
         return Err(SaveError::Conflict);
     }
-    #[cfg(unix)]
-    if std::os::unix::fs::MetadataExt::ino(&m) != plan.ino || !owned_private(&m) {
+    if crate::platform::ids(&plan.path, &m).1 != plan.ino || !owned_private(&m) {
         return Err(SaveError::Conflict);
     }
     let current = std::fs::read(&plan.path).map_err(|_| SaveError::Conflict)?;
@@ -963,7 +957,7 @@ mod tests {
 
     fn set_mtime(p: &Path, secs: u64) {
         let t = std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs);
-        std::fs::File::open(p).unwrap().set_modified(t).unwrap();
+        crate::testkit::set_mtime(p, t);
     }
 
     #[test]
@@ -980,8 +974,8 @@ mod tests {
         put(&tmp.path().join("abs.md"), &agent("absolute"));
         assert_eq!(plugin_agents(&r), ["kit:reviewer"], "root agents/ only; docs/agents and unlisted files are skipped");
 
-        let abs = tmp.path().join("abs.md").canonicalize().unwrap();
-        let manifest = format!(r#"{{"name":"kit","agents":["./extra/helper.md","./custom/agents","../outside.md","{}"]}}"#, abs.display());
+        let abs = tmp.path().join("abs.md").canon().unwrap();
+        let manifest = format!(r#"{{"name":"kit","agents":["./extra/helper.md","./custom/agents","../outside.md",{}]}}"#, serde_json::to_string(&abs.display().to_string()).unwrap());
         put(&root.join(".claude-plugin/plugin.json"), &manifest);
         assert_eq!(plugin_agents(&r), ["kit:helper", "kit:reviewer"], "manifest .md files count; folders, `..` and absolute paths do not");
         assert!(discover(&r).iter().all(|d| !(d.source == Source::Plugin && d.malformed)), "no doc file shows as a broken agent");
@@ -1014,7 +1008,7 @@ mod tests {
         put(&cache.join("multi/1.0.0/agents/a.md"), &agent("a"));
         put(&cache.join("multi/2.0.0/agents/b.md"), &agent("b"));
         put(&cache.join("multi/3.0.0/agents/c.md"), &agent("c"));
-        let rec = |v: &str, p: &str| format!(r#"{{"scope":"project","installPath":"{}","version":"{v}"}}"#, cache.join(p).join(v).display());
+        let rec = |v: &str, p: &str| format!(r#"{{"scope":"project","installPath":"{}","version":"{v}"}}"#, crate::testkit::js(&cache.join(p).join(v)));
         let record = format!(
             r#"{{"version":2,"plugins":{{"kit@mk":[{}],"multi@mk":[{},{}],"bare@other":[{}]}}}}"#,
             rec("1.3.1", "kit"), rec("1.0.0", "multi"), rec("2.0.0", "multi"), rec("1.0.0", "bare")
@@ -1022,12 +1016,12 @@ mod tests {
         put(&r.config_dir.join("plugins/installed_plugins.json"), &record);
         assert_eq!(plugin_agents(&r), ["bare:old", "kit:recorded", "multi:a", "multi:b"], "a record of another marketplace does not count");
 
-        let foreign = format!(r#"{{"plugins":{{"bare@mk":[{{"installPath":"{}"}}]}}}}"#, cache.join("kit/1.3.1").display());
+        let foreign = format!(r#"{{"plugins":{{"bare@mk":[{{"installPath":"{}"}}]}}}}"#, crate::testkit::js(&cache.join("kit/1.3.1")));
         put(&r.config_dir.join("plugins/installed_plugins.json"), &foreign);
         assert!(plugin_agents(&r).contains(&"bare:old".to_string()), "a record pointing at another plugin's folder is ignored");
         assert!(!plugin_agents(&r).contains(&"bare:recorded".to_string()), "kit's agents never show under bare");
 
-        let missing = format!(r#"{{"plugins":{{"kit@mk":[{{"installPath":"{}"}}]}}}}"#, cache.join("kit/0.0.1").display());
+        let missing = format!(r#"{{"plugins":{{"kit@mk":[{{"installPath":"{}"}}]}}}}"#, crate::testkit::js(&cache.join("kit/0.0.1")));
         put(&r.config_dir.join("plugins/installed_plugins.json"), &missing);
         assert!(plugin_agents(&r).contains(&"kit:newer".to_string()), "an unusable record falls back to the newest folder");
         put(&cache.join("kit/49dd158d1076/.orphaned_at"), "1");
@@ -1044,7 +1038,7 @@ mod tests {
         std::fs::create_dir_all(r.config_dir.join("plugins/cache/mk/kit")).unwrap();
         std::os::unix::fs::symlink(tmp.path().join("elsewhere"), r.config_dir.join("plugins/cache/mk/kit/9.9.9")).unwrap();
         assert!(plugin_agents(&r).is_empty(), "no record: the linked version folder is not a candidate");
-        let record = format!(r#"{{"plugins":{{"kit@mk":[{{"installPath":"{}"}}]}}}}"#, r.config_dir.join("plugins/cache/mk/kit/9.9.9").display());
+        let record = format!(r#"{{"plugins":{{"kit@mk":[{{"installPath":"{}"}}]}}}}"#, crate::testkit::js(&r.config_dir.join("plugins/cache/mk/kit/9.9.9")));
         put(&r.config_dir.join("plugins/installed_plugins.json"), &record);
         assert!(plugin_agents(&r).is_empty(), "a record cannot point through a link either");
         put(&r.config_dir.join("plugins/cache/mk/kit/1.0.0/agents/x.md"), &agent("x"));

@@ -1,9 +1,11 @@
 // Rules (rules-editor, D-106): typed wrappers and small pure helpers. The webview sends a memory project id, an
 // opaque rule id from `rules_list` (or a new file name) and hash tokens; Rust resolves every path.
 import { invoke } from "@tauri-apps/api/core";
+import type { Trashed } from "./api";
 import { t } from "../i18n";
 import { subscribe } from "../i18n/language";
 import type { SecretHit } from "./memory";
+import { splitPath } from "./platform";
 
 export type RuleScope = "global" | "project";
 export type FmState = "none" | "ok" | "complex" | "broken";
@@ -81,7 +83,7 @@ export const rulesApi = {
   read: (project: string | null, id: string) => invoke<RuleDoc>("rule_read", { project, id }),
   save: (project: string | null, rule: RuleSave) => invoke<string>("save_rule", { project, rule }),
   setEnabled: (project: string | null, id: string, enabled: boolean, settingsToken: string) => invoke<void>("set_rule_enabled", { project, id, enabled, settingsToken }),
-  trash: (project: string | null, id: string, token: string) => invoke<boolean>("trash_rule", { project, id, token }),
+  trash: (project: string | null, id: string, token: string) => invoke<Trashed>("trash_rule", { project, id, token }),
 };
 
 /** Same pattern as Rust `valid_new_name`: letters, digits, `-`, `_`, one optional subfolder, `.md`. */
@@ -212,7 +214,7 @@ export function freeName(name: string, taken: string[]): string {
 
 /** Folder name of a project rules group (`/a/dev_team/.claude/rules` → `dev_team`). */
 export function projectFolder(dir: string): string | null {
-  const parts = dir.split("/").filter(Boolean);
+  const parts = splitPath(dir);
   return parts.length >= 3 && parts[parts.length - 1] === "rules" && parts[parts.length - 2] === ".claude" ? parts[parts.length - 3] : null;
 }
 

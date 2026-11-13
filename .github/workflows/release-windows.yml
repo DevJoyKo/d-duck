@@ -1,0 +1,131 @@
+name: Release (Windows preview)
+
+# windows-support 5.4 / review 7.8. Builds the unsigned Windows x64 NSIS installer from a tag only (refs/tags/vX.Y.Z,
+# checked to exist), with no restored caches, locked dependencies (`npm ci`, `cargo --locked`) and a pinned Rust
+# toolchain. The build job has no token rights beyond reading; a separate job attests the files (build provenance)
+# and a third, only from a manual run with `attach: true` (the user's approval), attaches them to that tag's
+# existing release. PR artifacts are never used.
+#
+# Manual run (the ref must be the tag itself, so the provenance names refs/tags/vX.Y.Z):
+#   gh workflow run release-windows.yml --ref vX.Y.Z -f tag=vX.Y.Z -f attach=true
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build (e.g. v0.1.3)"
+        required: true
+      attach:
+        description: "Attach the installer and checksum to that release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-windows-${{ github.event.inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Resolve the tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ref: ${{ steps.t.outputs.ref }}
+      name: ${{ steps.t.outputs.name }}
+    steps:
+      - id: t
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          INPUT: ${{ github.event.inputs.tag }}
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then name="$INPUT"; else name="${REF#refs/tags/}"; fi
+          # The whole string, not line by line: a multi-line input cannot pass.
+          [[ $name =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "tag must look like v1.2.3"; exit 1; }
+          # A manual run must run on that tag (--ref vX.Y.Z), or the attestation would name a branch.
+          [ "$REF" = "refs/tags/$name" ] || { echo "run with --ref $name (got $REF)"; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$name" --jq .ref >/dev/null || { echo "tag $name does not exist"; exit 1; }
+          echo "ref=refs/tags/$name" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build NSIS installer (Windows x64)
+    needs: tag
+    runs-on: windows-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: app
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.tag.outputs.ref }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.23.4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch; version pinned below
+        with:
+          toolchain: 1.99.1
+      # No cache restore on purpose: a release is built from the tag's sources and the locked registries only.
+      - run: npm ci
+      - run: npx tauri build --ci -- --locked
+      - name: SHA256
+        run: |
+          cd target/release/bundle/nsis
+          sha256sum ./*-setup.exe | sed 's# \./#  #' > SHA256SUMS-windows.txt
+          cat SHA256SUMS-windows.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dduck-windows-release
+          path: |
+            app/target/release/bundle/nsis/*-setup.exe
+            app/target/release/bundle/nsis/SHA256SUMS-windows.txt
+          retention-days: 30
+
+  attest:
+    name: Build provenance
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: dduck-windows-release
+          path: out
+      - name: Checksums still match
+        run: cd out && sha256sum -c SHA256SUMS-windows.txt
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: out/*-setup.exe
+
+  attach:
+    name: Attach to the release (manual approval)
+    needs: [tag, attest]
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.attach == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: dduck-windows-release
+          path: out
+      - name: Upload to the existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.tag.outputs.name }}
+        run: gh release upload "$TAG" out/* --repo "$GITHUB_REPOSITORY"

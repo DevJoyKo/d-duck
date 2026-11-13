@@ -64,7 +64,7 @@ vi.mock("../lib/rules", async (orig) => {
         return s.id ?? "r-new";
       }),
       setEnabled: vi.fn(async () => undefined),
-      trash: vi.fn(async () => false),
+      trash: vi.fn(async () => ({ done: false, unconfirmed: false })),
     },
   };
 });
@@ -193,6 +193,51 @@ describe("RulesSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
     await waitFor(() => expect(rulesApi.save).toHaveBeenCalled());
     expect(vi.mocked(rulesApi.save).mock.calls[0][1]).toEqual({ id: "r-testing.md", token: "t-testing.md", body: "# 본문\n", paths: ["**/*.test.ts"] });
+  });
+
+  it("an unconfirmed Recycle Bin move refreshes like a move and says so (windows-support 9.1)", async () => {
+    listData = { ...listData, project: group("project", [row("testing.md")]) };
+    vi.mocked(rulesApi.trash).mockResolvedValueOnce({ done: true, unconfirmed: true });
+    mount();
+    fireEvent.click(await screen.findByText("testing"));
+    const lists = vi.mocked(rulesApi.list).mock.calls.length;
+    fireEvent.click(await screen.findByRole("button", { name: "휴지통으로" }));
+    const note = await screen.findByText("지웠지만 휴지통에서 찾지 못했어요 · 영구 삭제됐을 수 있어요");
+    expect(note.getAttribute("data-tone")).toBe("warn");
+    await waitFor(() => expect(vi.mocked(rulesApi.list).mock.calls.length).toBeGreaterThan(lists));
+    expect(screen.queryByRole("button", { name: "휴지통으로" })).toBeNull();
+  });
+
+  it("the unconfirmed note goes away when another rule is opened (10.3)", async () => {
+    listData = { ...listData, project: group("project", [row("testing.md"), row("style.md")]) };
+    vi.mocked(rulesApi.trash).mockResolvedValueOnce({ done: true, unconfirmed: true });
+    mount();
+    fireEvent.click(await screen.findByText("testing"));
+    fireEvent.click(await screen.findByRole("button", { name: "휴지통으로" }));
+    await screen.findByText("지웠지만 휴지통에서 찾지 못했어요 · 영구 삭제됐을 수 있어요");
+    fireEvent.click(await screen.findByText("style"));
+    await waitFor(() => expect(screen.queryByText("지웠지만 휴지통에서 찾지 못했어요 · 영구 삭제됐을 수 있어요")).toBeNull());
+  });
+
+  it("the unconfirmed note goes away when a new rule is started (10.3)", async () => {
+    listData = { ...listData, project: group("project", [row("testing.md")]) };
+    vi.mocked(rulesApi.trash).mockResolvedValueOnce({ done: true, unconfirmed: true });
+    mount();
+    fireEvent.click(await screen.findByText("testing"));
+    fireEvent.click(await screen.findByRole("button", { name: "휴지통으로" }));
+    await screen.findByText("지웠지만 휴지통에서 찾지 못했어요 · 영구 삭제됐을 수 있어요");
+    fireEvent.click(screen.getAllByRole("button", { name: /새 규칙/ })[0]);
+    await waitFor(() => expect(screen.queryByText("지웠지만 휴지통에서 찾지 못했어요 · 영구 삭제됐을 수 있어요")).toBeNull());
+  });
+
+  it("a cancelled rule trash changes nothing", async () => {
+    listData = { ...listData, project: group("project", [row("testing.md")]) };
+    mount();
+    fireEvent.click(await screen.findByText("testing"));
+    fireEvent.click(await screen.findByRole("button", { name: "휴지통으로" }));
+    await waitFor(() => expect(rulesApi.trash).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: "휴지통으로" })).toBeTruthy();
+    expect(screen.queryByText("지웠지만 휴지통에서 찾지 못했어요 · 영구 삭제됐을 수 있어요")).toBeNull();
   });
 
   it("shows a conflict and offers reload", async () => {

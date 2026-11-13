@@ -322,6 +322,39 @@ pub struct TaskSpec {
 
 const MAX_ARGV_BYTES: usize = 512 * 1024;
 
+/// Windows `CreateProcessW` takes at most 32,767 UTF-16 units for the whole command line; this leaves room for the
+/// quoted program path (decision 4).
+pub const MAX_CMDLINE_UTF16: usize = 30_000;
+
+/// UTF-16 length of `args` as std quotes them on Windows (`make_command_line`: quotes around an empty argument or one
+/// with a space or tab, backslashes doubled before a quote, `"` escaped), plus one separator each. The program path
+/// is not included (see [`MAX_CMDLINE_UTF16`]).
+pub fn windows_cmdline_len(args: &[OsString]) -> usize {
+    let mut total = 0;
+    for a in args {
+        let s = a.to_string_lossy();
+        let quote = s.is_empty() || s.contains([' ', '\t']);
+        let mut n = 1 + usize::from(quote) * 2; // separator and the quotes
+        let mut backslashes = 0;
+        for c in s.chars() {
+            if c == '\\' {
+                backslashes += 1;
+            } else {
+                if c == '"' {
+                    n += backslashes + 1; // each backslash doubled, then `\"`
+                }
+                backslashes = 0;
+            }
+            n += c.len_utf16();
+        }
+        if quote {
+            n += backslashes; // trailing backslashes before the closing quote are doubled
+        }
+        total += n;
+    }
+    total
+}
+
 /// `[a-z0-9-]`, starts with a letter, at most 40 chars, always prefixed `dduck-` (D-067).
 pub fn remote_name(task_name: Option<&str>, now_ms: i64) -> String {
     let slug: String = task_name
@@ -476,10 +509,23 @@ impl TaskSpec {
         let preferred = crate::preferred::line(&config.preferred, &env.preferred, config.lang, ctx);
         self.policy_text = Some(tc::policy_text_with(&config, self.remote_name.is_some(), guard, self.task_type.as_deref(), preferred.as_deref()));
         // Last: every injected value is in place.
+        self.check_fit()
+    }
+
+    /// [`Self::args_fit`] and, on Windows, the command-line limit (its own reason, so the composer can say so).
+    fn check_fit(&self) -> Result<(), CliError> {
         if !self.args_fit() {
             return Err(CliError::invalid(ReasonCode::TooLong));
         }
+        if cfg!(windows) && !self.fits_windows_cmdline() {
+            return Err(CliError::invalid(ReasonCode::WindowsCommandTooLong));
+        }
         Ok(())
+    }
+
+    /// The quoted command line fits the Windows limit (checked on every OS by tests, enforced on Windows).
+    pub fn fits_windows_cmdline(&self) -> bool {
+        windows_cmdline_len(&self.bg_args()) <= MAX_CMDLINE_UTF16
     }
 
     /// Decides the model (design 4) and replaces an unsupported one (design 11). Called by the shell after
@@ -511,10 +557,7 @@ impl TaskSpec {
         }
         self.model_pin = Some(pin);
         self.model_requested = requested;
-        if !self.args_fit() {
-            return Err(CliError::invalid(ReasonCode::TooLong));
-        }
-        Ok(())
+        self.check_fit()
     }
 
     /// `--model=<v>` as one token, if a value is passed (design 2).
@@ -539,7 +582,7 @@ impl TaskSpec {
             self.origin = Some(Origin::News);
         }
         let Some(origin) = self.origin else { return Ok(()) };
-        let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+        let canon = |p: &std::path::Path| crate::platform::canon(p).unwrap_or_else(|_| p.to_path_buf());
         let at_home = canon(&self.cwd) == canon(home);
         if !matches!(origin, Origin::InsightClaude | Origin::News) && !at_home {
             return Ok(());
@@ -725,7 +768,7 @@ impl ClaudeCli {
     }
 
     pub fn list_agents(&self) -> Result<Vec<AgentSession>, CliError> {
-        let out = run(self.command().args(["agents", "--json", "--all"]), Duration::from_secs(5), 4 * 1024 * 1024, Keep::Head)?;
+        let out = run_detached(self.command().args(["agents", "--json", "--all"]), Duration::from_secs(5), 4 * 1024 * 1024, Keep::Head)?;
         parse_agents(&out.stdout)
     }
 
@@ -852,7 +895,12 @@ impl ClaudeCli {
         if spec.permission_mode.is_some_and(PermissionMode::is_dangerous) && approval.is_none() {
             return Err(CliError::DangerNotConfirmed);
         }
-        let out = run(self.command().current_dir(&spec.cwd).args(spec.bg_args()), Duration::from_secs(30), 64 * 1024, Keep::Head)?;
+        let args = spec.bg_args();
+        // Windows: refused before anything starts when the quoted command line is over the limit (decision 4).
+        if cfg!(windows) && windows_cmdline_len(&args) > MAX_CMDLINE_UTF16 {
+            return Err(CliError::invalid(ReasonCode::WindowsCommandTooLong));
+        }
+        let out = run_detached(self.command().current_dir(&spec.cwd).args(args), Duration::from_secs(30), 64 * 1024, Keep::Head)?;
         parse_bg_id(&out.stdout).ok_or(CliError::UnsupportedOutput)
     }
 
@@ -866,7 +914,10 @@ impl ClaudeCli {
             return Err(CliError::invalid(ReasonCode::DirNotFound));
         }
         let args = spec.args()?;
-        let out = run(self.command().current_dir(&spec.cwd).args(args), Duration::from_secs(30), 64 * 1024, Keep::Head)?;
+        if cfg!(windows) && windows_cmdline_len(&args) > MAX_CMDLINE_UTF16 {
+            return Err(CliError::invalid(ReasonCode::WindowsCommandTooLong));
+        }
+        let out = run_detached(self.command().current_dir(&spec.cwd).args(args), Duration::from_secs(30), 64 * 1024, Keep::Head)?;
         parse_resume_output(&out.stdout).ok_or(CliError::UnsupportedOutput)
     }
 
@@ -874,13 +925,13 @@ impl ClaudeCli {
     pub fn logs(&self, id: &str) -> Result<Vec<u8>, CliError> {
         check_id(id)?;
         // The newest frame is at the end of the stream, so keep the tail (D-038).
-        let out = run(self.command().args(["logs", id]), Duration::from_secs(5), MAX_LOG_BYTES, Keep::Tail)?;
+        let out = run_detached(self.command().args(["logs", id]), Duration::from_secs(5), MAX_LOG_BYTES, Keep::Tail)?;
         Ok(last_screen(&out.stdout).to_vec())
     }
 
     pub fn stop(&self, id: &str) -> Result<(), CliError> {
         check_id(id)?;
-        run(self.command().args(["stop", id]), Duration::from_secs(10), 64 * 1024, Keep::Head).map(|_| ())
+        run_detached(self.command().args(["stop", id]), Duration::from_secs(10), 64 * 1024, Keep::Head).map(|_| ())
     }
 
     /// `claude auth status --json` (claude-login): (exit code, stdout) only, 5 s, 64 KB. stderr is never kept, so a
@@ -897,16 +948,13 @@ impl ClaudeCli {
 
     /// Spawns `claude auth login <flag>` with the task environment, stdin null, stdout/stderr piped, in its own
     /// process group. The caller owns the child: it must drain both pipes and kill the group before reaping.
-    pub fn login_child(&self, method: LoginMethod) -> std::io::Result<std::process::Child> {
+    pub fn login_child(&self, method: LoginMethod) -> std::io::Result<crate::process::Spawned> {
         use std::process::Stdio;
         let mut cmd = self.command();
         cmd.args(["auth", "login", method.flag()]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            cmd.process_group(0);
-        }
-        cmd.spawn()
+        // Unix: own process group. Windows: no console window and no job, so a browser the CLI opens outlives the
+        // login (review H2); ending the login kills only this process.
+        crate::process::Spawned::login(&mut cmd)
     }
 
     /// Terminal-fallback argv parts: the CLI path and the config dir (`None` = default profile). The flag is chosen
@@ -918,6 +966,11 @@ impl ClaudeCli {
     /// Shell command a user can paste to attach (used when terminal automation is denied).
     pub fn attach_command_line(&self, id: &str) -> Result<String, CliError> {
         check_id(id)?;
+        // Windows: a PowerShell line (decision 6); a value that fails the terminal rule is refused.
+        if cfg!(windows) {
+            let t = crate::terminal_win::Target::Attach { cli: &self.path, id, config_dir: self.config_dir_env.as_deref() };
+            return crate::terminal_win::copy_line(&t).ok_or(CliError::InvalidId);
+        }
         let prefix = match &self.config_dir_env {
             Some(dir) => format!("CLAUDE_CONFIG_DIR={} ", shell_quote(&dir.to_string_lossy())),
             None => String::new(),
@@ -1121,7 +1174,16 @@ struct Output {
 }
 
 fn run(cmd: &mut Command, timeout: Duration, max_stdout: u64, keep: Keep) -> Result<Output, CliError> {
-    let done = crate::process::run(cmd, timeout, max_stdout, keep, 64 * 1024).map_err(|e| match e {
+    finish(crate::process::run(cmd, timeout, max_stdout, keep, 64 * 1024))
+}
+
+/// [`run`] for commands that talk to or start the CLI's background service (Windows: never in a job).
+fn run_detached(cmd: &mut Command, timeout: Duration, max_stdout: u64, keep: Keep) -> Result<Output, CliError> {
+    finish(crate::process::run_detached(cmd, timeout, max_stdout, keep, 64 * 1024))
+}
+
+fn finish(done: Result<crate::process::Finished, crate::process::RunError>) -> Result<Output, CliError> {
+    let done = done.map_err(|e| match e {
         crate::process::RunError::Spawn => CliError::Spawn,
         crate::process::RunError::Timeout => CliError::Timeout,
     })?;
@@ -1638,6 +1700,13 @@ mod tests {
 
     #[test]
     fn attach_command_is_quoted() {
+        if cfg!(windows) {
+            // PowerShell syntax (windows-support 3.2); the quoting itself is tested in terminal_win.
+            let cli = ClaudeCli::new(r"C:\x\it's\claude.exe".into(), Some(r"C:\c dir".into()));
+            assert_eq!(cli.attach_command_line("f3e5ff71").unwrap(), r"$env:CLAUDE_CONFIG_DIR = 'C:\c dir'; & 'C:\x\it''s\claude.exe' attach f3e5ff71");
+            assert_eq!(cli.attach_command_line("$(id)"), Err(CliError::InvalidId));
+            return;
+        }
         let cli = ClaudeCli::new("/x/it's/claude".into(), Some("/c dir".into()));
         assert_eq!(cli.attach_command_line("f3e5ff71").unwrap(), r"CLAUDE_CONFIG_DIR='/c dir' '/x/it'\''s/claude' attach f3e5ff71");
         let default = ClaudeCli::new("/x/claude".into(), None);
@@ -1687,12 +1756,12 @@ mod preferred_prompt {
         // A worktree may not have project items: a project-sourced pick is left out, user items stay.
         let mut proj = env.clone();
         proj.preferred[0].source = "project".into();
-        proj.preferred[0].scope = Some("/work/a".into());
+        proj.preferred[0].scope = Some(crate::testkit::abs("/work/a"));
         let mut wt = TaskSpec::basic(dir.path().into(), "p".into(), None, None);
         wt.task_type = Some("dev".into());
         wt.worktree = true;
         let mut wt_stored: tc::TeamInput = input.clone();
-        wt_stored.preferred.as_mut().unwrap()[0] = PreferredItem { kind: Kind::Skill, name: "tdd".into(), source: "project".into(), scope: Some("/work/a".into()), marketplace: None };
+        wt_stored.preferred.as_mut().unwrap()[0] = PreferredItem { kind: Kind::Skill, name: "tdd".into(), source: "project".into(), scope: Some(crate::testkit::abs("/work/a")), marketplace: None };
         let wt_json = serde_json::to_string(&tc::diff(&wt_stored, &[]).unwrap()).unwrap();
         // `prepare_with` refuses a worktree outside a repository, so check the filter on the same inputs it uses.
         let m = tc::load(Some(&wt_json));
@@ -1788,7 +1857,7 @@ echo "CFG=${CLAUDE_CONFIG_DIR-unset}"
 echo "PATH=$PATH"
 if read -r line; then echo "STDIN=data"; else echo "STDIN=eof"; fi"#);
         let run = |cli: &ClaudeCli, m: LoginMethod| {
-            let mut child = cli.login_child(m).unwrap();
+            let mut child = cli.login_child(m).unwrap().child;
             let mut s = String::new();
             child.stdout.take().unwrap().read_to_string(&mut s).unwrap();
             child.wait().unwrap();
@@ -1821,7 +1890,7 @@ if read -r line; then echo "STDIN=data"; else echo "STDIN=eof"; fi"#);
         let bin = fake(tmp.path(), "env");
         let cli = ClaudeCli::new(bin, None).with_path_env(probe.path);
         let (_, out) = cli.auth_status_raw().unwrap();
-        let mut child = cli.login_child(LoginMethod::ClaudeAi).unwrap();
+        let mut child = cli.login_child(LoginMethod::ClaudeAi).unwrap().child;
         let mut login = String::new();
         child.stdout.take().unwrap().read_to_string(&mut login).unwrap();
         child.wait().unwrap();
@@ -1998,5 +2067,39 @@ mod help_cli {
         assert_eq!(std::fs::read_to_string(dir.path().join("args")).unwrap().trim(), "--help", "nothing else is passed");
         let broken = fake(dir.path(), "exit 3");
         assert!(broken.help_text(dir.path()).is_err(), "a failed help leaves only the CLI source out");
+    }
+}
+
+/// windows-support 2.3 [CI]: the Windows command-line rule, checked on every OS.
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod windows_cmdline {
+    use super::*;
+
+    fn len(args: &[&str]) -> usize {
+        windows_cmdline_len(&args.iter().map(OsString::from).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn quoting_is_counted_like_std() {
+        assert_eq!(len(&["--bg"]), 5);
+        assert_eq!(len(&[""]), 3, "an empty argument is quoted");
+        assert_eq!(len(&["a b"]), 6, "space: quoted");
+        assert_eq!(len(&[r#"a"b"#]), 5, "a quote is escaped");
+        assert_eq!(len(&[r#"a\"b"#]), 7, "a backslash before a quote is doubled");
+        assert_eq!(len(&[r"a b\"]), 8, "a trailing backslash before the closing quote is doubled");
+        assert_eq!(len(&["가"]), 2, "UTF-16 units, not bytes");
+        assert_eq!(len(&["😀"]), 3);
+    }
+
+    #[test]
+    fn a_long_prompt_is_too_long_for_windows_only() {
+        let mut s = TaskSpec::basic(std::env::temp_dir(), "가 ".repeat(16_000), None, None);
+        s.guard_ctx = None;
+        assert!(s.args_fit(), "within the macOS byte cap");
+        assert!(!s.fits_windows_cmdline(), "over 30,000 UTF-16 units once quoted");
+        let short = TaskSpec::basic(std::env::temp_dir(), "fix the bug".into(), None, None);
+        assert!(short.fits_windows_cmdline());
+        assert_eq!(ReasonCode::WindowsCommandTooLong.code(), "windowsCommandTooLong");
     }
 }

@@ -406,15 +406,16 @@ pub fn routine_url(id: &str) -> Option<String> {
 
 /// 16 random bytes from the OS as lowercase hex.
 pub fn new_nonce() -> Option<String> {
-    use std::io::Read;
     let mut b = [0u8; 16];
-    std::fs::File::open("/dev/urandom").ok()?.read_exact(&mut b).ok()?;
+    crate::platform::random_bytes(&mut b).then_some(())?;
     Some(b.iter().map(|x| format!("{x:02x}")).collect())
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    #[cfg_attr(not(unix), allow(unused_imports))]
+    use crate::platform::CanonExt;
     use super::*;
 
     const ID: &str = "trig_01ABC";
@@ -534,9 +535,9 @@ mod tests {
     #[test]
     #[ignore = "needs the built app binary in DDUCK_BIN"]
     fn built_guard_passes_self_test() {
-        let bin = std::path::PathBuf::from(std::env::var("DDUCK_BIN").unwrap()).canonicalize().unwrap();
+        let bin = std::path::PathBuf::from(std::env::var("DDUCK_BIN").unwrap()).canon().unwrap();
         let tmp = tempfile::tempdir().unwrap();
-        let dir = tmp.path().canonicalize().unwrap().join("cloud-routines").join("once");
+        let dir = tmp.path().canon().unwrap().join("cloud-routines").join("once");
         std::fs::create_dir_all(&dir).unwrap();
         let nonce = new_nonce().unwrap();
         let e = upd();

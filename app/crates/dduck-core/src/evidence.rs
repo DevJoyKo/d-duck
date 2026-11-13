@@ -45,7 +45,7 @@ static NAME_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\A[A-Za-z0-9._-]
 
 /// One file name inside `evidence/` or `attachments/`: `[A-Za-z0-9._-]{1,80}`, not only dots.
 pub fn valid_name(n: &str) -> bool {
-    NAME_RE.is_match(n) && !n.bytes().all(|b| b == b'.')
+    NAME_RE.is_match(n) && !n.bytes().all(|b| b == b'.') && crate::platform::relative_ok(n)
 }
 
 fn ext(n: &str) -> String {
@@ -101,7 +101,8 @@ fn valid_repo_path(p: &str) -> bool {
     if p.is_empty() || p.chars().count() > MAX_CHARS || p.starts_with('/') || p.contains('\\') || p.chars().any(crate::text::is_unsafe_char) {
         return false;
     }
-    p.split('/').all(|c| !c.is_empty() && c != "." && c != ".." && c != ".git")
+    // Windows: no drive, stream, device name or trailing dot/space either (review H3).
+    crate::platform::relative_ok(p) && p.split('/').all(|c| !c.is_empty() && c != "." && c != ".." && !crate::platform::name_is(std::ffi::OsStr::new(c), ".git"))
 }
 
 fn ok_text(s: &str) -> bool {
@@ -338,7 +339,7 @@ pub(crate) fn read_in(dir: &Path, name: &str, max: u64) -> Result<(Vec<u8>, Sig)
     let path = dir.join(name);
     let file = open_flags(&path).map_err(|e| if e.kind() == std::io::ErrorKind::NotFound { Status::Missing } else { Status::Refused })?;
     let meta = single_link_regular(&file).ok_or(Status::Refused)?;
-    if fd_path(&file).is_some_and(|real| real != path) {
+    if fd_path(&file).map_or(cfg!(windows), |real| real != path) {
         return Err(Status::Refused);
     }
     if meta.len() > max {
@@ -756,9 +757,9 @@ fn check_file(ctx: &Ctx, dir: &Path, name: &str, kind: Kind) -> Checked {
 /// `cwd` resolved, the target resolved under it by path component, not under `.git`, a regular file of at most
 /// 2 MB with at least `end` lines.
 fn check_repo_file(cwd: Option<&Path>, path: &str, lines: Option<[u32; 2]>) -> Status {
-    let Some(real_cwd) = cwd.and_then(|c| std::fs::canonicalize(c).ok()) else { return Status::Missing };
+    let Some(real_cwd) = cwd.and_then(|c| crate::platform::canon(c).ok()) else { return Status::Missing };
     let target = real_cwd.join(path);
-    let real = match std::fs::canonicalize(&target) {
+    let real = match crate::platform::canon(&target) {
         Ok(r) => r,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Status::Missing,
         Err(_) => return Status::Refused,
@@ -1053,7 +1054,7 @@ pub(crate) mod tests {
 
     fn setup() -> (tempfile::TempDir, PathBuf, PathBuf) {
         let t = tempfile::tempdir().unwrap();
-        let real = std::fs::canonicalize(t.path()).unwrap();
+        let real = crate::platform::canon(t.path()).unwrap();
         let rep = real.join("rep");
         std::fs::create_dir_all(rep.join(DIR)).unwrap();
         let cwd = real.join("proj");
@@ -1076,7 +1077,7 @@ pub(crate) mod tests {
         std::fs::write(rep.join("evidence/fake.png"), "<html>").unwrap();
         std::fs::write(rep.join("evidence/v.xml"), VITEST).unwrap();
         std::fs::write(rep.join("evidence/out.txt"), "ok\n").unwrap();
-        std::fs::write(rep.join("evidence/nul.txt"), b"a\0b").unwrap();
+        std::fs::write(rep.join("evidence/zero.txt"), b"a\0b").unwrap();
         let folder = Folder::open(&rep);
         let st = |it: &Item| view(&ctx, &folder, it).status;
         assert_eq!(st(&shot("ok.png")), Status::Valid);
@@ -1086,7 +1087,7 @@ pub(crate) mod tests {
         assert_eq!((v.status, v.failed, v.label.as_str()), (Status::Valid, Some(2), "v.xml"));
         let cmd = |o: &str| Item::Command { cmd: "npm test".into(), exit_code: 1, output: Some(format!("evidence/{o}")), caption: String::new() };
         assert_eq!(st(&cmd("out.txt")), Status::Valid);
-        assert_eq!(st(&cmd("nul.txt")), Status::BadType);
+        assert_eq!(st(&cmd("zero.txt")), Status::BadType);
         let file = |p: &str, l: Option<[u32; 2]>| Item::File { path: p.into(), lines: l, caption: String::new() };
         let v = view(&ctx, &folder, &file("src/a.ts", Some([10, 42])));
         assert_eq!((v.status, v.label.as_str()), (Status::Valid, "src/a.ts:10–42"));
@@ -1187,3 +1188,21 @@ pub(crate) mod tests {
         assert_eq!(preview(&ctx, &Item::File { path: "src/a.ts".into(), lines: Some([1, 2]), caption: String::new() }), Preview::File { path: "src/a.ts".into(), lines: Some([1, 2]) });
     }
 }
+
+/// Review H3 [CI]: report evidence on Windows never names a share, a stream, a device or another drive.
+#[cfg(all(test, windows))]
+mod windows_paths {
+    #[test]
+    fn evidence_files_follow_the_windows_rule() {
+        for bad in [r"\\host\share\a.png", "//host/share/a.png", "a.md:secret", "docs/a.md:s", "CON", "nul", "docs/nul.txt", "C:/Users/me/a.md", "C:a.md", ".GIT/config", "dir./a.md"] {
+            assert!(!super::valid_repo_path(bad), "{bad}");
+        }
+        assert!(super::valid_repo_path("src/main.rs"));
+        for bad in ["CON", "nul.png", "a.png:x", "a."] {
+            assert!(!super::valid_name(bad), "{bad}");
+        }
+        assert!(super::valid_name("shot.png"));
+        assert!(!crate::install_link::valid_part("CON") && !crate::install_link::valid_part("aux.md"));
+    }
+}
+

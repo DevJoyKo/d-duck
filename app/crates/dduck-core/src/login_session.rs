@@ -129,6 +129,8 @@ struct Found {
 
 struct LoginJob {
     child: Child,
+    /// Windows: the job holding the child's tree (ended on drop). Unix: nothing; the process group is used.
+    tree: crate::process::TreeGuard,
     started: Instant,
     method: LoginMethod,
     found: Arc<Mutex<Found>>,
@@ -138,6 +140,7 @@ struct LoginJob {
 
 impl Drop for LoginJob {
     fn drop(&mut self) {
+        self.tree.kill();
         end_child(&mut self.child, Duration::from_secs(1));
     }
 }
@@ -164,7 +167,17 @@ fn leader_exit(child: &Child) -> Option<Option<i32>> {
         }
         Some((info.si_code == CLD_EXITED).then(|| unsafe { info.si_status() }))
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        // Exit code without reaping: the Child keeps its process handle open, so the pid cannot be reused.
+        use std::os::windows::io::AsRawHandle;
+        const STILL_ACTIVE: u32 = 259;
+        let mut code: u32 = 0;
+        // SAFETY: the handle is owned by `child` and open; `code` is a valid out pointer.
+        let ok = unsafe { windows_sys::Win32::System::Threading::GetExitCodeProcess(child.as_raw_handle() as _, &mut code) } != 0;
+        (ok && code != STILL_ACTIVE).then_some(Some(code as i32))
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = child;
         None
@@ -200,7 +213,15 @@ fn signal_group(child: &mut Child, sig: Signal) {
             libc::killpg(child.id() as libc::pid_t, s);
         }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        // No job for the login (review H2): end the CLI's own helpers below it first, never other programs such as
+        // the browser it opened (re-review 8.4), then the login itself.
+        let _ = sig;
+        crate::process::win::kill_descendants_named(child.id(), &["claude.exe", "node.exe"]);
+        let _ = child.kill();
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = sig;
         let _ = child.kill();
@@ -256,7 +277,7 @@ impl LoginRunner {
             return Started::AlreadyRunning;
         }
         inner.method = Some(method);
-        let mut child = match cli.login_child(method) {
+        let crate::process::Spawned { mut child, tree } = match cli.login_child(method) {
             Ok(c) => c,
             Err(_) => {
                 inner.phase = Phase::Failed;
@@ -280,7 +301,7 @@ impl LoginRunner {
                 });
             });
         }
-        inner.job = Some(LoginJob { child, started: now, method, found, exited_ok_at: None });
+        inner.job = Some(LoginJob { child, tree, started: now, method, found, exited_ok_at: None });
         inner.phase = Phase::Running;
         inner.reason = None;
         inner.generation += 1;
@@ -361,7 +382,7 @@ impl LoginRunner {
         inner.job.as_ref().map(|j| j.method).or(inner.method)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn pid(&self) -> Option<u32> {
         lock(&self.inner).job.as_ref().map(|j| j.child.id())
     }

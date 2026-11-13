@@ -4,6 +4,7 @@
 //! D.Duck then parses the raw API response from the CLI's stream (or the file the CLI saved it to), keeps only the
 //! allowed fields and deletes that file: it holds every routine's prompt.
 
+use crate::platform::CanonExt;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
@@ -56,7 +57,14 @@ pub fn guard_self_test_denies(hook_cmd: &str, sample: &str) -> bool {
     run_hook(hook_cmd, sample).is_some_and(|(code, _)| code == 2)
 }
 
+/// The single choke point of every hook self-test (windows-support decision 7): off macOS nothing runs and the
+/// self-test fails, so News fetch, insights, brief refinement, cloud routines and report-guard grants refuse to start
+/// until a real Windows CLI run verifies hooks there. macOS keeps `/bin/sh -c`, the command line the CLI runs.
 fn run_hook(hook_cmd: &str, input: &str) -> Option<(i32, Vec<u8>)> {
+    // Also the CLI version gate (decision 8): an older CLI ignores `onFailure: block`, so nothing hook-gated runs.
+    if !cfg!(target_os = "macos") || !crate::cli_path::hooks_allowed() {
+        return None;
+    }
     let run = |input: &str| -> Option<(i32, Vec<u8>)> {
         use std::io::Write;
         let mut child = std::process::Command::new("/bin/sh")
@@ -106,7 +114,7 @@ static SAVED_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"saved to:\s*(\S
 /// Arguments for the guarded headless run. `settings` carries the hook; user and project settings are not loaded.
 pub fn args(guard_cmd: &str) -> Vec<String> {
     let settings = serde_json::json!({
-        "hooks": { "PreToolUse": [ { "matcher": "RemoteTrigger", "hooks": [ { "type": "command", "command": guard_cmd } ] } ] }
+        "hooks": { "PreToolUse": [ { "matcher": "RemoteTrigger", "hooks": [ { "type": "command", "command": guard_cmd, "onFailure": "block" } ] } ] }
     });
     [
         "-p",
@@ -225,8 +233,8 @@ pub fn parse_api(body: &str) -> Result<(Vec<CloudRoutine>, bool), CloudError> {
 /// A saved tool result must sit at `<projects>/<key>/<session>/tool-results/<name>.txt` and be a plain file.
 fn saved_path(projects: &Path, raw: &str, session: &str) -> Option<PathBuf> {
     let p = PathBuf::from(raw);
-    let root = projects.canonicalize().ok()?;
-    let canon = p.canonicalize().ok()?;
+    let root = projects.canon().ok()?;
+    let canon = p.canon().ok()?;
     let rel = canon.strip_prefix(&root).ok()?;
     let parts: Vec<_> = rel.components().map(|c| c.as_os_str().to_string_lossy().to_string()).collect();
     let ok = parts.len() == 4 && parts[1] == session && parts[2] == "tool-results" && parts[3].ends_with(".txt");
@@ -341,7 +349,7 @@ pub fn clean_cwd_project(projects: &Path, cwd: &Path) {
 
 /// Same cleanup for any app-owned `…/<owner>/cwd` folder (usage-insights reuses it).
 pub fn clean_owned_cwd(projects: &Path, cwd: &Path, owner: &str) {
-    let Ok(canon) = cwd.canonicalize() else { return };
+    let Ok(canon) = cwd.canon() else { return };
     if !canon.ends_with(Path::new(owner).join("cwd")) {
         return;
     }
@@ -353,8 +361,8 @@ pub fn clean_owned_cwd(projects: &Path, cwd: &Path, owner: &str) {
 
 /// Deletes what the run left under `projects`: the session folder, then the project folder if empty.
 pub fn clean(projects: &Path, leftovers: &Path) {
-    let Ok(root) = projects.canonicalize() else { return };
-    let Ok(dir) = leftovers.canonicalize() else { return };
+    let Ok(root) = projects.canon() else { return };
+    let Ok(dir) = leftovers.canon() else { return };
     if dir.strip_prefix(&root).map(|r| r.components().count() == 2).unwrap_or(false) {
         let _ = std::fs::remove_dir_all(&dir);
         if let Some(parent) = dir.parent() {
@@ -467,7 +475,15 @@ mod tests {
         assert!(!err.is_empty());
     }
 
-    #[cfg(unix)]
+    /// windows-support 3.3 [CI]: off macOS the self-test runs nothing and fails, whatever the command.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn self_test_fails_off_macos() {
+        assert!(!guard_self_test("exit 0", SELF_TEST_DENY, SELF_TEST_ALLOW));
+        assert!(!guard_self_test_denies("exit 2", SELF_TEST_DENY));
+    }
+
+    #[cfg(target_os = "macos")]
     #[test]
     fn self_test_fails_closed() {
         use std::os::unix::fs::PermissionsExt;
@@ -488,13 +504,13 @@ mod tests {
         let projects = tmp.path().join("projects");
         let cwd = tmp.path().join("cloud-routines").join("cwd");
         std::fs::create_dir_all(&cwd).unwrap();
-        let key = projects.join(project_key(&cwd.canonicalize().unwrap()));
+        let key = projects.join(project_key(&cwd.canon().unwrap()));
         std::fs::create_dir_all(key.join("s1/tool-results")).unwrap();
         clean_cwd_project(&projects, &cwd);
         assert!(!key.exists());
         let other = tmp.path().join("other");
         std::fs::create_dir_all(&other).unwrap();
-        let okey = projects.join(project_key(&other.canonicalize().unwrap()));
+        let okey = projects.join(project_key(&other.canon().unwrap()));
         std::fs::create_dir_all(&okey).unwrap();
         clean_cwd_project(&projects, &other);
         assert!(okey.exists(), "never touches other projects");
@@ -509,5 +525,21 @@ mod tests {
         }
         assert!(a.iter().any(|x| x.starts_with("--settings=") && x.contains("PreToolUse") && x.contains(GUARD_FLAG)));
         assert_eq!(a[a.len() - 2], "--");
+    }
+}
+
+/// windows-support 3.4: every app-owned hook config blocks when its hook cannot start (decision 8).
+#[cfg(test)]
+mod hook_on_failure {
+    fn blocks(args: &[String]) -> bool {
+        args.iter().filter_map(|a| a.strip_prefix("--settings=").or(Some(a.as_str()))).any(|s| s.contains(r#""onFailure":"block""#))
+    }
+
+    #[test]
+    fn news_insights_refine_and_cloud_hooks_block_on_failure() {
+        assert!(blocks(&super::args("'x' --g")));
+        assert!(blocks(&crate::insights::args("'x' --g", "{}")));
+        assert!(blocks(&crate::brief_refine::args("'x' --g", 0.1, "p".into())));
+        assert!(blocks(&crate::news::args("'x' --g", &Default::default(), crate::i18n::Lang::Ko)));
     }
 }

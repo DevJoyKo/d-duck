@@ -5,6 +5,7 @@
 //! the file is parsed to check it is valid JSON, then only the `permissions` member is extracted. Saving splices the
 //! new `permissions` text into the original bytes, so every other key keeps its exact bytes, order and numbers.
 
+use crate::platform::CanonExt;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -291,13 +292,9 @@ pub fn sha(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
-#[cfg(unix)]
-fn nlink(m: &std::fs::Metadata) -> u64 {
-    std::os::unix::fs::MetadataExt::nlink(m)
-}
-#[cfg(not(unix))]
-fn nlink(_m: &std::fs::Metadata) -> u64 {
-    1
+/// Link count of `p` (metadata `m`); Windows reads it from a handle and refuses when unknown (platform::ids).
+fn nlink(p: &Path, m: &std::fs::Metadata) -> u64 {
+    crate::platform::nlink(p, m)
 }
 
 fn str_list(v: Option<&Value>) -> Result<Vec<String>, ()> {
@@ -322,7 +319,7 @@ pub fn read_scope(path: &Path) -> ScopeView {
     } else if !meta.file_type().is_file() {
         view.readonly_reason = Some(crate::i18n::Fail::NotRegularFile.str().into());
         return view;
-    } else if nlink(&meta) > 1 {
+    } else if nlink(path, &meta) > 1 {
         view.readonly_reason = Some(crate::i18n::Fail::HardlinkNoEditHere.str().into());
     }
     let bytes = match std::fs::metadata(path) {
@@ -412,9 +409,19 @@ pub struct Managed {
 pub fn default_managed_roots() -> Vec<PathBuf> {
     if cfg!(target_os = "macos") {
         vec![PathBuf::from("/Library/Application Support/ClaudeCode")]
+    } else if cfg!(windows) {
+        // Claude Code's Windows location (admin-only under Program Files). `/etc/claude-code` would be `C:\etc\…`,
+        // which any user may create (review MEDIUM). The `HKLM\SOFTWARE\Policies\ClaudeCode` registry value is not
+        // read in this preview.
+        windows_managed_root().into_iter().collect()
     } else {
         vec![PathBuf::from("/etc/claude-code")]
     }
+}
+
+/// `%ProgramFiles%\ClaudeCode` when `ProgramFiles` is an absolute path.
+pub fn windows_managed_root() -> Option<PathBuf> {
+    std::env::var_os("ProgramFiles").map(PathBuf::from).filter(|p| p.is_absolute()).map(|p| p.join("ClaudeCode"))
 }
 
 pub fn default_mdm_files() -> Vec<PathBuf> {
@@ -485,6 +492,7 @@ pub struct PermPlan {
     pub mode_change: Option<(Option<String>, Option<String>)>,
     pub risky_mode: bool,
     old_permissions: Value,
+    #[cfg_attr(not(unix), allow(dead_code))]
     new_file_mode: u32,
     #[cfg(unix)]
     ino: u64,
@@ -697,9 +705,9 @@ fn real_target(path: &Path) -> Result<PathBuf, PermError> {
     let name = path.file_name().ok_or_else(|| PermError::Invalid(crate::i18n::Fail::BadPathValue.str().into()))?;
     let parent = path.parent().ok_or_else(|| PermError::Invalid(crate::i18n::Fail::BadPathValue.str().into()))?;
     let canon = match std::fs::symlink_metadata(parent) {
-        Ok(_) => parent.canonicalize().map_err(|_| PermError::Io)?,
+        Ok(_) => parent.canon().map_err(|_| PermError::Io)?,
         Err(_) => {
-            let gp = parent.parent().ok_or(PermError::Io)?.canonicalize().map_err(|_| PermError::ReadOnly(crate::i18n::Fail::FolderMissing.str().into()))?;
+            let gp = parent.parent().ok_or(PermError::Io)?.canon().map_err(|_| PermError::ReadOnly(crate::i18n::Fail::FolderMissing.str().into()))?;
             gp.join(parent.file_name().ok_or(PermError::Io)?)
         }
     };
@@ -723,6 +731,7 @@ pub fn plan_save(path: &Path, edit: PermEdit, token: &str, shared: bool) -> Resu
             return Err(PermError::Invalid(if m == "bypassPermissions" { crate::i18n::Fail::BypassNotHere.str().into() } else { crate::i18n::Fail::ModeUnknown.str().into() }));
         }
     }
+    #[cfg_attr(not(unix), allow(unused_variables))]
     let (text, old_permissions, meta) = if old.exists {
         let bytes = std::fs::read(&path).map_err(|_| PermError::Io)?;
         if sha(&bytes) != token {
@@ -780,7 +789,7 @@ fn check_unchanged(plan: &PermPlan) -> Result<(), PermError> {
         Err(_) => Err(PermError::Conflict),
         Ok(_) if !plan.exists => Err(PermError::Conflict),
         Ok(m) => {
-            if !m.file_type().is_file() || nlink(&m) != 1 {
+            if !m.file_type().is_file() || nlink(&plan.path, &m) != 1 {
                 return Err(PermError::Conflict);
             }
             #[cfg(unix)]
@@ -1018,7 +1027,9 @@ fn resolve_call_path(arg: &str, ctx: &CallContext) -> PathBuf {
 
 fn path_matches(spec: &str, arg: &str, root: &Path, ctx: &CallContext) -> bool {
     let target = resolve_call_path(arg, ctx);
-    let target_s = target.to_string_lossy();
+    // Windows: rules and globs use `/`, so both sides compare with `/` separators (windows-support 1.4).
+    let slash = |s: String| if cfg!(windows) { s.replace('\\', "/") } else { s };
+    let target_s = slash(target.to_string_lossy().to_string());
     let pattern = if let Some(rest) = spec.strip_prefix("//") {
         format!("/{rest}")
     } else if let Some(rest) = spec.strip_prefix("~/") {
@@ -1034,7 +1045,7 @@ fn path_matches(spec: &str, arg: &str, root: &Path, ctx: &CallContext) -> bool {
     } else {
         ctx.cwd.join(spec).to_string_lossy().to_string()
     };
-    let pattern = normalize_path(Path::new(&pattern)).to_string_lossy().to_string();
+    let pattern = slash(normalize_path(Path::new(&pattern)).to_string_lossy().to_string());
     glob(&pattern, &target_s, true) || (spec.ends_with('/') && target_s.starts_with(&pattern))
 }
 
@@ -1574,3 +1585,15 @@ mod tests {
         assert_eq!(ko.groups[0].label, "읽기·탐색");
     }
 }
+
+/// Review MEDIUM [CI]: Windows reads managed settings from Program Files, never from a `\etc` folder.
+#[cfg(all(test, windows))]
+mod windows_managed {
+    #[test]
+    fn managed_root_is_under_program_files() {
+        let roots = super::default_managed_roots();
+        assert!(roots.iter().all(|r| r.ends_with("ClaudeCode") && !r.to_string_lossy().contains("etc")), "{roots:?}");
+        assert_eq!(roots.len(), 1);
+    }
+}
+

@@ -46,6 +46,7 @@ pub mod task_meta;
 pub mod task_report;
 pub mod team;
 pub mod team_config;
+pub mod terminal_win;
 pub mod text;
 #[doc(hidden)]
 pub mod testkit;
@@ -60,6 +61,7 @@ pub mod memory;
 pub mod model_select;
 pub mod news;
 pub mod plugin_bulk;
+pub mod platform;
 pub mod plugins;
 pub mod preferred;
 pub mod tracker;

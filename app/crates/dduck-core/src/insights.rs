@@ -799,7 +799,7 @@ pub fn prompt(summary_json: &str) -> String {
 /// when the hook (the app executable) prints an explicit allow.
 pub fn args(guard_cmd: &str, summary_json: &str) -> Vec<String> {
     let settings = serde_json::json!({
-        "hooks": { "PreToolUse": [ { "matcher": "*", "hooks": [ { "type": "command", "command": guard_cmd } ] } ] }
+        "hooks": { "PreToolUse": [ { "matcher": "*", "hooks": [ { "type": "command", "command": guard_cmd, "onFailure": "block" } ] } ] }
     });
     [
         "-p",

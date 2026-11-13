@@ -2,6 +2,7 @@
 //! edit skills, slash commands and workflows (skill-authoring, D-086). The webview sends tokens, ids, names and a
 //! choice of project from Rust's own list — never a path. Every write is confirmed natively where it can run code.
 
+use dduck_core::platform::CanonExt;
 use dduck_core::i18n::Fail;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -399,7 +400,7 @@ fn target(state: &AppState, project: Option<&str>) -> Res<Target> {
     match project {
         None => {
             // Links are followed for the user's own config (dotfile managers); projects stay strict.
-            let base = config_dir(state)?.canonicalize().map_err(|_| Fail::ConfigDirMissing.now())?;
+            let base = config_dir(state)?.canon().map_err(|_| Fail::ConfigDirMissing.now())?;
             Ok(Target { base, project: false })
         }
         // An opaque id from `projects_known` (project-switcher); home and folder-less projects are refused.
@@ -457,8 +458,8 @@ pub async fn create_authoring_item(app: AppHandle, kind: Kind, project: Option<S
         let state = app.state::<AppState>();
         let add = app.state::<AddState>();
         let t = target(&state, project.as_deref())?;
-        if !authoring::valid_name(&name) {
-            return Err(Fail::ItemNameFormat.now());
+        if let Some(e) = authoring::name_error(&name, Fail::ItemNameFormat) {
+            return Err(e);
         }
         authoring::check_content(kind, &name, &content)?;
         let rt = risk_text(&link::skill_risk(&content));
@@ -640,8 +641,8 @@ pub async fn copy_item(app: AppHandle, item_id: String, dest: String, name: Stri
         let src = s.path.clone().ok_or_else(|| Fail::NoDefinitionFile.now())?;
         let cfg = config_dir(&state)?;
         let allowed = [cfg.join("plugins").join("cache"), cfg.join("skills").join("synced")];
-        let real = src.canonicalize().map_err(|_| Fail::SourceMissing.now())?;
-        if !allowed.iter().filter_map(|a| a.canonicalize().ok()).any(|a| real.starts_with(&a)) {
+        let real = src.canon().map_err(|_| Fail::SourceMissing.now())?;
+        if !allowed.iter().filter_map(|a| a.canon().ok()).any(|a| real.starts_with(&a)) {
             return Err(Fail::CopyPluginOnly.now());
         }
         let t = match dest.as_str() {
@@ -755,9 +756,9 @@ pub async fn remove_authoring_command(app: AppHandle) -> Res<()> {
             return Err(Fail::NotPristine.now());
         }
         let path = config.join("commands").join("dduck-new.md");
-        crate::move_to_trash(&path)?;
+        let in_bin = crate::move_to_trash(&app, &path)?;
         let _ = std::fs::remove_file(add.dduck_new_hash());
-        Ok(())
+        crate::trash_unconfirmed(in_bin)
     })
     .await
     .map_err(err)?

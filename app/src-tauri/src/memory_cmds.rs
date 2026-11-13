@@ -175,7 +175,7 @@ pub async fn set_memory_enabled(app: AppHandle, project: String, file: String, e
 }
 
 #[tauri::command]
-pub async fn trash_memory(app: AppHandle, project: String, file: String, token: String, index_token: String) -> Res<bool> {
+pub async fn trash_memory(app: AppHandle, project: String, file: String, token: String, index_token: String) -> Res<crate::trash_flow::Trashed> {
     let handle = app.clone();
     blocking(app, move |state| {
         let dir = dir_for(state, &project)?;
@@ -189,12 +189,9 @@ pub async fn trash_memory(app: AppHandle, project: String, file: String, token: 
             .buttons(MessageDialogButtons::OkCancelCustom(tr(C::BtnTrash), tr(C::BtnCancel)))
             .blocking_show();
         if !ok {
-            return Ok(false);
+            return Ok(crate::trash_flow::Trashed::CANCELLED);
         }
-        memory::recheck_trash(&dir, &plan).map_err(|_| Fail::ChangedWhileChecking.now())?;
-        crate::move_to_trash(&plan.path)?;
-        memory::forget_after_trash(&dir, &plan.file, plan.enabled).map_err(|_| Fail::MemoryLineLeft.now())?;
-        Ok(true)
+        crate::trash_flow::finish_memory(&dir, &plan, |p| crate::move_to_trash(&handle, p))
     })
     .await
 }
@@ -269,7 +266,12 @@ fn open_in_editor(path: &std::path::Path) -> Res<()> {
             .status();
         if status.is_ok_and(|s| s.success()) { Ok(()) } else { Err(Fail::EditorFailed.now()) }
     }
-    #[cfg(not(target_os = "macos"))]
+    // Windows: Notepad from System32, `.md`/`.txt` only (decision 6).
+    #[cfg(windows)]
+    {
+        if dduck_core::platform::shell::open_in_editor(path) { Ok(()) } else { Err(Fail::EditorFailed.now()) }
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         Err(Fail::UnsupportedOs.now().into())
     }
@@ -375,7 +377,7 @@ pub async fn set_rule_enabled(app: AppHandle, project: Option<String>, id: Strin
 }
 
 #[tauri::command]
-pub async fn trash_rule(app: AppHandle, project: Option<String>, id: String, token: String) -> Res<bool> {
+pub async fn trash_rule(app: AppHandle, project: Option<String>, id: String, token: String) -> Res<crate::trash_flow::Trashed> {
     let handle = app.clone();
     blocking(app, move |state| {
         let roots = rule_roots(state, project.as_deref())?;
@@ -389,11 +391,9 @@ pub async fn trash_rule(app: AppHandle, project: Option<String>, id: String, tok
             .buttons(MessageDialogButtons::OkCancelCustom(tr(C::BtnTrash), tr(C::BtnCancel)))
             .blocking_show();
         if !ok {
-            return Ok(false);
+            return Ok(crate::trash_flow::Trashed::CANCELLED);
         }
-        rules::recheck_trash(&plan).map_err(|_| Fail::ChangedWhileChecking.now())?;
-        crate::move_to_trash(&plan.path)?;
-        Ok(true)
+        crate::trash_flow::finish_rule(&plan, |p| crate::move_to_trash(&handle, p))
     })
     .await
 }

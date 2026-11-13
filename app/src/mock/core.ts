@@ -22,6 +22,7 @@ import { lifecycleHandlers, mockLanes, noLive } from "./lifecycle";
 import { localize, delocalize } from "./english";
 import { emit } from "./event";
 import { DATA_LANG, backendLang, mockChoice, setMockChoice } from "./lang";
+import { macOnlyRefusal, platformHandlers, winIn, winOut } from "./os";
 const day = 86_400_000;
 const now = Date.now();
 const cloud: { id: string; name: string; enabled: boolean; cron: string | null; runOnceAt: number | null; nextRunAt: number | null; endedReason: string | null; schedule: unknown; lastRun?: unknown }[] = (() => {
@@ -622,6 +623,7 @@ const handlers: Record<string, (a: Record<string, unknown>) => unknown> = {
   ...deliveryHandlers,
   ...authHandlers,
   ...lifecycleHandlers(() => liveSessions()),
+  ...platformHandlers,
 };
 
 export async function invoke<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
@@ -631,11 +633,13 @@ export async function invoke<T>(cmd: string, args: Record<string, unknown> = {})
     throw { kind: "login_required" };
   }
   if (mockNotClaudeAi() && ["cloud_routines", "update_cloud_routine"].includes(cmd)) throw { kind: "claude_ai_required" };
+  const refused = macOnlyRefusal(cmd);
+  if (refused) throw localize(refused, backendLang(), DATA_LANG);
   const h = handlers[cmd];
   if (!h) return undefined as T;
   // English output (english.ts): i18n.rs sentences follow the backend language, fake user data the page's `?lang`.
   try {
-    return localize((await h(delocalize(args, DATA_LANG))) as T, backendLang(), DATA_LANG);
+    return winOut(localize((await h(winIn(delocalize(args, DATA_LANG)))) as T, backendLang(), DATA_LANG));
   } catch (e) {
     throw localize(e, backendLang(), DATA_LANG);
   }

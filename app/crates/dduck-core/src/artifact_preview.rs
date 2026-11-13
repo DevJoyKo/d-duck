@@ -83,7 +83,7 @@ pub struct Allowed {
 impl Allowed {
     /// The real locations for this user. `None` when the home folder cannot be resolved.
     pub fn for_user(home: &Path) -> Option<Self> {
-        let home = std::fs::canonicalize(home).ok()?;
+        let home = crate::platform::canon(home).ok()?;
         Some(Allowed { home, tmp: user_tmp() })
     }
 
@@ -96,7 +96,9 @@ impl Allowed {
     fn permits(&self, p: &Path) -> bool {
         if let Some(rest) = p.strip_prefix(&self.home).ok().filter(|r| r.components().next().is_some()) {
             let first = rest.components().next();
-            let denied = matches!(first, Some(Component::Normal(c)) if c == "Library" || c == ".claude");
+            // Windows also denies `AppData` (other apps' data and caches), all names without letter case (decision 1).
+            let deny: &[&str] = if cfg!(windows) { &["Library", ".claude", "AppData"] } else { &["Library", ".claude"] };
+            let denied = matches!(first, Some(Component::Normal(c)) if deny.iter().any(|d| crate::platform::name_is(c, d)));
             return !denied;
         }
         self.tmp.as_ref().is_some_and(|t| p.strip_prefix(t).ok().is_some_and(|r| r.components().next().is_some()))
@@ -403,27 +405,15 @@ fn resolve(call: &Call) -> Source {
 
 // ---------- reading the source ----------
 
-/// Opens without following a final symlink or blocking on a FIFO, close-on-exec.
+/// Opens without following a final symlink or blocking on a FIFO, close-on-exec (Windows: the reparse point itself).
 pub(crate) fn open_flags(path: &Path) -> std::io::Result<File> {
-    let mut opts = std::fs::OpenOptions::new();
-    opts.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC);
-    }
-    opts.open(path)
+    crate::platform::open_nofollow(path)
 }
 
 pub(crate) fn single_link_regular(f: &File) -> Option<std::fs::Metadata> {
     let meta = f.metadata().ok()?;
-    #[cfg(unix)]
-    let single = {
-        use std::os::unix::fs::MetadataExt;
-        meta.nlink() == 1
-    };
-    #[cfg(not(unix))]
-    let single = true;
+    // Windows: link count and reparse flag from the handle (decision 1); unknown counts as refused.
+    let single = crate::platform::handle_ids(f, &meta).2 == 1;
     (meta.is_file() && single).then_some(meta)
 }
 
@@ -454,7 +444,11 @@ pub(crate) fn fd_path(f: &File) -> Option<PathBuf> {
         use std::os::unix::io::AsRawFd;
         std::fs::read_link(format!("/proc/self/fd/{}", f.as_raw_fd())).ok()
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(windows)]
+    {
+        crate::platform::final_path(f)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     {
         let _ = f;
         None
@@ -464,11 +458,11 @@ pub(crate) fn fd_path(f: &File) -> Option<PathBuf> {
 /// Validated open of a source path: allowed location (by resolved parent + name), allowed extension, no symlink,
 /// single-link regular file, size, and the location re-checked on the open descriptor.
 fn open_source(path: &Path, allowed: &Allowed) -> Result<(File, std::fs::Metadata), PreviewError> {
-    if !path.is_absolute() || path.components().any(|c| c == Component::ParentDir) || !extension_ok(path) {
+    if !path.is_absolute() || !crate::platform::lexical_guard(path) || path.components().any(|c| c == Component::ParentDir) || !extension_ok(path) {
         return Err(PreviewError::Refused);
     }
     let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else { return Err(PreviewError::Refused) };
-    let parent = std::fs::canonicalize(parent).map_err(|e| io_reason(&e))?;
+    let parent = crate::platform::canon(parent).map_err(|e| io_reason(&e))?;
     let lexical = parent.join(name);
     if !allowed.permits(&lexical) {
         return Err(PreviewError::Refused);
@@ -593,7 +587,7 @@ mod tests {
 
     fn fx() -> Fx {
         let dir = tempfile::tempdir().unwrap();
-        let base = std::fs::canonicalize(dir.path()).unwrap();
+        let base = crate::platform::canon(dir.path()).unwrap();
         let home = base.join("home");
         std::fs::create_dir_all(home.join("proj")).unwrap();
         std::fs::create_dir_all(base.join("outside")).unwrap();
@@ -723,6 +717,7 @@ mod tests {
         assert_eq!(preview(&cache, &fx.home, &fx.allowed, "s", "art1", true), Err(PreviewError::Typed));
     }
 
+    #[cfg(unix)]
     #[test]
     fn symlinks_are_refused() {
         let fx = fx();
@@ -799,6 +794,7 @@ mod tests {
         assert_eq!(get(&fx, &publish(&fx, gone_dir.to_str().unwrap(), "art1"), "art1"), Err(PreviewError::Missing));
     }
 
+    #[cfg(unix)]
     #[test]
     fn fifo_is_refused_without_blocking() {
         let fx = fx();

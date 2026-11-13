@@ -86,6 +86,7 @@ export default {
     malformed: "The answer wasn't in the expected format, so nothing was saved",
     busy: "Already fetching",
     guard: "Couldn't check the safety guard, so nothing ran",
+    cliOutdated: "Update Claude Code · Version 2.1.295 or later is needed",
   },
   error: {
     cancelled: "Cancelled",

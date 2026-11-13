@@ -7,6 +7,8 @@ import { offReasonText } from "../lib/projects";
 import { Button } from "./ui";
 import { translate } from "../i18n";
 import { useT } from "../i18n/react";
+import { isAbsPath, isWindows } from "../lib/platform";
+import { MacOnlyNote } from "./MacOnly";
 
 export function LocalOnlyList() {
   const t = useT();
@@ -22,12 +24,15 @@ export function LocalOnlyList() {
   const rows = q.data ?? [];
   const top = rows.filter((r) => !r.worktreeOf);
   const kids = (id: string) => rows.filter((r) => r.worktreeOf === id);
+  // Windows preview: local-only tasks and their guard are Mac only (the backend refuses them too); ticks stay visible.
+  const macOnly = isWindows();
   return (
     <div className="space-y-1.5">
+      {macOnly && <MacOnlyNote text={t("common.macOnly.localOnly")} />}
       {rows.length === 0 && !q.isLoading && <p className="text-xs text-ink-3">{t("tasks.delivery.noProjects")}</p>}
       <ul className="space-y-0.5" aria-label={GUARD_COPY.title}>
         {top.map((r) => (
-          <ProjectRow key={r.id} r={r} worktrees={kids(r.id).length} busy={set.isPending} onChange={(on) => set.mutate({ id: r.id, on })} />
+          <ProjectRow key={r.id} r={r} worktrees={kids(r.id).length} busy={set.isPending || macOnly} onChange={(on) => set.mutate({ id: r.id, on })} />
         ))}
       </ul>
       <p className="text-xs text-ink-3">{GUARD_COPY.running}</p>
@@ -52,7 +57,7 @@ function ProjectRow({ r, worktrees, busy, onChange }: { r: LocalOnlyRow; worktre
         />
         <Check size={12} strokeWidth={3} className="pointer-events-none absolute top-0.5 left-0.5 hidden text-paper peer-checked:block" aria-hidden />
       </span>
-      <label htmlFor={id} className={`min-w-0 flex-1 ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}>
+      <label htmlFor={id} className={`min-w-0 flex-1 ${disabled ? "cursor-not-allowed text-ink-3" : "cursor-pointer"}`}>
         <span className="flex items-center gap-1.5 text-[13px]">
           <span className={`truncate ${r.missing ? "text-ink-2" : ""}`}>{r.name}</span>
           {r.checked && (
@@ -74,9 +79,9 @@ function ProjectRow({ r, worktrees, busy, onChange }: { r: LocalOnlyRow; worktre
 
 /** Composer: the scope this folder starts with (the same lookup as the start), plus "이 프로젝트는 로컬만". */
 export function DeliveryGuardLine({ cwd, worktree }: { cwd: string; /** The composer will start in a worktree anyway. */ worktree: boolean }) {
-  useT();
+  const t = useT();
   const qc = useQueryClient();
-  const enabled = cwd.startsWith("/");
+  const enabled = isAbsPath(cwd);
   const q = useQuery({ queryKey: ["delivery-guard", cwd], queryFn: () => deliveryApi.preview(cwd), enabled, staleTime: 10_000, retry: false });
   const tick = useMutation({
     mutationFn: () => deliveryApi.setLocalOnlyCwd(cwd),
@@ -102,12 +107,13 @@ export function DeliveryGuardLine({ cwd, worktree }: { cwd: string; /** The comp
           {local ? <Lock size={12} strokeWidth={2} aria-hidden /> : <GitPullRequestDraft size={12} strokeWidth={2} aria-hidden />}
           {guardLine(p.guard)}
         </span>
-        {p.canTick && (
+        {p.canTick && !isWindows() && (
           <Button type="button" disabled={tick.isPending} onClick={() => tick.mutate()} size="sm">
             {GUARD_COPY.tickHere}
           </Button>
         )}
       </p>
+      {isWindows() && local && <MacOnlyNote text={t("common.macOnly.localOnly")} />}
       {/* The worktree box above shows a forced worktree; this line only covers a hidden box. */}
       {p.forcedWorktree && !worktree && <p className="text-xs text-ink-3">{GUARD_COPY.forcedWorktree}</p>}
       {tick.isError && <p className="text-xs text-danger">{String(tick.error)}</p>}
