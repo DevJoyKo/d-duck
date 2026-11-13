@@ -943,13 +943,13 @@ mod tests {
         std::fs::write(d.join("attachments/a.html"), raw).unwrap();
         std::fs::write(d.join("attachments/a.md"), "# 제목\n\n- 항목\n").unwrap();
         std::fs::write(d.join("attachments/bad.md"), b"ok \xff").unwrap();
-        std::fs::write(d.join("attachments/nul.md"), "a\0b").unwrap();
+        std::fs::write(d.join("attachments/zero.md"), "a\0b").unwrap();
         std::fs::write(d.join("attachments/big.md"), vec![b'a'; MAX_MARKDOWN as usize + 1]).unwrap();
         // The original, not the cleaned srcdoc: the link and script are still there.
         assert_eq!(read_original(&d, &att("a.html", AttachmentKind::Html)).unwrap(), raw.as_bytes());
         assert_eq!(read_original(&d, &att("a.md", AttachmentKind::Markdown)).unwrap(), "# 제목\n\n- 항목\n".as_bytes());
         assert_eq!(read_original(&d, &att("bad.md", AttachmentKind::Markdown)), Err(Status::BadType));
-        assert_eq!(read_original(&d, &att("nul.md", AttachmentKind::Markdown)), Err(Status::BadType));
+        assert_eq!(read_original(&d, &att("zero.md", AttachmentKind::Markdown)), Err(Status::BadType));
         assert_eq!(read_original(&d, &att("big.md", AttachmentKind::Markdown)), Err(Status::TooLarge));
         assert_eq!(read_original(&d, &att("none.md", AttachmentKind::Markdown)), Err(Status::Missing));
     }

@@ -2917,7 +2917,9 @@ mod windows_rules {
     #[test]
     fn windows_rules_fit_the_command_line() {
         // The worst case: on the default branch with a detected default branch.
-        let rules = windows_variants(deny_rules(Guard::DraftPr, true, Some("main")));
+        // On Windows `deny_rules` already adds the Windows forms.
+        let base = deny_rules(Guard::DraftPr, true, Some("main"));
+        let rules = if cfg!(windows) { base } else { windows_variants(base) };
         let arg = std::ffi::OsString::from(format!("--disallowedTools={}", rules.join(",")));
         let n = crate::claude_cli::windows_cmdline_len(&[arg]);
         assert!(n < 12_000, "{n} UTF-16 units leave too little room for the prompt");

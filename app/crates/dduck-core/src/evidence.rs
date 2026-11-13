@@ -1077,7 +1077,7 @@ pub(crate) mod tests {
         std::fs::write(rep.join("evidence/fake.png"), "<html>").unwrap();
         std::fs::write(rep.join("evidence/v.xml"), VITEST).unwrap();
         std::fs::write(rep.join("evidence/out.txt"), "ok\n").unwrap();
-        std::fs::write(rep.join("evidence/nul.txt"), b"a\0b").unwrap();
+        std::fs::write(rep.join("evidence/zero.txt"), b"a\0b").unwrap();
         let folder = Folder::open(&rep);
         let st = |it: &Item| view(&ctx, &folder, it).status;
         assert_eq!(st(&shot("ok.png")), Status::Valid);
@@ -1087,7 +1087,7 @@ pub(crate) mod tests {
         assert_eq!((v.status, v.failed, v.label.as_str()), (Status::Valid, Some(2), "v.xml"));
         let cmd = |o: &str| Item::Command { cmd: "npm test".into(), exit_code: 1, output: Some(format!("evidence/{o}")), caption: String::new() };
         assert_eq!(st(&cmd("out.txt")), Status::Valid);
-        assert_eq!(st(&cmd("nul.txt")), Status::BadType);
+        assert_eq!(st(&cmd("zero.txt")), Status::BadType);
         let file = |p: &str, l: Option<[u32; 2]>| Item::File { path: p.into(), lines: l, caption: String::new() };
         let v = view(&ctx, &folder, &file("src/a.ts", Some([10, 42])));
         assert_eq!((v.status, v.label.as_str()), (Status::Valid, "src/a.ts:10–42"));
