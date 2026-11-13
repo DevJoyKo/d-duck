@@ -1699,6 +1699,13 @@ mod tests {
 
     #[test]
     fn attach_command_is_quoted() {
+        if cfg!(windows) {
+            // PowerShell syntax (windows-support 3.2); the quoting itself is tested in terminal_win.
+            let cli = ClaudeCli::new(r"C:\x\it's\claude.exe".into(), Some(r"C:\c dir".into()));
+            assert_eq!(cli.attach_command_line("f3e5ff71").unwrap(), r"$env:CLAUDE_CONFIG_DIR = 'C:\c dir'; & 'C:\x\it''s\claude.exe' attach f3e5ff71");
+            assert_eq!(cli.attach_command_line("$(id)"), Err(CliError::InvalidId));
+            return;
+        }
         let cli = ClaudeCli::new("/x/it's/claude".into(), Some("/c dir".into()));
         assert_eq!(cli.attach_command_line("f3e5ff71").unwrap(), r"CLAUDE_CONFIG_DIR='/c dir' '/x/it'\''s/claude' attach f3e5ff71");
         let default = ClaudeCli::new("/x/claude".into(), None);

@@ -31,6 +31,11 @@ pub enum CmdError {
     Msg(String),
 }
 
+/// windows-support decision 7: hook-gated features refuse off macOS before any login gate, claim or CLI run.
+pub fn mac_only() -> Result<(), CmdError> {
+    if cfg!(target_os = "macos") { Ok(()) } else { Err(CmdError::Cli(CliError::invalid(dduck_core::i18n::ReasonCode::MacOnly))) }
+}
+
 impl From<String> for CmdError {
     fn from(m: String) -> Self {
         Self::Msg(m)

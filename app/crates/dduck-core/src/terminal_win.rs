@@ -88,12 +88,25 @@ pub fn encoded(script: &str) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
-/// The copyable PowerShell line shown when no terminal could be opened.
+/// The copyable PowerShell line shown when no terminal could be opened. Nothing runs it, so values only need
+/// PowerShell quoting (all five single quotes doubled), not the stricter terminal rule.
 pub fn copy_line(target: &Target<'_>) -> Option<String> {
+    let q = |p: &Path| p.to_str().and_then(ps_quote);
+    let env = |cfg: Option<&Path>| -> Option<String> {
+        Some(match cfg {
+            Some(d) => format!("$env:CLAUDE_CONFIG_DIR = {}; ", q(d)?),
+            None => "Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue; ".into(),
+        })
+    };
     match target {
-        Target::Folder(dir) => Some(format!("Set-Location -LiteralPath {}", ps_quote(dir.to_str()?)?)),
-        Target::Trust { dir, .. } => Some(format!("Set-Location -LiteralPath {}; {}", ps_quote(dir.to_str()?)?, script(target)??)),
-        _ => script(target)?,
+        Target::Folder(dir) => Some(format!("Set-Location -LiteralPath {}", q(dir)?)),
+        Target::Trust { dir, cli, config_dir } => Some(format!("Set-Location -LiteralPath {}; {}& {}", q(dir)?, env(*config_dir)?, q(cli)?)),
+        Target::Attach { cli, id, config_dir } => {
+            let id_ok = !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+            id_ok.then_some(())?;
+            Some(format!("{}& {} attach {id}", env(*config_dir)?, q(cli)?))
+        }
+        Target::Login { cli, flag, config_dir } => Some(format!("{}& {} auth login {flag}", env(*config_dir)?, q(cli)?)),
     }
 }
 
@@ -202,5 +215,8 @@ mod tests {
         assert_eq!(copy_line(&Target::Folder(Path::new(r"C:\Users\me\it's"))).unwrap(), r"Set-Location -LiteralPath 'C:\Users\me\it''s'");
         let cli = Path::new(r"C:\c\claude.exe");
         assert_eq!(copy_line(&Target::Login { cli, flag: "--claudeai", config_dir: None }).unwrap(), r"Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue; & 'C:\c\claude.exe' auth login --claudeai");
+        let odd = Path::new(r"C:\it's\claude.exe");
+        assert_eq!(copy_line(&Target::Attach { cli: odd, id: "f3e5ff71", config_dir: None }).unwrap(), r"Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue; & 'C:\it''s\claude.exe' attach f3e5ff71");
+        assert_eq!(script(&Target::Attach { cli: odd, id: "f3e5ff71", config_dir: None }), None, "but a terminal never gets it");
     }
 }

@@ -357,7 +357,7 @@ pub fn guard_command(exe: &Path) -> String {
 /// that denies anything anyway, no user/project settings or MCP, no saved session, a per-call budget.
 pub fn args(guard_cmd: &str, budget_usd: f64, prompt: String) -> Vec<String> {
     let settings = serde_json::json!({
-        "hooks": { "PreToolUse": [ { "matcher": "*", "hooks": [ { "type": "command", "command": guard_cmd } ] } ] }
+        "hooks": { "PreToolUse": [ { "matcher": "*", "hooks": [ { "type": "command", "command": guard_cmd, "onFailure": "block" } ] } ] }
     });
     let budget = budget_usd.clamp(0.0, RUN_BUDGET_USD);
     [
@@ -1156,7 +1156,7 @@ mod tests {
     }
 
     /// The deny-all hook as the CLI would run it: a shell script stand-in for the app executable in guard mode.
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
     #[test]
     fn guard_self_test_needs_a_denying_hook() {
         use crate::cloud_routines::guard_self_test_denies;

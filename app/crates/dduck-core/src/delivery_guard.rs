@@ -428,6 +428,8 @@ pub fn guard_args_with(ctx: &GuardCtx, extra_settings: &[serde_json::Value]) -> 
     Ok(args)
 }
 
+/// Refusal of a local-only start off macOS (reads as `ReasonCode::MacOnly`).
+pub const MAC_ONLY: &str = "Mac 전용이에요 · Windows 미리보기에서는 아직 쓸 수 없어요";
 pub const HOOK_MISSING: &str = "로컬만 작업에 필요한 D.Duck 훅을 준비하지 못했어요";
 pub const MANAGED_BLOCKS: &str = "관리 설정이 D.Duck 훅을 막아 로컬만 작업을 시작할 수 없어요";
 pub const DANGER_REFUSED: &str = "로컬만 프로젝트는 이 권한 모드를 아직 쓸 수 없어요";
@@ -473,6 +475,10 @@ pub fn start_ctx_for_items(items: &[LocalOnlyItem], cwd: &Path, home: Option<&Pa
     let folder = cwd.canon().map_err(|_| UNREADABLE)?;
     let repo = repo_info(&folder, home).map_err(|_| UNREADABLE)?;
     let guard = guard_for(&folder, repo.as_ref(), items);
+    // Local-only and its guard are Mac-only in the Windows preview (decision 7): refused before any git or hook run.
+    if guard == Guard::LocalOnly && !cfg!(target_os = "macos") {
+        return Err(MAC_ONLY);
+    }
     let (detected, on_default, head) = match &repo {
         Some(r) => {
             let detected = detect_default_branch(&r.root).map_err(|_| UNREADABLE)?;
@@ -2866,5 +2872,22 @@ mod windows_rules {
         let rules = deny_rules(Guard::DraftPr, true, Some("main"));
         assert_eq!(rules.iter().any(|r| r == "PowerShell"), cfg!(windows));
         assert_eq!(rules.iter().any(|r| r.starts_with("Bash(git.exe ")), cfg!(windows));
+    }
+}
+
+/// windows-support 3.3 [CI] spec "Direct request": a local-only start is refused off macOS before anything runs.
+#[cfg(all(test, not(target_os = "macos")))]
+#[allow(clippy::unwrap_used)]
+mod mac_only {
+    use super::*;
+
+    #[test]
+    fn local_only_start_is_refused() {
+        let t = tempfile::tempdir().unwrap();
+        let dir = t.path().canon().unwrap();
+        let items = vec![LocalOnlyItem { folder: dir.display().to_string(), root: dir.display().to_string(), slug: None }];
+        let r = start_ctx_for_items(&items, &dir, None, false, None, None);
+        assert_eq!(r.err(), Some(MAC_ONLY));
+        assert_eq!(crate::i18n::ReasonCode::from_guard(MAC_ONLY), crate::i18n::ReasonCode::MacOnly);
     }
 }

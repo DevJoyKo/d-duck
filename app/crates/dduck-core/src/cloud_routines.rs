@@ -57,7 +57,13 @@ pub fn guard_self_test_denies(hook_cmd: &str, sample: &str) -> bool {
     run_hook(hook_cmd, sample).is_some_and(|(code, _)| code == 2)
 }
 
+/// The single choke point of every hook self-test (windows-support decision 7): off macOS nothing runs and the
+/// self-test fails, so News fetch, insights, brief refinement, cloud routines and report-guard grants refuse to start
+/// until a real Windows CLI run verifies hooks there. macOS keeps `/bin/sh -c`, the command line the CLI runs.
 fn run_hook(hook_cmd: &str, input: &str) -> Option<(i32, Vec<u8>)> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
     let run = |input: &str| -> Option<(i32, Vec<u8>)> {
         use std::io::Write;
         let mut child = std::process::Command::new("/bin/sh")
@@ -107,7 +113,7 @@ static SAVED_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"saved to:\s*(\S
 /// Arguments for the guarded headless run. `settings` carries the hook; user and project settings are not loaded.
 pub fn args(guard_cmd: &str) -> Vec<String> {
     let settings = serde_json::json!({
-        "hooks": { "PreToolUse": [ { "matcher": "RemoteTrigger", "hooks": [ { "type": "command", "command": guard_cmd } ] } ] }
+        "hooks": { "PreToolUse": [ { "matcher": "RemoteTrigger", "hooks": [ { "type": "command", "command": guard_cmd, "onFailure": "block" } ] } ] }
     });
     [
         "-p",
@@ -468,7 +474,15 @@ mod tests {
         assert!(!err.is_empty());
     }
 
-    #[cfg(unix)]
+    /// windows-support 3.3 [CI]: off macOS the self-test runs nothing and fails, whatever the command.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn self_test_fails_off_macos() {
+        assert!(!guard_self_test("exit 0", SELF_TEST_DENY, SELF_TEST_ALLOW));
+        assert!(!guard_self_test_denies("exit 2", SELF_TEST_DENY));
+    }
+
+    #[cfg(target_os = "macos")]
     #[test]
     fn self_test_fails_closed() {
         use std::os::unix::fs::PermissionsExt;
@@ -510,5 +524,21 @@ mod tests {
         }
         assert!(a.iter().any(|x| x.starts_with("--settings=") && x.contains("PreToolUse") && x.contains(GUARD_FLAG)));
         assert_eq!(a[a.len() - 2], "--");
+    }
+}
+
+/// windows-support 3.4: every app-owned hook config blocks when its hook cannot start (decision 8).
+#[cfg(test)]
+mod hook_on_failure {
+    fn blocks(args: &[String]) -> bool {
+        args.iter().filter_map(|a| a.strip_prefix("--settings=").or(Some(a.as_str()))).any(|s| s.contains(r#""onFailure":"block""#))
+    }
+
+    #[test]
+    fn news_insights_refine_and_cloud_hooks_block_on_failure() {
+        assert!(blocks(&super::args("'x' --g")));
+        assert!(blocks(&crate::insights::args("'x' --g", "{}")));
+        assert!(blocks(&crate::brief_refine::args("'x' --g", 0.1, "p".into())));
+        assert!(blocks(&crate::news::args("'x' --g", &Default::default(), crate::i18n::Lang::Ko)));
     }
 }

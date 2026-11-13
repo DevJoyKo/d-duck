@@ -218,7 +218,7 @@ pub fn prompt(known: &Known, lang: Lang) -> String {
 
 pub fn args(guard_cmd: &str, known: &Known, lang: Lang) -> Vec<String> {
     let settings = serde_json::json!({
-        "hooks": { "PreToolUse": [ { "matcher": "*", "hooks": [ { "type": "command", "command": guard_cmd } ] } ] }
+        "hooks": { "PreToolUse": [ { "matcher": "*", "hooks": [ { "type": "command", "command": guard_cmd, "onFailure": "block" } ] } ] }
     });
     [
         "-p",

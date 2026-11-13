@@ -588,6 +588,7 @@ table! {
         // windows-support: features whose protection is not verified on Windows (decision 7), and the CreateProcess limit.
         MacOnly => ("Mac 전용이에요 · Windows 미리보기에서는 아직 쓸 수 없어요", "Mac only · Not available in the Windows preview yet"),
         WindowsCommandTooLong => ("Windows에서는 지시와 설정이 너무 길어요 · 줄여서 다시 보내 주세요", "The instructions and settings are too long for Windows · Shorten them and try again"),
+        CliUpdateNeeded => ("Claude Code를 업데이트해 주세요 · 2.1.295 이상이 필요해요", "Update Claude Code · Version 2.1.295 or later is needed"),
     }
 }
 
@@ -614,6 +615,8 @@ impl ReasonCode {
             ReasonCode::GuardManagedBlocks
         } else if reason == dg::DANGER_REFUSED {
             ReasonCode::GuardDangerRefused
+        } else if reason == dg::MAC_ONLY {
+            ReasonCode::MacOnly
         } else {
             ReasonCode::GuardUnreadable
         }

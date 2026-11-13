@@ -109,6 +109,8 @@ pub enum Grant {
     NoHooks,
     /// Spike 1.1 has not run.
     NotMeasured,
+    /// Off macOS (windows-support decision 7): the report-dir hook is not verified there, so no `Write` is added.
+    MacOnly,
 }
 
 /// For an inline role (`--agents` JSON) without `Write`: adds it and returns the hook fragment. `measured` is
@@ -120,6 +122,9 @@ pub fn grant(roles_json: &mut Option<String>, role: Option<&str>, report_dir: Op
     let has = |name: &str| tools.iter().any(|t| t.as_str() == Some(name));
     if has("Write") || has("*") {
         return Grant::NotNeeded;
+    }
+    if !cfg!(target_os = "macos") {
+        return Grant::MacOnly;
     }
     if !measured {
         return Grant::NotMeasured;
@@ -185,6 +190,17 @@ mod tests {
         assert_eq!(b("npm test > evidence/o.txt", false), Decision::NoDecision, "QA's Bash keeps its prompts");
     }
 
+    /// windows-support 3.3 [CI]: off macOS a grant never adds `Write`.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn grant_is_mac_only() {
+        let mut r = Some(r#"{"dduck-reviewer":{"description":"d","prompt":"p","tools":["Read"]}}"#.to_string());
+        let before = r.clone();
+        assert_eq!(grant(&mut r, Some("dduck-reviewer"), Some(Path::new(r"C:\r")), Some(Path::new(r"C:\d.exe")), false, true), Grant::MacOnly);
+        assert_eq!(r, before, "the role is unchanged");
+    }
+
+    #[cfg(target_os = "macos")]
     #[test]
     fn grant_adds_write_only_when_measured_and_hooks_work() {
         let roles = || Some(r#"{"dduck-reviewer":{"description":"d","prompt":"p","tools":["Read","Grep","Bash(git diff:*)"]}}"#.to_string());

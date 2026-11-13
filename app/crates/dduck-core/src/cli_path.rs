@@ -11,6 +11,13 @@ use std::time::Duration;
 use regex::Regex;
 
 pub const SUPPORTED_MAJOR_MINOR: (u32, u32) = (2, 1);
+/// The first CLI that honours `"onFailure": "block"` on hooks (decision 8): hook-gated features need it.
+pub const HOOK_BLOCK_MIN: (u64, u64, u64) = (2, 1, 295);
+
+/// `version` (`x.y.z` as in [`CliInfo`]) is at least [`HOOK_BLOCK_MIN`]. An unreadable version is refused.
+pub fn supports_hook_block(version: &str) -> bool {
+    parse_semver(version).is_some_and(|v| v >= HOOK_BLOCK_MIN)
+}
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 const CLI_MARK: &str = "__DDUCK_CLI__=";
 const CFG_MARK: &str = "__DDUCK_CFG__=";
@@ -558,6 +565,12 @@ mod tests {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod portable_tests {
     use super::*;
+
+    #[test]
+    fn hook_block_needs_2_1_295() {
+        assert!(supports_hook_block("2.1.295") && supports_hook_block("2.1.330") && supports_hook_block("2.2.0") && supports_hook_block("3.0.0"));
+        assert!(!supports_hook_block("2.1.294") && !supports_hook_block("1.9.999") && !supports_hook_block("") && !supports_hook_block("2.1"));
+    }
 
     #[test]
     fn windows_path_rule() {

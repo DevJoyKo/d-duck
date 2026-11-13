@@ -179,6 +179,18 @@ impl AppState {
 }
 
 /// `HOME` on macOS, `USERPROFILE` first on Windows (windows-support decision 1); empty when neither is set.
+/// Hook-gated features (News fetch, insights, brief refinement, cloud routines): Mac only in the Windows preview, and
+/// a CLI that blocks when a hook cannot start (decisions 7 and 8). An unknown CLI passes here and fails later as
+/// "not found".
+pub(crate) fn hook_ready(app: &AppHandle) -> Result<(), login_cmds::CmdError> {
+    login_cmds::mac_only()?;
+    let version = app.state::<AppState>().cli.read().ok().and_then(|c| c.info.as_ref().map(|i| i.version.clone()));
+    match version {
+        Some(v) if !cli_path::supports_hook_block(&v) => Err(login_cmds::CmdError::Cli(CliError::invalid(ReasonCode::CliUpdateNeeded))),
+        _ => Ok(()),
+    }
+}
+
 fn home_dir() -> PathBuf {
     dduck_core::platform::home().unwrap_or_default()
 }
@@ -950,6 +962,7 @@ impl Drop for InsightsBusy<'_> {
 /// Native confirmation with the exact summary and the estimated cost, then one guarded headless run (D-078).
 #[tauri::command]
 async fn usage_insights_claude(app: AppHandle, q: Query) -> Result<InsightRun, login_cmds::CmdError> {
+    hook_ready(&app)?;
     // Login gate first (claude-login): before any claim, confirmation or CLI run. Unknown passes.
     login_cmds::gate_async(&app, dduck_core::auth_status::Need::Model).await?;
     tauri::async_runtime::spawn_blocking(move || {
@@ -1038,6 +1051,7 @@ fn refine_failed(e: dduck_core::brief_refine::RefineError, cost_usd: Option<f64>
 /// stored or logged; errors are fixed messages.
 #[tauri::command]
 async fn refine_brief(app: AppHandle, req: dduck_core::brief_refine::Request) -> Result<RefineRun, login_cmds::CmdError> {
+    hook_ready(&app)?;
     // A cancel pressed from here on stops this run wherever it is (D-159); one pressed for an earlier run does not.
     let ticket = app.state::<AppState>().refine_cancel.begin();
     // Login gate first (claude-login): before any claim, confirmation or CLI run. Unknown passes.
@@ -3079,6 +3093,7 @@ async fn artifact_preview(
 /// Lists Claude cloud routines through a guarded headless `claude` run (D-066). Button-triggered only.
 #[tauri::command]
 async fn cloud_routines(app: AppHandle) -> Result<dduck_core::cloud_routines::CloudList, login_cmds::CmdError> {
+    hook_ready(&app)?;
     // Login gate first (claude-login): before any claim, confirmation or CLI run. Unknown passes.
     login_cmds::gate_async(&app, dduck_core::auth_status::Need::ClaudeAi).await?;
     tauri::async_runtime::spawn_blocking(move || -> Result<_, login_cmds::CmdError> {
@@ -3166,6 +3181,7 @@ enum CloudEdit {
 /// run, parse with the allowed-field parser, then clean in the D-072 order. The response (it holds the routine's
 /// prompt) stays in memory and is never logged.
 fn cloud_call(app: &AppHandle, expected: &serde_json::Value) -> Result<(dduck_core::cloud_routines::CloudRoutine, Option<f64>), login_cmds::CmdError> {
+    hook_ready(app)?;
     cloud_exact(app, expected, |body, cost| dduck_core::cloud_routines::parse_one(body).map(|r| (r, cost)))
 }
 
@@ -3241,6 +3257,7 @@ fn cloud_exact<T>(
 /// A cloud routine's recent runs (D-166): one guarded, read-only `list_runs` call, first page only.
 #[tauri::command]
 async fn cloud_routine_runs(app: AppHandle, id: String) -> Result<dduck_core::cloud_routines::CloudRuns, login_cmds::CmdError> {
+    hook_ready(&app)?;
     login_cmds::gate_async(&app, dduck_core::auth_status::Need::ClaudeAi).await?;
     tauri::async_runtime::spawn_blocking(move || -> Result<_, login_cmds::CmdError> {
         use dduck_core::cloud_routines as cr;
@@ -3257,6 +3274,7 @@ async fn cloud_routine_runs(app: AppHandle, id: String) -> Result<dduck_core::cl
 /// display; never stored or logged.
 #[tauri::command]
 async fn cloud_run_log(app: AppHandle, session_id: String) -> Result<dduck_core::cloud_routines::CloudRunLog, login_cmds::CmdError> {
+    hook_ready(&app)?;
     login_cmds::gate_async(&app, dduck_core::auth_status::Need::ClaudeAi).await?;
     tauri::async_runtime::spawn_blocking(move || -> Result<_, login_cmds::CmdError> {
         use dduck_core::cloud_routines as cr;
@@ -3837,6 +3855,9 @@ fn open_terminal_os(_client: &ClaudeCli, _target: &TerminalTarget) -> bool {
 /// Terminal sessions: a native confirmation (it may drop unsent input), then SIGTERM → SIGKILL on the verified pid.
 #[tauri::command]
 async fn force_stop(app: AppHandle, key: String) -> Result<(), CliError> {
+    if !cfg!(target_os = "macos") {
+        return Err(CliError::invalid(ReasonCode::MacOnly));
+    }
     let state = app.state::<AppState>();
     let s = listed_session(&state, &key)?;
     let client = state.client().ok();

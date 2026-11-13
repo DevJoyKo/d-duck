@@ -161,6 +161,7 @@ fn run(app: &AppHandle, daily: bool) -> NewsRun {
 /// "가져오기": login gate, busy claimed, native confirmation with what is sent and the cost, then one run.
 #[tauri::command]
 pub async fn news_fetch(app: AppHandle) -> Result<NewsRun, login_cmds::CmdError> {
+    crate::hook_ready(&app)?;
     login_cmds::gate_async(&app, dduck_core::auth_status::Need::Model).await?;
     tauri::async_runtime::spawn_blocking(move || -> Res<NewsRun> {
         let Some(_busy) = Busy::claim() else { return Ok(failed(NewsError::Busy)) };
@@ -200,6 +201,9 @@ pub fn news_mark_seen(state: tauri::State<'_, AppState>, id: String) -> Res<bool
 /// On asks natively first (once per consent); off never asks. Returns the new state.
 #[tauri::command]
 pub async fn news_set_daily(app: AppHandle, enabled: bool) -> Res<bool> {
+    if enabled && !cfg!(target_os = "macos") {
+        return Err(ReasonCode::MacOnly.now());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         if enabled {

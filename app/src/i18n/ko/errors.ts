@@ -72,6 +72,7 @@ export default {
     modelAgentUnsupported: "에이전트 파일의 모델을 쓸 수 없어요 · 에이전트 설정에서 바꿔 주세요",
     macOnly: "Mac 전용이에요 · Windows 미리보기에서는 아직 쓸 수 없어요",
     windowsCommandTooLong: "Windows에서는 지시와 설정이 너무 길어요 · 줄여서 다시 보내 주세요",
+    cliUpdateNeeded: "Claude Code를 업데이트해 주세요 · 2.1.295 이상이 필요해요",
   },
   connection: {
     claudeAi: "Claude 계정으로 연결돼 있어요",
