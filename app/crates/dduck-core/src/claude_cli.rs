@@ -952,8 +952,9 @@ impl ClaudeCli {
         use std::process::Stdio;
         let mut cmd = self.command();
         cmd.args(["auth", "login", method.flag()]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-        // Unix: own process group. Windows: a kill-on-close job, no console window (decision 3).
-        crate::process::Spawned::awaited(&mut cmd)
+        // Unix: own process group. Windows: no console window and no job, so a browser the CLI opens outlives the
+        // login (review H2); ending the login kills only this process.
+        crate::process::Spawned::login(&mut cmd)
     }
 
     /// Terminal-fallback argv parts: the CLI path and the config dir (`None` = default profile). The flag is chosen

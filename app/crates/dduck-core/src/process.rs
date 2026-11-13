@@ -306,6 +306,25 @@ impl TreeGuard {
 }
 
 impl Spawned {
+    /// `claude auth login` (review H2). Unix: its own process group, as before. Windows: no job, because the CLI
+    /// opens the browser as its child and a kill-on-close job would end the browser with the login; ending the login
+    /// kills only the started process.
+    pub fn login(cmd: &mut Command) -> std::io::Result<Spawned> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+        #[cfg(windows)]
+        {
+            Ok(Spawned { child: win::spawn_no_window(cmd)?, tree: TreeGuard { job: None } })
+        }
+        #[cfg(not(windows))]
+        {
+            Ok(Spawned { child: cmd.spawn()?, tree: TreeGuard {} })
+        }
+    }
+
     /// Unix: in its own process group (killed with `killpg` by the caller). Windows: in a kill-on-close job.
     pub fn awaited(cmd: &mut Command) -> std::io::Result<Spawned> {
         #[cfg(unix)]

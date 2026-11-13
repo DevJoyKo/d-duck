@@ -393,7 +393,7 @@ pub fn lexical_guard(p: &Path) -> bool {
 /// name (alternate streams), reserved device names (`CON`, `NUL`, `COM1`, `LPT1`, … also with an extension), names
 /// ending in a dot or a space, and control characters.
 pub fn windows_lexical_ok(s: &str) -> bool {
-    if s.is_empty() || s.chars().any(char::is_control) || s.starts_with(['\\', '/']) && s[1..].starts_with(['\\', '/']) {
+    if s.is_empty() || s.chars().any(char::is_control) || s.contains(['?', '*']) || s.starts_with(['\\', '/']) && s[1..].starts_with(['\\', '/']) {
         return false;
     }
     let b = s.as_bytes();
@@ -415,6 +415,18 @@ pub fn windows_lexical_ok(s: &str) -> bool {
             || ((stem.starts_with("COM") || stem.starts_with("LPT")) && ["¹", "²", "³"].iter().any(|d| stem.len() == 3 + d.len() && stem.ends_with(d)));
         !c.contains(':') && !device && !c.ends_with(['.', ' '])
     })
+}
+
+/// An untrusted relative path or file name (report evidence, attachments, skill parts) on this OS. macOS: true (the
+/// callers' own rules apply). Windows: [`windows_relative_ok`] (review H3).
+pub fn relative_ok(s: &str) -> bool {
+    !cfg!(windows) || windows_relative_ok(s)
+}
+
+/// The Windows rule of [`relative_ok`], callable on every OS: [`windows_lexical_ok`] without any drive, root or `:`
+/// (so `C:/x`, `C:x`, `\\x` and `a.md:s` are refused), and no `?` or `*`.
+pub fn windows_relative_ok(s: &str) -> bool {
+    windows_lexical_ok(s) && !s.contains([':', '?', '*']) && !s.starts_with(['\\', '/'])
 }
 
 /// A file or folder name equal to `want`: exact on macOS, ignoring ASCII case on Windows (NTFS), for deny lists.
@@ -546,13 +558,38 @@ pub mod shell {
             .is_ok()
     }
 
-    /// Moves one file or folder to the Recycle Bin (`SHFileOperationW` with undo, no UI). A link is moved itself,
-    /// never its target.
+    /// Items in the Recycle Bin of the drive holding `path` (`None` = no bin there, or not a local fixed drive).
+    pub fn bin_items(path: &Path) -> Option<i64> {
+        use windows_sys::Win32::Storage::FileSystem::GetDriveTypeW;
+        use windows_sys::Win32::UI::Shell::{SHQUERYRBINFO, SHQueryRecycleBinW};
+        const DRIVE_FIXED: u32 = 3;
+        let s = path.to_str()?;
+        let b = s.as_bytes();
+        if b.len() < 3 || !b[0].is_ascii_alphabetic() || b[1] != b':' || b[2] != b'\\' {
+            return None;
+        }
+        let root = wide(s[..3].as_ref());
+        // SAFETY: NUL-terminated root path.
+        if unsafe { GetDriveTypeW(root.as_ptr()) } != DRIVE_FIXED {
+            return None;
+        }
+        // SAFETY: zeroed is valid; cbSize set as the API requires.
+        let mut info: SHQUERYRBINFO = unsafe { std::mem::zeroed() };
+        info.cbSize = std::mem::size_of::<SHQUERYRBINFO>() as u32;
+        // SAFETY: valid root and out struct.
+        (unsafe { SHQueryRecycleBinW(root.as_ptr(), &mut info) } >= 0).then_some(info.i64NumItems)
+    }
+
+    /// Moves one file or folder to the Recycle Bin (review H1). Only on a local fixed drive with a Recycle Bin; the
+    /// shell recycles without asking but warns before destroying anything it cannot recycle (`FOF_WANTNUKEWARNING`,
+    /// never `FOF_NO_UI`), and afterwards the bin must hold more items than before. A link is moved itself, never its
+    /// target. Wildcards are refused (the shell would expand them).
     pub fn trash(path: &Path) -> std::io::Result<()> {
-        use windows_sys::Win32::UI::Shell::{FO_DELETE, FOF_ALLOWUNDO, FOF_NO_UI, SHFILEOPSTRUCTW, SHFileOperationW};
-        if !path.is_absolute() || !super::lexical_guard(path) {
+        use windows_sys::Win32::UI::Shell::{FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, FOF_WANTNUKEWARNING, SHFILEOPSTRUCTW, SHFileOperationW};
+        if !path.is_absolute() || !super::lexical_guard(path) || path.to_str().is_none_or(|s| s.contains(['*', '?'])) {
             return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
         }
+        let Some(before) = bin_items(path) else { return Err(std::io::Error::other("no Recycle Bin on this drive")) };
         // pFrom is a list: the path, NUL, then a final NUL.
         let mut from = wide(path.as_os_str());
         from.push(0);
@@ -560,10 +597,16 @@ pub mod shell {
         let mut op: SHFILEOPSTRUCTW = unsafe { std::mem::zeroed() };
         op.wFunc = FO_DELETE;
         op.pFrom = from.as_ptr();
-        op.fFlags = (FOF_ALLOWUNDO | FOF_NO_UI) as u16;
+        op.fFlags = (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI | FOF_WANTNUKEWARNING) as u16;
         // SAFETY: `op` and `from` live for the call.
         let rc = unsafe { SHFileOperationW(&mut op) };
-        if rc != 0 || op.fAnyOperationsAborted != 0 { Err(std::io::Error::other(format!("SHFileOperationW {rc}"))) } else { Ok(()) }
+        if rc != 0 || op.fAnyOperationsAborted != 0 {
+            return Err(std::io::Error::other(format!("SHFileOperationW {rc}")));
+        }
+        match bin_items(path) {
+            Some(after) if after > before => Ok(()),
+            _ => Err(std::io::Error::other("not found in the Recycle Bin afterwards")),
+        }
     }
 }
 
@@ -716,6 +759,19 @@ mod tests {
         }
     }
 
+    /// Review H3 [CI]: untrusted relative paths on Windows.
+    #[test]
+    fn windows_relative_rule() {
+        for ok in ["evidence/a.png", r"docs\a.md", "a.md", "con-notes.md"] {
+            assert!(windows_relative_ok(ok), "{ok}");
+        }
+        for bad in ["C:/Users/me/a.md", r"C:\a.md", "C:a.md", "a.md:secret", "CON", "nul", "nul.txt", "docs/COM1.md", r"\\host\share\a.md", r"\??\C:\a", "/abs.md", "a?.md", "a*.md", "dir./a.md", "a.md ", ""] {
+            assert!(!windows_relative_ok(bad), "{bad}");
+        }
+        assert!(!windows_lexical_ok(r"\??\C:\x"), "NT object prefix");
+        assert!(relative_ok("CON") == !cfg!(windows));
+    }
+
     #[test]
     fn deny_names_ignore_case_only_on_windows() {
         let n = std::ffi::OsStr::new("appdata");
@@ -741,7 +797,9 @@ mod tests {
         std::fs::write(target.join("keep.md"), "x").unwrap();
         let j = base.join("j");
         assert!(std::process::Command::new("cmd").arg("/C").arg("mklink").arg("/J").arg(&j).arg(&target).output().unwrap().status.success());
+        let before = shell::bin_items(&j).expect("the runner's C: has a Recycle Bin");
         shell::trash(&j).unwrap();
+        assert!(shell::bin_items(&j).unwrap() > before, "the junction went to the Recycle Bin");
         assert!(std::fs::symlink_metadata(&j).is_err(), "the junction is gone");
         assert!(target.join("keep.md").is_file(), "its target is untouched");
         let f = base.join("plain.md");
@@ -749,6 +807,8 @@ mod tests {
         shell::trash(&f).unwrap();
         assert!(!f.exists());
         assert!(shell::trash(Path::new(r"\\host\share\x.md")).is_err(), "UNC refused before the shell");
+        assert!(shell::trash(&base.join("*.md")).is_err(), "wildcards refused");
+        assert!(shell::trash(&base.join("a?.md")).is_err());
     }
 
     #[cfg(windows)]

@@ -51,7 +51,7 @@ pub fn valid_skill_name(n: &str) -> bool {
 
 /// One file or folder name inside a skill: ASCII letters, digits, `. _ -`, not starting with a dot.
 pub fn valid_part(p: &str) -> bool {
-    PART_RE.is_match(p) && p != ".."
+    PART_RE.is_match(p) && p != ".." && crate::platform::relative_ok(p)
 }
 
 pub fn valid_market(n: &str) -> bool {

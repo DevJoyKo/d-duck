@@ -45,7 +45,7 @@ static NAME_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\A[A-Za-z0-9._-]
 
 /// One file name inside `evidence/` or `attachments/`: `[A-Za-z0-9._-]{1,80}`, not only dots.
 pub fn valid_name(n: &str) -> bool {
-    NAME_RE.is_match(n) && !n.bytes().all(|b| b == b'.')
+    NAME_RE.is_match(n) && !n.bytes().all(|b| b == b'.') && crate::platform::relative_ok(n)
 }
 
 fn ext(n: &str) -> String {
@@ -101,7 +101,8 @@ fn valid_repo_path(p: &str) -> bool {
     if p.is_empty() || p.chars().count() > MAX_CHARS || p.starts_with('/') || p.contains('\\') || p.chars().any(crate::text::is_unsafe_char) {
         return false;
     }
-    p.split('/').all(|c| !c.is_empty() && c != "." && c != ".." && c != ".git")
+    // Windows: no drive, stream, device name or trailing dot/space either (review H3).
+    crate::platform::relative_ok(p) && p.split('/').all(|c| !c.is_empty() && c != "." && c != ".." && !crate::platform::name_is(std::ffi::OsStr::new(c), ".git"))
 }
 
 fn ok_text(s: &str) -> bool {
@@ -1187,3 +1188,21 @@ pub(crate) mod tests {
         assert_eq!(preview(&ctx, &Item::File { path: "src/a.ts".into(), lines: Some([1, 2]), caption: String::new() }), Preview::File { path: "src/a.ts".into(), lines: Some([1, 2]) });
     }
 }
+
+/// Review H3 [CI]: report evidence on Windows never names a share, a stream, a device or another drive.
+#[cfg(all(test, windows))]
+mod windows_paths {
+    #[test]
+    fn evidence_files_follow_the_windows_rule() {
+        for bad in [r"\\host\share\a.png", "//host/share/a.png", "a.md:secret", "docs/a.md:s", "CON", "nul", "docs/nul.txt", "C:/Users/me/a.md", "C:a.md", ".GIT/config", "dir./a.md"] {
+            assert!(!super::valid_repo_path(bad), "{bad}");
+        }
+        assert!(super::valid_repo_path("src/main.rs"));
+        for bad in ["CON", "nul.png", "a.png:x", "a."] {
+            assert!(!super::valid_name(bad), "{bad}");
+        }
+        assert!(super::valid_name("shot.png"));
+        assert!(!crate::install_link::valid_part("CON") && !crate::install_link::valid_part("aux.md"));
+    }
+}
+
