@@ -559,6 +559,8 @@ fn update_tray(app: &AppHandle, state: &AppState, sessions: &[AgentSession], lan
     #[cfg(target_os = "macos")]
     let _ = tray.set_title(count.as_deref());
     let _ = tray.set_tooltip(Some(dduck_core::task_lifecycle::tooltip(review, pending, i18n::current())));
+    // Windows has no dock badge: the count is in the tooltip above (windows-support 4.4).
+    #[cfg(not(windows))]
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_badge_count((review > 0).then_some(review as i64));
     }
@@ -590,9 +592,14 @@ fn create_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
             }
         }
     });
-    // Monochrome template image: macOS tints it for light/dark menu bars and it stays legible at 22pt.
-    match tauri::image::Image::from_bytes(include_bytes!("../icons/tray-template@2x.png")) {
-        Ok(img) => builder = builder.icon(img).icon_as_template(true),
+    // Monochrome template image: macOS tints it for light/dark menu bars and it stays legible at 22pt. Windows does
+    // not tint (a black template would vanish on a dark taskbar), so it gets the colour app icon (windows-support 4.4).
+    #[cfg(windows)]
+    let tray_png: &[u8] = include_bytes!("../icons/32x32.png");
+    #[cfg(not(windows))]
+    let tray_png: &[u8] = include_bytes!("../icons/tray-template@2x.png");
+    match tauri::image::Image::from_bytes(tray_png) {
+        Ok(img) => builder = builder.icon(img).icon_as_template(cfg!(target_os = "macos")),
         Err(_) => {
             if let Some(icon) = app.default_window_icon() {
                 builder = builder.icon(icon.clone());

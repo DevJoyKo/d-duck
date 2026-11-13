@@ -7,11 +7,11 @@ D.Duck runs on Windows 10/11 x64 as a preview. It finds and runs the Claude CLI 
 ### Requirement: Windows installer
 The project SHALL produce a Windows x64 NSIS installer that installs WebView2 when it is missing, starts D.Duck from the Start menu, and keeps one running instance.
 
-#### Scenario: Fresh Windows 11 machine
+#### Scenario: Fresh Windows 11 machine [manual]
 - **WHEN** a user runs the installer on Windows 11 x64
 - **THEN** D.Duck installs, appears in the Start menu, and opens its main window
 
-#### Scenario: Second launch
+#### Scenario: Second launch [manual]
 - **WHEN** D.Duck is already running and the user starts it again
 - **THEN** the existing window comes to the front and no second instance runs
 
@@ -67,22 +67,22 @@ On Windows every task SHALL disallow the PowerShell and Monitor tools, SHALL ref
 ### Requirement: Windows paths
 On Windows the app SHALL treat `C:\...` and `\\server\share\...` paths as absolute, SHALL compare paths without the `\\?\` prefix and without letter-case differences of the drive, SHALL map a project folder to the same `~/.claude/projects` key Claude Code uses, and SHALL display paths with `~` for the user folder.
 
-#### Scenario: Project list
+#### Scenario: Project list [manual]
 - **WHEN** Claude Code has sessions for `C:\Users\me\work\app`
 - **THEN** the project appears once, under that folder, with its sessions
 
-#### Scenario: Composer folder
+#### Scenario: Composer folder [CI]
 - **WHEN** the user picks `C:\Users\me\work\app` as the task folder
 - **THEN** model selection and the folder-dependent options are enabled as they are for a macOS absolute path
 
 ### Requirement: Opening and deleting on Windows
 On Windows, opening a link, file or folder SHALL use the Windows shell, deletion SHALL move items to the Recycle Bin, and actions that open a terminal SHALL use Windows Terminal when installed and PowerShell otherwise. Copyable commands SHALL use PowerShell syntax.
 
-#### Scenario: Open original article
+#### Scenario: Open original article [manual]
 - **WHEN** the user clicks an external link
 - **THEN** the default browser opens it
 
-#### Scenario: Delete an agent definition
+#### Scenario: Delete an agent definition [CI]
 - **WHEN** the user deletes an agent definition and confirms
 - **THEN** the file is in the Recycle Bin and can be restored
 
@@ -104,18 +104,18 @@ On macOS the hook self-test SHALL keep running the exact hook command line throu
 ### Requirement: Mac-only features on Windows
 In the Windows preview, local-only (원격 금지) tasks, force-stopping stray Claude processes and report-guard grants SHALL be unavailable and labeled "Mac 전용" ("Mac only"), and the backend SHALL refuse them on Windows even if requested directly.
 
-#### Scenario: Local-only toggle
+#### Scenario: Local-only toggle [CI]
 - **WHEN** the user opens the composer on Windows
 - **THEN** the local-only option is disabled with a "Mac 전용" label and explanation
 
-#### Scenario: Direct request
+#### Scenario: Direct request [CI]
 - **WHEN** a local-only task start reaches the backend on Windows
 - **THEN** it is refused with the Mac-only reason and no process starts
 
 ### Requirement: Windows look and feel
 On Windows the app SHALL use the native title bar without macOS traffic-light padding, show Ctrl instead of ⌘ in shortcut labels, use a Windows monospace font, show a tray icon visible on light and dark taskbars, and name Windows places (File Explorer, Recycle Bin) instead of macOS ones.
 
-#### Scenario: Shortcut label
+#### Scenario: Shortcut label [CI]
 - **WHEN** the composer shows its send shortcut on Windows
 - **THEN** it reads "Ctrl+Enter"
 
@@ -140,6 +140,6 @@ The Windows installer attached to a release SHALL be built by a release workflow
 ### Requirement: Credentials and transcripts unchanged
 On Windows, as on macOS, the app SHALL NOT read, store or send Claude credentials (including `~/.claude/.credentials.json`) and SHALL NOT store raw transcripts.
 
-#### Scenario: Discovery skips credentials
+#### Scenario: Discovery skips credentials [CI]
 - **WHEN** the app scans `%USERPROFILE%\.claude`
 - **THEN** `.credentials.json` is never opened
