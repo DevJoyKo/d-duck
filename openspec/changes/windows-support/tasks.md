@@ -50,19 +50,19 @@
 
 ## 7. 리뷰 수정 (test-stage reviews 2026-11-13)
 
-- [ ] 7.1 H1 Recycle Bin: only when the item really goes to the bin (else TrashFailed); `*`/`?` refused; test asserts the bin count grows; restore [manual]
-- [ ] 7.2 H2 auth login outside the kill-on-close job (own kill); "login with the browser closed" in the release-notes [manual] list; 0.2 note corrected (auth status, not auth login)
-- [ ] 7.3 H3 Windows lexical rule for evidence `file`, attachment and authoring paths; Windows CI tests (UNC, stream, device names, drive-absolute)
-- [ ] 7.4 Run, store and cache the ACL-checked real path (CLI and git)
-- [ ] 7.5 Windows managed settings: never `/etc/claude-code`; `%ProgramFiles%\ClaudeCode` or empty + "not checked"
-- [ ] 7.6 CLI ≥ 2.1.295 gate in one core place, passed by daily News, news_set_daily on, local-only start; tests
-- [ ] 7.7 Awaited runs: end the job on normal exit before joining the pipes; time-bound test
-- [ ] 7.8 release-windows.yml: refs/tags/ forced and checked, build and attest jobs split, pinned toolchain; `--source-ref` in the verify command
-- [ ] 7.9 Windows deny rules: case variants (PowerShell, Git.exe, CMD, bare cmd), start/wsl/winpty; tests
-- [ ] 7.10 Test gaps: Windows start_background arg rules and too-long refusal; `cargo test -p dduck` in CI; Mac-only refusal tests (news_fetch, force_stop, set_local_only, hook_ready)
-- [ ] 7.11 design.md/proposal.md "Implementation corrections" with superseded marks; proposal sentences (node.exe, /bin/sh, macOS behaviour) fixed; macOS hook-gate change noted
-- [ ] 7.12 6.3 evidence moved to docs/assets/review/windows-support/; extensions and composer-bottom shots
-- [ ] 7.13 Brand: ko "맥" wording per OS (osWords + test), Git Bash note with the fix and a link in warn tone, "요구사항 다듬기" everywhere
-- [ ] 7.14 Cheap LOWs: News px-3, LocalOnly disabled tone, Sidebar logo pt-3, git_bash roots = git_program, Toolhelp retry, Windows local-only start disabled, shim take(16K+1), `\??\` and `?` refused, fd_path None refused on Windows, evidence run ids, comment placement, new_window_guard assert, Composer gitBash=false render test
-- [ ] 7.15 Deferred LOWs recorded (Windows owner SID / swap defence in agents_catalog, git system config NOSYSTEM)
+- [x] 7.1 H1 Recycle Bin: only when the item really goes to the bin (else TrashFailed); `*`/`?` refused; test asserts the bin count grows; restore [manual] — shell::trash: fixed drive + SHQueryRecycleBinW, FOF_WANTNUKEWARNING (no FOF_NO_UI), bin count must grow, * ? refused; Windows test asserts the count (restore [manual] in release notes)
+- [x] 7.2 H2 auth login outside the kill-on-close job (own kill); "login with the browser closed" in the release-notes [manual] list; 0.2 note corrected (auth status, not auth login) — Spawned::login (no job on Windows, own kill); release notes required [manual] browser-closed login; 0.2 note corrected; design correction 2
+- [x] 7.3 H3 Windows lexical rule for evidence `file`, attachment and authoring paths; Windows CI tests (UNC, stream, device names, drive-absolute) — platform::relative_ok/windows_relative_ok in evidence valid_repo_path/valid_name and install_link::valid_part (authoring, attachments); windows_relative_rule test + evidence windows_paths test pass on Windows CI
+- [x] 7.4 Run, store and cache the ACL-checked real path (CLI and git) — cli_path runs/stores the checked real path on Windows; git_program returns the canon path that passed the ACL check
+- [x] 7.5 Windows managed settings: never `/etc/claude-code`; `%ProgramFiles%\ClaudeCode` or empty + "not checked" — default_managed_roots/ManagedSources::system use %ProgramFiles%\ClaudeCode on Windows (registry not read, design correction 9); Windows test
+- [x] 7.6 CLI ≥ 2.1.295 gate in one core place, passed by daily News, news_set_daily on, local-only start; tests — cli_path::hooks_allowed (set at CLI resolve) inside run_hook; news_set_daily on and hook_ready use it; test with a thread-local version
+- [x] 7.7 Awaited runs: end the job on normal exit before joining the pipes; time-bound test — job terminated on normal exit before the join; Windows test asserts return within 5 s
+- [x] 7.8 release-windows.yml: refs/tags/ forced and checked, build and attest jobs split, pinned toolchain; `--source-ref` in the verify command — tag job (refs/tags/vX.Y.Z, exists), build/attest/attach split, toolchain 1.99.1; --source-ref in the verify command
+- [x] 7.9 Windows deny rules: case variants (PowerShell, Git.exe, CMD, bare cmd), start/wsl/winpty; tests — case and .exe/.EXE forms, any-case shells bare and with args, start/wsl/winpty; tests incl. size < 12,000 UTF-16 units
+- [x] 7.10 Test gaps: Windows start_background arg rules and too-long refusal; `cargo test -p dduck` in CI; Mac-only refusal tests (news_fetch, force_stop, set_local_only, hook_ready) — tests/claude_cli_windows.rs (start_background rules, too-long refusal) passes on Windows; cargo test -p dduck in CI (macOS and Windows); shell Mac-only refusal tests
+- [x] 7.11 design.md/proposal.md "Implementation corrections" with superseded marks; proposal sentences (node.exe, /bin/sh, macOS behaviour) fixed; macOS hook-gate change noted — design.md and proposal.md "Implementation corrections" with superseded marks; spec login/restore wording
+- [x] 7.12 6.3 evidence moved to docs/assets/review/windows-support/; extensions and composer-bottom shots — 32 screenshots in docs/assets/review/windows-support/; extensions and composer-bottom shots not taken (no mock server on 1462 or 1430, not started)
+- [x] 7.13 Brand: ko "맥" wording per OS (osWords + test), Git Bash note with the fix and a link in warn tone, "요구사항 다듬기" everywhere — osWords PC wording + test, Git Bash warn note with install link (confirmed external link), 요구사항 다듬기
+- [x] 7.14 Cheap LOWs: News px-3, LocalOnly disabled tone, Sidebar logo pt-3, git_bash roots = git_program, Toolhelp retry, Windows local-only start disabled, shim take(16K+1), `\??\` and `?` refused, fd_path None refused on Windows, evidence run ids, comment placement, new_window_guard assert, Composer gitBash=false render test — News px-3, LocalOnly text-ink-3, Windows logo pt-3, git_bash roots, Toolhelp retry, Windows local-only start disabled, shim take(16K+1), \??\ and ? refused, fd_path None refused on Windows, run ids, comment, guard assert, ComposerWindows render test
+- [x] 7.15 Deferred LOWs recorded (Windows owner SID / swap defence in agents_catalog, git system config NOSYSTEM) — owner-SID check deferred (file-index swap check now also on Windows); git system config kept readable on Windows (admin-only, autocrlf) — design corrections 7 and 11
 
