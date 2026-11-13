@@ -103,14 +103,50 @@ pub fn generate(dir: &Path, python: &str) -> Result<(), String> {
     }
 }
 
+/// An absolute path literal on this OS for tests: `/work/a` on macOS, `C:\work\a` on Windows (windows-support 5.2).
+#[doc(hidden)]
+pub fn abs(unix: &str) -> String {
+    if cfg!(windows) { format!("C:{}", unix.replace('/', "\\")) } else { unix.to_string() }
+}
+
+/// A path for a JSON string literal in a test fixture: `\` doubled, so Windows paths stay valid JSON.
+#[doc(hidden)]
+pub fn js(p: &Path) -> String {
+    p.display().to_string().replace('\\', "\\\\")
+}
+
+/// Sets the modification time of a file or folder in a test. Windows needs write-attributes access and
+/// backup semantics to open a folder; macOS opens it read-only as before.
+#[doc(hidden)]
+pub fn set_mtime(p: &Path, t: std::time::SystemTime) {
+    let mut o = std::fs::OpenOptions::new();
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        o.access_mode(0x100).custom_flags(0x0200_0000); // FILE_WRITE_ATTRIBUTES, FILE_FLAG_BACKUP_SEMANTICS
+    }
+    #[cfg(not(windows))]
+    o.read(true);
+    if let Err(e) = o.open(p).and_then(|f| f.set_modified(t)) {
+        panic!("set_mtime {}: {e}", p.display());
+    }
+}
+
 /// The `fake_claude` example binary (`cargo test` builds examples next to the test binaries), for spawn, job and
 /// CLI-discovery tests on Windows CI where shell scripts cannot stand in for `claude.exe`.
 #[doc(hidden)]
 pub fn fake_claude() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    let profile = exe.parent()?.parent()?;
-    let p = profile.join("examples").join(if cfg!(windows) { "fake_claude.exe" } else { "fake_claude" });
-    p.is_file().then_some(p)
+    let examples = exe.parent()?.parent()?.join("examples");
+    let plain = examples.join(if cfg!(windows) { "fake_claude.exe" } else { "fake_claude" });
+    if plain.is_file() {
+        return Some(plain);
+    }
+    // Without the uplifted copy, the hashed build output (`fake_claude-<hash>.exe`).
+    std::fs::read_dir(&examples).ok()?.filter_map(Result::ok).map(|e| e.path()).find(|p| {
+        let n = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        n.starts_with("fake_claude-") && (if cfg!(windows) { n.ends_with(".exe") } else { !n.contains('.') })
+    })
 }
 
 #[cfg(unix)]

@@ -1315,7 +1315,8 @@ pub fn git_tracked(file: &Path) -> Option<bool> {
             Err(_) => dir = dir.parent()?,
         }
     }
-    let rel = file.strip_prefix(dir).ok()?.to_str()?.as_bytes().to_vec();
+    // The index stores `/`-separated paths, also on Windows.
+    let rel = file.strip_prefix(dir).ok()?.components().map(|c| c.as_os_str().to_str()).collect::<Option<Vec<_>>>()?.join("/").into_bytes();
     let idx = dir.join(".git").join("index");
     let m = match std::fs::symlink_metadata(&idx) {
         Err(_) => return Some(false),

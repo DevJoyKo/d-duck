@@ -173,7 +173,7 @@ mod tests {
         let root = projects_root(&config).unwrap();
         let found = discover(&root);
         let rel: Vec<String> =
-            found.iter().map(|f| f.path.strip_prefix(&root).unwrap().to_string_lossy().into_owned()).collect();
+            found.iter().map(|f| f.path.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/")).collect();
         assert_eq!(rel, vec![format!("-tmp-proj/{S}/subagents/agent-a1b2.jsonl"), format!("-tmp-proj/{S}.jsonl")]);
 
         assert_eq!(found[1].rel_path, format!("-tmp-proj/{S}.jsonl"));

@@ -647,9 +647,8 @@ pub fn install_staged(stage: &Path, skills_root: &Path, name: &str) -> Result<Pa
 
 /// 32 hex characters from the OS random source.
 pub fn random_token() -> String {
-    use std::io::Read;
     let mut b = [0u8; 16];
-    let ok = std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut b)).is_ok();
+    let ok = crate::platform::random_bytes(&mut b);
     if !ok {
         let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
         let h = crate::agents_catalog::token_of(format!("{n}-{}-{:p}", std::process::id(), &b).as_bytes());

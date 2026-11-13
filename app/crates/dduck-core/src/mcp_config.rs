@@ -338,11 +338,11 @@ mod tests {
     "events": {{ "type": "sse", "url": "http://localhost:3000/events" }}
   }},
   "projects": {{
-    "{}": {{ "mcpServers": {{ "figma": {{ "type": "http", "url": "https://mcp.figma.com/mcp", "headers": {{ "X-Key": "{CANARY}" }} }} }}, "history": ["{CANARY}"] }},
+    {}: {{ "mcpServers": {{ "figma": {{ "type": "http", "url": "https://mcp.figma.com/mcp", "headers": {{ "X-Key": "{CANARY}" }} }} }}, "history": ["{CANARY}"] }},
     "/elsewhere": {{ "mcpServers": {{ "other": {{ "command": "x" }} }} }}
   }}
 }}"#,
-            project.display()
+            serde_json::to_string(&project.display().to_string()).unwrap()
         )
     }
 

@@ -745,6 +745,7 @@ pub fn parse_output(stdout: &[u8], ctx: &Context) -> Outcome {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    #[cfg_attr(not(unix), allow(unused_imports))]
     use crate::platform::CanonExt;
     use super::*;
 

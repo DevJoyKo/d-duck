@@ -96,7 +96,9 @@ impl Allowed {
     fn permits(&self, p: &Path) -> bool {
         if let Some(rest) = p.strip_prefix(&self.home).ok().filter(|r| r.components().next().is_some()) {
             let first = rest.components().next();
-            let denied = matches!(first, Some(Component::Normal(c)) if c == "Library" || c == ".claude");
+            // Windows also denies `AppData` (other apps' data and caches), all names without letter case (decision 1).
+            let deny: &[&str] = if cfg!(windows) { &["Library", ".claude", "AppData"] } else { &["Library", ".claude"] };
+            let denied = matches!(first, Some(Component::Normal(c)) if deny.iter().any(|d| crate::platform::name_is(c, d)));
             return !denied;
         }
         self.tmp.as_ref().is_some_and(|t| p.strip_prefix(t).ok().is_some_and(|r| r.components().next().is_some()))
@@ -456,7 +458,7 @@ pub(crate) fn fd_path(f: &File) -> Option<PathBuf> {
 /// Validated open of a source path: allowed location (by resolved parent + name), allowed extension, no symlink,
 /// single-link regular file, size, and the location re-checked on the open descriptor.
 fn open_source(path: &Path, allowed: &Allowed) -> Result<(File, std::fs::Metadata), PreviewError> {
-    if !path.is_absolute() || path.components().any(|c| c == Component::ParentDir) || !extension_ok(path) {
+    if !path.is_absolute() || !crate::platform::lexical_guard(path) || path.components().any(|c| c == Component::ParentDir) || !extension_ok(path) {
         return Err(PreviewError::Refused);
     }
     let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else { return Err(PreviewError::Refused) };

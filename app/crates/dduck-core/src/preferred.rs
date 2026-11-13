@@ -539,9 +539,9 @@ mod tests {
         assert!(!valid_item(&item(Kind::Skill, "tdd", "elsewhere")));
         assert!(!valid_item(&item(Kind::Agent, "a", "project")), "a project item needs its folder");
         let mut p = item(Kind::Agent, "reviewer", "project");
-        p.scope = Some("/work/a".into());
+        p.scope = Some(crate::testkit::abs("/work/a"));
         assert!(valid_item(&p));
-        p.scope = Some("/work/\u{202E}a".into());
+        p.scope = Some(crate::testkit::abs("/work/\u{202E}a"));
         assert!(!valid_item(&p));
     }
 
@@ -587,13 +587,13 @@ mod tests {
     #[test]
     fn same_name_elsewhere_does_not_stand_in() {
         let mut chosen = item(Kind::Agent, "reviewer", "project");
-        chosen.scope = Some("/work/a".into());
+        chosen.scope = Some(crate::testkit::abs("/work/a"));
         let mut other = avail(Kind::Agent, "reviewer", "project", None);
-        other.scope = Some("/work/b".into());
+        other.scope = Some(crate::testkit::abs("/work/b"));
         let user = avail(Kind::Agent, "reviewer", "user", None);
         assert_eq!(line(std::slice::from_ref(&chosen), &[other.clone(), user], Lang::Ko, Ctx::default()), None);
         let mut same = other;
-        same.scope = Some("/work/a".into());
+        same.scope = Some(crate::testkit::abs("/work/a"));
         assert!(line(std::slice::from_ref(&chosen), std::slice::from_ref(&same), Lang::Ko, Ctx::default()).is_some());
         assert_eq!(line(&[chosen], &[same], Lang::Ko, Ctx { worktree: true, strict: false }), None, "a worktree may not have project items");
     }
@@ -651,7 +651,7 @@ mod tests {
         let skill = |name: &str, source: SkillSource, kind: &'static str| Skill {
             name: name.into(),
             source,
-            scope: (source == SkillSource::Project).then(|| "/work/a".to_string()),
+            scope: (source == SkillSource::Project).then(|| crate::testkit::abs("/work/a")),
             kind,
             description: Some("d\u{202E}".into()),
             uses: 0,
@@ -679,7 +679,7 @@ mod tests {
         assert_eq!((a[4].marketplace.as_deref(), a[4].enabled), (None, true), "user items are always on");
         // A plugin file outside the cache (marketplace unknown) is never offered.
         assert!(available(&skills, &[], true, &PluginEnv::default()).iter().all(|x| !x.source.starts_with("plugin:")));
-        assert_eq!(a[3].scope.as_deref(), Some("/work/a"));
+        assert_eq!(a[3].scope.as_deref(), Some(crate::testkit::abs("/work/a").as_str()));
         assert_eq!(a[4].description.as_deref(), Some("d"), "display-cleaned for the webview");
         let v = serde_json::to_value(&a[0]).unwrap();
         let keys: BTreeSet<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
@@ -742,11 +742,11 @@ mod tests {
         let proj = tmp.path().join("proj");
         std::fs::create_dir_all(cfg.join("plugins/cache")).unwrap();
         std::fs::create_dir_all(proj.join(".claude")).unwrap();
-        let proj_s = proj.canon().unwrap().to_string_lossy().to_string();
+        let proj_s = serde_json::to_string(&proj.canon().unwrap().to_string_lossy()).unwrap();
         std::fs::write(
             cfg.join("plugins/installed_plugins.json"),
             format!(
-                r#"{{"version":2,"plugins":{{"on@m":[{{"scope":"user","installPath":"/x"}}],"off@m":[{{"scope":"user"}}],"proj@m":[{{"scope":"project","projectPath":"{proj_s}"}}],"local@m":[{{"scope":"local","projectPath":"{proj_s}"}}],"odd@m":[{{"scope":"team"}}]}}}}"#
+                r#"{{"version":2,"plugins":{{"on@m":[{{"scope":"user","installPath":"/x"}}],"off@m":[{{"scope":"user"}}],"proj@m":[{{"scope":"project","projectPath":{proj_s}}}],"local@m":[{{"scope":"local","projectPath":{proj_s}}}],"odd@m":[{{"scope":"team"}}]}}}}"#
             ),
         )
         .unwrap();

@@ -406,15 +406,15 @@ pub fn routine_url(id: &str) -> Option<String> {
 
 /// 16 random bytes from the OS as lowercase hex.
 pub fn new_nonce() -> Option<String> {
-    use std::io::Read;
     let mut b = [0u8; 16];
-    std::fs::File::open("/dev/urandom").ok()?.read_exact(&mut b).ok()?;
+    crate::platform::random_bytes(&mut b).then_some(())?;
     Some(b.iter().map(|x| format!("{x:02x}")).collect())
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    #[cfg_attr(not(unix), allow(unused_imports))]
     use crate::platform::CanonExt;
     use super::*;
 

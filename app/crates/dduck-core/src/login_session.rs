@@ -374,7 +374,7 @@ impl LoginRunner {
         inner.job.as_ref().map(|j| j.method).or(inner.method)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn pid(&self) -> Option<u32> {
         lock(&self.inner).job.as_ref().map(|j| j.child.id())
     }

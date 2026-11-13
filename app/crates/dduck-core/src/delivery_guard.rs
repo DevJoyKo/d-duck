@@ -597,6 +597,8 @@ pub const SELF_TEST_PASS: &str = r#"{"tool_name":"Read","tool_input":{"file_path
 /// Comparison key: NFC, lowercase (APFS is case-insensitive by default; matching more is the safe side).
 pub fn norm_key(p: &Path) -> String {
     let s: String = p.to_string_lossy().nfc().collect();
+    // Windows: `/` between parts, so `key_within` reads `C:/Users/me/app` like a macOS path (decision 1).
+    let s = if cfg!(windows) { s.replace('\\', "/") } else { s };
     let s = s.to_lowercase();
     let t = s.trim_end_matches('/');
     if t.is_empty() { "/".into() } else { t.to_string() }
@@ -802,6 +804,8 @@ pub fn app_git(dir: &Path) -> Command {
                 cmd.arg("-c").arg(format!("filter.{n}.required=false"));
             }
         }
+        // Windows: a "nonexistent" path like C:\nonexistent could be created by another user, so nothing runs.
+        None if cfg!(windows) => return refused_git(),
         None => {
             cmd.env("GIT_DIR", "/nonexistent/dduck-filter-check-failed");
         }
@@ -809,14 +813,23 @@ pub fn app_git(dir: &Path) -> Command {
     cmd
 }
 
+/// A command that fails to start (an empty program name): the Windows fail-closed branch runs no git at all.
+fn refused_git() -> Command {
+    Command::new("")
+}
+
+/// macOS: `git` with hooks off through `/dev/null` and no system config (as before). Windows (task 1.5): the
+/// resolved, ACL-checked `git.exe` and an empty app-owned hooks folder, or no git; the system config is read there
+/// (it sits under Program Files, admin-only, and holds Git for Windows' `core.autocrlf`, without which every checked
+/// out text file would count as changed).
 fn base_git(dir: &Path) -> Command {
-    let mut cmd = Command::new("git");
-    cmd.args(["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "protocol.allow=never"])
-        .arg("-C")
-        .arg(dir)
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_OPTIONAL_LOCKS", "0");
+    let (Some(program), Some(hooks)) = (crate::platform::git_program(), crate::platform::git_hooks_path()) else { return refused_git() };
+    let mut cmd = Command::new(program);
+    cmd.arg("-c").arg("core.fsmonitor=false").arg("-c").arg(format!("core.hooksPath={}", hooks.display())).args(["-c", "protocol.allow=never"]).arg("-C").arg(dir);
+    if !cfg!(windows) {
+        cmd.env("GIT_CONFIG_NOSYSTEM", "1");
+    }
+    cmd.env("GIT_TERMINAL_PROMPT", "0").env("GIT_OPTIONAL_LOCKS", "0");
     cmd
 }
 
@@ -2013,6 +2026,8 @@ mod tests {
         assert_eq!(draft.len(), 2);
     }
 
+    // Local-only and its guard are Mac-only in the Windows preview (windows-support decision 7).
+    #[cfg(unix)]
     #[test]
     fn local_only_refusals() {
         let t = tempfile::tempdir().unwrap();
@@ -2422,6 +2437,8 @@ mod tests {
         assert!(Command::new("git").arg("-C").arg(&work).args(["push", "-q", "origin", "main"]).status().unwrap().success());
     }
 
+    // Local-only and its guard are Mac-only in the Windows preview (windows-support decision 7).
+    #[cfg(unix)]
     #[test]
     fn backstop_beats_longer_rewrites_global_local_and_included() {
         // H1: a longer `pushInsteadOf` from the global, the repository or an included file wins the URL rewrite, but
@@ -2767,6 +2784,8 @@ mod tests {
         assert_eq!(reflog_push_at("0 1 CANARY_NAME <t@example.invalid> 1700000000 +0900\tupdate by push"), Some(1_700_000_000));
         assert_eq!(reflog_push_at("0 1 n <e> 1700000000 +0900\tfetch: fast-forward"), None);
         // origin slug for cloud routines
+        // (Windows writes the local path with escaped backslashes; only GitHub URLs matter for slugs.)
+        #[cfg(unix)]
         assert_eq!(origin_url(&info.common_dir).as_deref(), Some(remote.to_string_lossy().as_ref()));
     }
 

@@ -1162,13 +1162,19 @@ const MAX_JOB_FILES: usize = 200;
 const MAX_JOB_BYTES: u64 = 5 * 1024 * 1024;
 
 /// Every regular file under a produced skill folder (no links, valid names, ≤4 deep, size caps).
+/// A relative path with `/` between its parts on every OS (Windows walks give `\`), for the part checks and the
+/// `/`-split rebuild below (windows-support 1.4).
+fn rel_slash(rel: &Path) -> String {
+    rel.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/")
+}
+
 fn skill_files(dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
     let mut out = Vec::new();
     let mut total = 0u64;
     let mut seen = HashSet::new();
     for e in walkdir::WalkDir::new(dir).follow_links(false).min_depth(1).max_depth(5).into_iter() {
         let e = e.map_err(|_| crate::i18n::Fail::ReadDirFailed.str().to_string())?;
-        let rel = e.path().strip_prefix(dir).map_err(|_| crate::i18n::Fail::PathError.str().to_string())?.to_string_lossy().to_string();
+        let rel = rel_slash(e.path().strip_prefix(dir).map_err(|_| crate::i18n::Fail::PathError.str().to_string())?);
         if e.file_type().is_symlink() {
             return Err(crate::tr_fmt!(crate::i18n::Fail::HasLink, a0 = display_safe(&rel, 100)));
         }
@@ -1453,7 +1459,7 @@ fn copy_list(dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
     for e in walk.filter_entry(|e| !e.file_type().is_symlink()) {
         let Ok(e) = e else { continue };
         let Ok(rel) = e.path().strip_prefix(dir) else { continue };
-        let rel = rel.to_string_lossy().to_string();
+        let rel = rel_slash(rel);
         if !e.file_type().is_file() || rel.split('/').any(|p| !crate::install_link::valid_part(p)) || !seen.insert(rel.to_ascii_lowercase()) {
             continue;
         }

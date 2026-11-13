@@ -39,7 +39,7 @@ pub fn valid_id(id: &str) -> bool {
 /// there is no weaker fallback.
 pub fn new_id() -> Option<String> {
     let mut b = [0u8; 16];
-    std::fs::File::open("/dev/urandom").ok()?.read_exact(&mut b).ok()?;
+    crate::platform::random_bytes(&mut b).then_some(())?;
     Some(b.iter().map(|x| format!("{x:02x}")).collect())
 }
 
@@ -1206,7 +1206,7 @@ mod tests {
         // Age the unreferenced ones (and one referenced) past the grace period.
         let old = std::time::SystemTime::now() - std::time::Duration::from_secs(SWEEP_GRACE_SECS + 60);
         for id in &ids {
-            std::fs::File::open(root.join(id)).unwrap().set_modified(old).unwrap();
+            crate::testkit::set_mtime(&root.join(id), old);
         }
         std::fs::create_dir(root.join("not-a-report")).unwrap();
         assert_eq!(sweep(&conn, &root), 5);

@@ -386,6 +386,105 @@ pub mod acl {
     }
 }
 
+/// Lexical check of an untrusted path before any filesystem call (decision 1). macOS: always true. Windows: see
+/// [`windows_lexical_ok`], so a path from a transcript or report can never reach a share, a device or a stream.
+pub fn lexical_guard(p: &Path) -> bool {
+    !cfg!(windows) || p.to_str().is_some_and(windows_lexical_ok)
+}
+
+/// The Windows rule of [`lexical_guard`], callable on every OS for tests. Allows a drive path (`C:\…`, `C:/…`) or a
+/// relative one. Refuses UNC and device prefixes (`\\host\…`, `\\?\…`, `\\.\…`), drive-relative `C:x`, `:` in a
+/// name (alternate streams), reserved device names (`CON`, `NUL`, `COM1`, `LPT1`, … also with an extension), names
+/// ending in a dot or a space, and control characters.
+pub fn windows_lexical_ok(s: &str) -> bool {
+    if s.is_empty() || s.chars().any(char::is_control) || s.starts_with(['\\', '/']) && s[1..].starts_with(['\\', '/']) {
+        return false;
+    }
+    let b = s.as_bytes();
+    let rest = if b.len() >= 2 && b[1] == b':' {
+        if !b[0].is_ascii_alphabetic() || !s[2..].starts_with(['\\', '/']) {
+            return false;
+        }
+        &s[2..]
+    } else {
+        s
+    };
+    rest.split(['\\', '/']).all(|c| {
+        if matches!(c, "" | "." | "..") {
+            return true;
+        }
+        let stem = c.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
+        let device = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$")
+            || (stem.len() == 4 && (stem.starts_with("COM") || stem.starts_with("LPT")) && stem.as_bytes()[3].is_ascii_digit())
+            || ((stem.starts_with("COM") || stem.starts_with("LPT")) && ["¹", "²", "³"].iter().any(|d| stem.len() == 3 + d.len() && stem.ends_with(d)));
+        !c.contains(':') && !device && !c.ends_with(['.', ' '])
+    })
+}
+
+/// A file or folder name equal to `want`: exact on macOS, ignoring ASCII case on Windows (NTFS), for deny lists.
+pub fn name_is(name: &std::ffi::OsStr, want: &str) -> bool {
+    if cfg!(windows) { name.to_str().is_some_and(|n| n.eq_ignore_ascii_case(want)) } else { name == want }
+}
+
+/// The git the app runs (decision 2, task 1.5). macOS: `git` from PATH, as before. Windows: resolved once to an
+/// absolute `git.exe` (Git for Windows' usual folders, then PATH) that passes the ACL check; `None` when there is
+/// none, and then the app runs no git at all.
+pub fn git_program() -> Option<PathBuf> {
+    if !cfg!(windows) {
+        return Some(PathBuf::from("git"));
+    }
+    static FOUND: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    FOUND
+        .get_or_init(|| {
+            let roots = ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"].into_iter().filter_map(std::env::var_os).map(PathBuf::from);
+            let user = std::env::var_os("LOCALAPPDATA").map(|l| PathBuf::from(l).join("Programs"));
+            let fixed = roots.chain(user).map(|r| r.join("Git").join("cmd").join("git.exe"));
+            let path = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).filter(|d| d.is_absolute()).map(|d| d.join("git.exe")).collect::<Vec<_>>()).unwrap_or_default();
+            fixed.chain(path).find(|g| g.is_file() && windows_exe_trusted(g))
+        })
+        .clone()
+}
+
+#[cfg(windows)]
+fn windows_exe_trusted(p: &Path) -> bool {
+    canon(p).is_ok_and(|real| acl::check_chain(&real).is_ok())
+}
+
+#[cfg(not(windows))]
+fn windows_exe_trusted(_p: &Path) -> bool {
+    false
+}
+
+/// `core.hooksPath` for the app's git. macOS: `/dev/null`, as before. Windows: an empty folder the app owns
+/// (`/dev/null` there means `C:\dev\null`, which any user may create, security MEDIUM 8); `None` when it cannot be made
+/// or is not empty, and then no git runs.
+pub fn git_hooks_path() -> Option<PathBuf> {
+    if !cfg!(windows) {
+        return Some(PathBuf::from("/dev/null"));
+    }
+    let dir = app_data_under(&home()?).join("git-empty-hooks");
+    std::fs::create_dir_all(&dir).ok()?;
+    let m = std::fs::symlink_metadata(&dir).ok()?;
+    let empty = std::fs::read_dir(&dir).ok()?.next().is_none();
+    (m.file_type().is_dir() && empty).then_some(dir)
+}
+
+/// Fills `buf` from the OS random source: `/dev/urandom` on macOS (as before), `BCryptGenRandom` with the system RNG
+/// on Windows (there is no `/dev/urandom`). `false` when the source fails; callers have no weaker fallback.
+pub fn random_bytes(buf: &mut [u8]) -> bool {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Security::Cryptography::{BCRYPT_USE_SYSTEM_PREFERRED_RNG, BCryptGenRandom};
+        // SAFETY: `buf` is valid for `buf.len()` bytes; no algorithm handle with the system-preferred flag.
+        unsafe { BCryptGenRandom(std::ptr::null_mut(), buf.as_mut_ptr(), buf.len() as u32, BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0 }
+    }
+    #[cfg(not(windows))]
+    {
+        use std::io::Read;
+        std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(buf)).is_ok()
+    }
+}
+
 /// What the webview needs to know about the OS (`platform` command, lib/platform.ts).
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -523,6 +622,30 @@ mod tests {
         std::os::unix::fs::symlink(t.path().join("a"), t.path().join("l")).unwrap();
         assert!(file_id_at(&t.path().join("l")).unwrap().link);
         assert!(open_nofollow(&t.path().join("l")).is_err());
+    }
+
+    #[test]
+    fn windows_lexical_rule() {
+        for ok in [r"C:\Users\me\a.png", "C:/Users/me/a.png", r"docs\a.png", "a.png", r"C:\a\.\b\..\c.md", r"C:\console\x.md", r"C:\COM10\x.md", r"C:\a\nul-ish.md"] {
+            assert!(windows_lexical_ok(ok), "{ok}");
+        }
+        for bad in [r"\\host\share\a.png", "//host/share/a.png", r"\\?\C:\a.png", r"\\.\COM1", r"C:a.png", r"C:\a.png:secret", r"C:\x\CON", r"C:\x\nul.txt", r"C:\x\com1.md", "C:\\x\\LPT9 .md", r"C:\x\COM¹", r"C:\dir.\a.md", r"C:\dir \a.md", r"C:\a.md.", "C:\\a\u{1}b", ""] {
+            assert!(!windows_lexical_ok(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn deny_names_ignore_case_only_on_windows() {
+        let n = std::ffi::OsStr::new("appdata");
+        assert_eq!(name_is(n, "AppData"), cfg!(windows));
+        assert!(name_is(std::ffi::OsStr::new("Library"), "Library"));
+    }
+
+    #[test]
+    fn random_bytes_come_from_the_os() {
+        let (mut a, mut b) = ([0u8; 16], [0u8; 16]);
+        assert!(random_bytes(&mut a) && random_bytes(&mut b));
+        assert_ne!(a, b);
     }
 
     #[test]

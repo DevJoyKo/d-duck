@@ -885,10 +885,17 @@ fn excluded_by(layers: &[(PathBuf, Settings)], target: &Path, own: &[String], ca
 }
 
 /// The entry the app writes (first) and the canonical spelling it also accepts as its own.
+/// A path as a `claudeMdExcludes` entry or glob subject. Windows writes `/` separators (`C:/Users/…`): `\` is the
+/// glob escape character, so a backslash path could never match (windows-support 1.4; real CLI matching is [manual]).
+fn glob_path(p: &Path) -> String {
+    let s = p.display().to_string();
+    if cfg!(windows) { s.replace('\\', "/") } else { s }
+}
+
 fn own_entries(b: &Base, rel: &str) -> Vec<String> {
-    let mut v = vec![b.shown_rules.join(rel).display().to_string()];
+    let mut v = vec![glob_path(&b.shown_rules.join(rel))];
     if let Some(real) = &b.real_rules {
-        let c = real.join(rel).display().to_string();
+        let c = glob_path(&real.join(rel));
         if !v.contains(&c) {
             v.push(c);
         }
@@ -898,13 +905,12 @@ fn own_entries(b: &Base, rel: &str) -> Vec<String> {
 
 fn row(b: &Base, layers: &[(PathBuf, Settings)], f: &Found) -> RuleRow {
     let shown = b.shown_rules.join(&f.rel);
-    let shown_s = shown.display().to_string();
     let link = f.meta.file_type().is_symlink();
     let target = if link { f.real.canon().ok() } else { None };
     let dir_link = link && target.as_ref().is_some_and(|t| t.is_dir());
-    let mut candidates = vec![shown_s.clone(), f.real.display().to_string()];
+    let mut candidates = vec![glob_path(&shown), glob_path(&f.real)];
     if let Some(t) = &target {
-        candidates.push(t.display().to_string());
+        candidates.push(glob_path(t));
     }
     let own = own_entries(b, &f.rel);
     let off_by = if dir_link {
@@ -1666,7 +1672,7 @@ mod tests {
         // Stale settings token.
         assert_eq!(set_enabled(&e.roots, &t.id, false, "stale"), Err(RuleError::Conflict));
         set_enabled(&e.roots, &t.id, false, &g.settings_token).unwrap();
-        let abs = rules.join("testing.md").display().to_string();
+        let abs = glob_path(&rules.join("testing.md"));
         let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&local).unwrap()).unwrap();
         assert_eq!(v["claudeMdExcludes"], serde_json::json!(["**/frontend/**", abs]));
         assert_eq!(v["permissions"]["allow"][0], "Bash(ls)");
@@ -1690,7 +1696,7 @@ mod tests {
         assert_eq!(g.settings_token, "");
         set_enabled(&e.roots, &find(&g, "style.md").id, false, "").unwrap();
         let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(e.config.join("settings.json")).unwrap()).unwrap();
-        assert_eq!(v["claudeMdExcludes"][0], e.config.join("rules/style.md").display().to_string());
+        assert_eq!(v["claudeMdExcludes"][0], glob_path(&e.config.join("rules/style.md")));
         assert!(!e.project.join(".claude/settings.local.json").exists());
         assert!(!list_group(&e.roots, Scope::Global).unwrap().rules[0].enabled);
     }
@@ -1769,7 +1775,7 @@ mod tests {
         std::fs::write(&local, original).unwrap();
         let g = list_group(&e.roots, Scope::Project).unwrap();
         set_enabled(&e.roots, &find(&g, "t.md").id, false, &g.settings_token).unwrap();
-        let abs = rules.join("t.md").display().to_string();
+        let abs = glob_path(&rules.join("t.md"));
         assert_eq!(std::fs::read_to_string(&local).unwrap(), format!("{{ \"model\": \"x\", \"claudeMdExcludes\": [\"**/old/**\", {}] }}\n", serde_json::to_string(&abs).unwrap()));
         let g = list_group(&e.roots, Scope::Project).unwrap();
         set_enabled(&e.roots, &find(&g, "t.md").id, true, &g.settings_token).unwrap();

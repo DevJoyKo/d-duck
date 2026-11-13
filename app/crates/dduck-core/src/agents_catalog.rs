@@ -959,7 +959,7 @@ mod tests {
 
     fn set_mtime(p: &Path, secs: u64) {
         let t = std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs);
-        std::fs::File::open(p).unwrap().set_modified(t).unwrap();
+        crate::testkit::set_mtime(p, t);
     }
 
     #[test]
@@ -977,7 +977,7 @@ mod tests {
         assert_eq!(plugin_agents(&r), ["kit:reviewer"], "root agents/ only; docs/agents and unlisted files are skipped");
 
         let abs = tmp.path().join("abs.md").canon().unwrap();
-        let manifest = format!(r#"{{"name":"kit","agents":["./extra/helper.md","./custom/agents","../outside.md","{}"]}}"#, abs.display());
+        let manifest = format!(r#"{{"name":"kit","agents":["./extra/helper.md","./custom/agents","../outside.md",{}]}}"#, serde_json::to_string(&abs.display().to_string()).unwrap());
         put(&root.join(".claude-plugin/plugin.json"), &manifest);
         assert_eq!(plugin_agents(&r), ["kit:helper", "kit:reviewer"], "manifest .md files count; folders, `..` and absolute paths do not");
         assert!(discover(&r).iter().all(|d| !(d.source == Source::Plugin && d.malformed)), "no doc file shows as a broken agent");
@@ -1010,7 +1010,7 @@ mod tests {
         put(&cache.join("multi/1.0.0/agents/a.md"), &agent("a"));
         put(&cache.join("multi/2.0.0/agents/b.md"), &agent("b"));
         put(&cache.join("multi/3.0.0/agents/c.md"), &agent("c"));
-        let rec = |v: &str, p: &str| format!(r#"{{"scope":"project","installPath":"{}","version":"{v}"}}"#, cache.join(p).join(v).display());
+        let rec = |v: &str, p: &str| format!(r#"{{"scope":"project","installPath":"{}","version":"{v}"}}"#, crate::testkit::js(&cache.join(p).join(v)));
         let record = format!(
             r#"{{"version":2,"plugins":{{"kit@mk":[{}],"multi@mk":[{},{}],"bare@other":[{}]}}}}"#,
             rec("1.3.1", "kit"), rec("1.0.0", "multi"), rec("2.0.0", "multi"), rec("1.0.0", "bare")
@@ -1018,12 +1018,12 @@ mod tests {
         put(&r.config_dir.join("plugins/installed_plugins.json"), &record);
         assert_eq!(plugin_agents(&r), ["bare:old", "kit:recorded", "multi:a", "multi:b"], "a record of another marketplace does not count");
 
-        let foreign = format!(r#"{{"plugins":{{"bare@mk":[{{"installPath":"{}"}}]}}}}"#, cache.join("kit/1.3.1").display());
+        let foreign = format!(r#"{{"plugins":{{"bare@mk":[{{"installPath":"{}"}}]}}}}"#, crate::testkit::js(&cache.join("kit/1.3.1")));
         put(&r.config_dir.join("plugins/installed_plugins.json"), &foreign);
         assert!(plugin_agents(&r).contains(&"bare:old".to_string()), "a record pointing at another plugin's folder is ignored");
         assert!(!plugin_agents(&r).contains(&"bare:recorded".to_string()), "kit's agents never show under bare");
 
-        let missing = format!(r#"{{"plugins":{{"kit@mk":[{{"installPath":"{}"}}]}}}}"#, cache.join("kit/0.0.1").display());
+        let missing = format!(r#"{{"plugins":{{"kit@mk":[{{"installPath":"{}"}}]}}}}"#, crate::testkit::js(&cache.join("kit/0.0.1")));
         put(&r.config_dir.join("plugins/installed_plugins.json"), &missing);
         assert!(plugin_agents(&r).contains(&"kit:newer".to_string()), "an unusable record falls back to the newest folder");
         put(&cache.join("kit/49dd158d1076/.orphaned_at"), "1");
@@ -1040,7 +1040,7 @@ mod tests {
         std::fs::create_dir_all(r.config_dir.join("plugins/cache/mk/kit")).unwrap();
         std::os::unix::fs::symlink(tmp.path().join("elsewhere"), r.config_dir.join("plugins/cache/mk/kit/9.9.9")).unwrap();
         assert!(plugin_agents(&r).is_empty(), "no record: the linked version folder is not a candidate");
-        let record = format!(r#"{{"plugins":{{"kit@mk":[{{"installPath":"{}"}}]}}}}"#, r.config_dir.join("plugins/cache/mk/kit/9.9.9").display());
+        let record = format!(r#"{{"plugins":{{"kit@mk":[{{"installPath":"{}"}}]}}}}"#, crate::testkit::js(&r.config_dir.join("plugins/cache/mk/kit/9.9.9")));
         put(&r.config_dir.join("plugins/installed_plugins.json"), &record);
         assert!(plugin_agents(&r).is_empty(), "a record cannot point through a link either");
         put(&r.config_dir.join("plugins/cache/mk/kit/1.0.0/agents/x.md"), &agent("x"));

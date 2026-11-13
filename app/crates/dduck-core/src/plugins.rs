@@ -642,7 +642,7 @@ mod tests {
         let b = cfg.join("plugins/cache/cloudflare/cloudflare/1.0.2");
         std::fs::create_dir_all(&a).unwrap();
         write(&b.join(".mcp.json"), r#"{"mcpServers":{"cloudflare":{"url":"https://CANARY_FILE"}}}"#);
-        let json = LIST.replace("INSTALL_A", &a.display().to_string()).replace("INSTALL_B", &b.display().to_string());
+        let json = LIST.replace("INSTALL_A", &crate::testkit::js(&a)).replace("INSTALL_B", &crate::testkit::js(&b));
         let installed = parse_list(json.as_bytes()).unwrap();
         assert_eq!(installed.len(), 3, "invalid id dropped");
         let plugins = build(&cfg, installed);
@@ -819,14 +819,14 @@ mod tests {
         let cache = cfg.join("plugins/cache/mk/kit");
         write(&cache.join("1.3.1/skills/old/SKILL.md"), "---\nname: old\n---\n");
         write(&cache.join("49dd158d1076/skills/new/SKILL.md"), "---\nname: new\n---\n");
-        let at = |p: &Path, s: u64| std::fs::File::open(p).unwrap().set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(s)).unwrap();
+        let at = |p: &Path, s: u64| crate::testkit::set_mtime(p, std::time::UNIX_EPOCH + std::time::Duration::from_secs(s));
         at(&cache.join("1.3.1"), 1_000);
         at(&cache.join("49dd158d1076"), 2_000);
         let plugin_skills = || {
             crate::skills_catalog::discover(&cfg, &[]).into_iter().filter(|s| s.source == SkillSource::Plugin).map(|s| s.name).collect::<Vec<_>>()
         };
         assert_eq!(plugin_skills(), ["kit:new"], "no record: newest folder");
-        write(&cfg.join("plugins/installed_plugins.json"), &format!(r#"{{"plugins":{{"kit@mk":[{{"installPath":"{}"}}]}}}}"#, cache.join("1.3.1").display()));
+        write(&cfg.join("plugins/installed_plugins.json"), &format!(r#"{{"plugins":{{"kit@mk":[{{"installPath":{}}}]}}}}"#, serde_json::to_string(&cache.join("1.3.1").display().to_string()).unwrap()));
         assert_eq!(plugin_skills(), ["kit:old"], "the recorded install path wins");
     }
 

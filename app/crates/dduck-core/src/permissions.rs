@@ -1017,7 +1017,9 @@ fn resolve_call_path(arg: &str, ctx: &CallContext) -> PathBuf {
 
 fn path_matches(spec: &str, arg: &str, root: &Path, ctx: &CallContext) -> bool {
     let target = resolve_call_path(arg, ctx);
-    let target_s = target.to_string_lossy();
+    // Windows: rules and globs use `/`, so both sides compare with `/` separators (windows-support 1.4).
+    let slash = |s: String| if cfg!(windows) { s.replace('\\', "/") } else { s };
+    let target_s = slash(target.to_string_lossy().to_string());
     let pattern = if let Some(rest) = spec.strip_prefix("//") {
         format!("/{rest}")
     } else if let Some(rest) = spec.strip_prefix("~/") {
@@ -1033,7 +1035,7 @@ fn path_matches(spec: &str, arg: &str, root: &Path, ctx: &CallContext) -> bool {
     } else {
         ctx.cwd.join(spec).to_string_lossy().to_string()
     };
-    let pattern = normalize_path(Path::new(&pattern)).to_string_lossy().to_string();
+    let pattern = slash(normalize_path(Path::new(&pattern)).to_string_lossy().to_string());
     glob(&pattern, &target_s, true) || (spec.ends_with('/') && target_s.starts_with(&pattern))
 }
 

@@ -176,7 +176,9 @@ jobs:
           workspaces: app
           shared-key: windows-latest
           cache-on-failure: true
-      # Fixtures come from tests/fixtures/gen_fixtures.py; testkit tries python3, python, then `py -3`.
+      # Fixtures come from tests/fixtures/gen_fixtures.py; testkit tries python3, python, then `py -3`. The
+      # fake_claude example stands in for claude.exe in the spawn, job and discovery tests (built first on purpose).
+      - run: cargo build -p dduck-core --example fake_claude
       - run: cargo test -p dduck-core
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
