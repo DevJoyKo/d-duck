@@ -2,11 +2,11 @@
 // fetch. Item text is Claude's checked output in the app language and is rendered as plain text only.
 import { listen } from "@tauri-apps/api/event";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Cpu, ExternalLink, Loader2, Newspaper, Plug, RefreshCw, Settings2, ShieldCheck, Sparkles, SquareCode, SquareTerminal, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { api, messageOf, type NewsCategory, type NewsItem, type NewsRun, type NewsView } from "../lib/api";
+import { ExternalLink, Loader2, Newspaper, RefreshCw, X } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { api, messageOf, type NewsItem, type NewsRun, type NewsView } from "../lib/api";
 import { dateTime, usd } from "../lib/format";
-import { categoryColor, dayMs, hostOf, splitEarlier } from "../lib/news";
+import { dayMs, hostOf, splitEarlier } from "../lib/news";
 import { isGateError } from "../lib/auth";
 import { useLanguage, useT } from "../i18n/react";
 import { currentLocale } from "../i18n/language";
@@ -15,22 +15,10 @@ import { DuckAvatar } from "./DuckAvatar";
 import { Button, PageBody, PageHeader, Switch } from "./ui";
 import { isWindows } from "../lib/platform";
 import { MacOnlyNote } from "./MacOnly";
-
-const ICON: Record<NewsCategory, typeof Cpu> = {
-  model: Cpu,
-  command: SquareTerminal,
-  setting: Settings2,
-  agent: Bot,
-  integration: Plug,
-  ide: SquareCode,
-  security: ShieldCheck,
-  other: Sparkles,
-};
-
-/** "other" is a reserved plural name in the catalogs, so that category's label lives under `misc`. */
-function catKey(c: NewsCategory) {
-  return `news.category.${c === "other" ? "misc" : c}` as const;
-}
+import { catKey, NewsThumb } from "./NewsCard";
+import { ApplyPart } from "./NewsApply";
+import type { Draft } from "../lib/brief";
+import { useModal } from "../lib/useModal";
 
 /** "11월 9일" (the year only when it is not this year). */
 function shortDate(date: string): string {
@@ -39,18 +27,6 @@ function shortDate(date: string): string {
   const d = new Date(ms);
   const sameYear = d.getFullYear() === new Date().getFullYear();
   return d.toLocaleDateString(currentLocale(), sameYear ? { month: "long", day: "numeric" } : { year: "numeric", month: "long", day: "numeric" });
-}
-
-function Thumb({ category, size = "row" }: { category: NewsCategory; size?: "row" | "sheet" }) {
-  const t = useT();
-  const c = categoryColor(category);
-  const Icon = ICON[category] ?? Sparkles;
-  const box = size === "row" ? "h-16 w-24" : "h-12 w-12";
-  return (
-    <span aria-hidden className={`grid shrink-0 place-items-center rounded-lg ${box}`} style={{ background: `color-mix(in srgb, ${c.body} var(--news-thumb-mix), transparent)` }} title={t(catKey(category))}>
-      <Icon size={size === "row" ? 22 : 20} strokeWidth={1.8} style={{ color: c.scarf }} />
-    </span>
-  );
 }
 
 function Meta({ item }: { item: NewsItem }) {
@@ -63,17 +39,48 @@ function Meta({ item }: { item: NewsItem }) {
   );
 }
 
+/** The row's "원문 ↗" (news-apply 2.3a): the same backend path as the sheet's 원문 열기 (Rust re-checks the stored link). */
+function SourceLink({ item }: { item: NewsItem }) {
+  const t = useT();
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={t("news.list.sourceLabel", { title: item.title })}
+        onClick={() => {
+          setError(null);
+          api.newsOpenSource(item.id).catch((e) => setError(messageOf(e)));
+        }}
+        className="pointer-events-auto shrink-0 rounded text-xs text-ink-2 underline-offset-2 hover:text-ink hover:underline focus-visible:outline-2 focus-visible:outline-ink"
+      >
+        {t("news.list.source")}
+      </button>
+      {error && (
+        <span role="alert" className="pointer-events-auto min-w-0 truncate text-xs text-danger">
+          {t("news.detail.openFailed", { error })}
+        </span>
+      )}
+    </>
+  );
+}
+
 function Row({ item, onOpen }: { item: NewsItem; onOpen: (it: NewsItem, el: HTMLButtonElement) => void }) {
   const t = useT();
+  // The meta line is drawn over a blank line kept inside the row button, right under the one-line title and summary
+  // (12 + 22 + 4 + 20 + 6 = 64px down), but outside the button, so "원문 ↗" is its own button (no nesting). Clicks on
+  // the rest of that line fall through to the row. The button is described by that line for screen readers.
+  const metaId = useId();
   return (
-    <li>
+    <li className="relative">
       <button
         type="button"
         data-news-row={item.id}
+        aria-describedby={metaId}
         onClick={(e) => onOpen(item, e.currentTarget)}
-        className="flex w-full items-center gap-4 rounded-xl px-3 py-3 text-left transition-colors hover:bg-ink/4 focus-visible:outline-2 focus-visible:outline-ink"
+        className="flex w-full items-start gap-4 rounded-xl px-3 py-3 text-left transition-colors hover:bg-ink/4 focus-visible:outline-2 focus-visible:outline-ink"
       >
-        <Thumb category={item.category} />
+        <NewsThumb item={item} />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
             {!item.seen && (
@@ -82,14 +89,22 @@ function Row({ item, onOpen }: { item: NewsItem; onOpen: (it: NewsItem, el: HTML
                 <span className="sr-only">{t("news.list.new")}</span>
               </span>
             )}
-            <span className={`truncate text-[15px] leading-snug ${item.seen ? "font-medium text-ink-2" : "font-semibold text-ink"}`}>{item.title}</span>
+            <span className={`truncate text-[15px] leading-[22px] ${item.seen ? "font-medium text-ink-2" : "font-semibold text-ink"}`}>{item.title}</span>
           </span>
-          <span className="mt-1 block truncate text-[13px] text-ink-2">{item.summary}</span>
-          <span className="mt-1.5 block">
-            <Meta item={item} />
-          </span>
+          <span className="mt-1 block truncate text-[13px] leading-5 text-ink-2">{item.summary}</span>
+          <span aria-hidden className="mt-1.5 block h-4" />
         </span>
       </button>
+      {/* Same columns as the button (px-3, thumbnail width, gap-4), so the line starts under the title. */}
+      <span className="pointer-events-none absolute inset-x-0 top-16 flex h-4 gap-4 px-3">
+        <span aria-hidden className="w-[118px] shrink-0" />
+        <span className="flex min-w-0 flex-1 items-center gap-2">
+          <span id={metaId}>
+            <Meta item={item} />
+          </span>
+          <SourceLink item={item} />
+        </span>
+      </span>
     </li>
   );
 }
@@ -108,32 +123,14 @@ function Section({ title, items, onOpen }: { title: string; items: NewsItem[]; o
   );
 }
 
-function Detail({ item, onClose }: { item: NewsItem; onClose: () => void }) {
+function Detail({ item, onClose, onDraft }: { item: NewsItem; onClose: () => void; onDraft?: (d: Draft) => void }) {
   const t = useT();
   const closeRef = useRef<HTMLButtonElement>(null);
   const [openError, setOpenError] = useState<string | null>(null);
-  useEffect(() => {
-    closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") return onClose();
-      // Keep Tab inside the sheet (aria-modal).
-      if (e.key !== "Tab") return;
-      const dialog = closeRef.current?.closest('[role="dialog"]');
-      const all = dialog ? Array.from(dialog.querySelectorAll<HTMLElement>("button, [href]")).filter((el) => !el.hasAttribute("disabled")) : [];
-      if (all.length === 0) return;
-      const first = all[0];
-      const last = all[all.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  // Focus in, Tab inside, Escape closes (sheet-focus). The parent puts focus back on the row by its id after the
+  // list re-renders, so the hook leaves focus alone on close. The dialog is found from × instead of a ref on it.
+  const [dialogRef] = useState(() => ({ get current() { return closeRef.current?.closest<HTMLElement>('[role="dialog"]') ?? null; } }));
+  useModal(dialogRef, onClose, { initial: closeRef, returnTo: () => null });
   const block = (label: string, text: string, key: string) => (
     <section data-news-detail={key}>
       <h3 className="text-[13px] font-semibold text-ink">{label}</h3>
@@ -144,7 +141,7 @@ function Detail({ item, onClose }: { item: NewsItem; onClose: () => void }) {
     <div className="fixed inset-0 z-30 flex justify-end bg-scrim/45" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-label={t("news.detail.label", { title: item.title })} onClick={(e) => e.stopPropagation()} className="flex h-full w-[min(560px,92vw)] flex-col border-l border-line bg-sheet shadow-e3">
         <div className="flex items-start gap-3 border-b border-line px-6 py-4">
-          <Thumb category={item.category} size="sheet" />
+          <NewsThumb item={item} size="sheet" />
           <div className="min-w-0 flex-1">
             <h2 className="text-[16px] leading-snug font-semibold">{item.title}</h2>
             <p className="mt-1">
@@ -160,6 +157,7 @@ function Detail({ item, onClose }: { item: NewsItem; onClose: () => void }) {
           {block(t("news.detail.what"), item.what, "what")}
           {block(t("news.detail.when"), item.whenToUse, "when")}
           {block(t("news.detail.best"), item.bestPractice, "best")}
+          <ApplyPart item={item} onDraft={onDraft} />
           <div>
             <Button
               onClick={() => {
@@ -227,7 +225,8 @@ function StatusLine({ view, running, onCancel, quiet }: { view: NewsView; runnin
   );
 }
 
-export function NewsPage() {
+/** `onDraft`: "내 프로젝트에 적용" hands a draft to the app's composer (App.openDraft asks before replacing one). */
+export function NewsPage({ onDraft }: { onDraft?: (d: Draft) => void } = {}) {
   const t = useT();
   const { lang } = useLanguage();
   const qc = useQueryClient();
@@ -345,7 +344,7 @@ export function NewsPage() {
           </div>
         )}
       </PageBody>
-      {open && <Detail item={open} onClose={close} />}
+      {open && <Detail item={open} onClose={close} onDraft={onDraft} />}
     </>
   );
 }

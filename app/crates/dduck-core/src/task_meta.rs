@@ -603,6 +603,9 @@ mod tests {
         assert_eq!(tags(&conn, std::slice::from_ref(&s)).unwrap()["k"].origin.as_deref(), Some("insight-claude"));
         record_start(&conn, &NewRecord { loadout_dropped: 2, ..rec("abababab", Some("p"), 1) }).unwrap();
         assert_eq!(tags(&conn, std::slice::from_ref(&s)).unwrap()["k"].loadout_dropped, 2, "a count of dropped loadout skills, no names");
+        record_start(&conn, &NewRecord { origin: Some(Origin::News), ..rec("efefefef", Some("p"), 3) }).unwrap();
+        assert_eq!(record_detail(&conn, "efefefef").unwrap().unwrap().origin.as_deref(), Some("news"), "a news draft keeps its origin for 다시 맡기기");
+        assert_eq!(clean_origin(Some("news".into())).as_deref(), Some("news"));
         // A tampered value reads as no origin.
         conn.execute("UPDATE task_meta SET origin = 'evil' WHERE bg_id = 'abababab'", []).unwrap();
         assert_eq!(record_detail(&conn, "abababab").unwrap().unwrap().origin, None);
@@ -651,7 +654,7 @@ mod model_record {
     fn unversioned_columns_are_added_once() {
         let conn = crate::db::open_in_memory().unwrap();
         let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
-        assert_eq!(v, 17, "no version number taken (v16 is review-routine-runs, v17 news-tab)");
+        assert_eq!(v, 18, "no version number taken (v16 is review-routine-runs, v17 news-tab, v18 news-apply)");
         let n: i64 = conn.query_row("SELECT COUNT(*) FROM pragma_table_info('task_meta') WHERE name IN ('model_requested','model_fallback')", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 2);
     }

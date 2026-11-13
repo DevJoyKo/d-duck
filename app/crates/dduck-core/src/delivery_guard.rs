@@ -428,6 +428,14 @@ pub struct StartCtx {
 /// The scope for a start in `cwd`. `hook_exe` = the app executable (the hook); `None` leaves `local_only` without a
 /// hook, which `guard_args` then refuses. With a hook it is self-tested first (a hook that cannot run would be a
 /// non-blocking error in the CLI).
+/// Whether a start may be moved into a worktree (and so forced into one on the default branch): a repository with a
+/// commit that isn't the home folder. Decided by the folder, not by where the draft came from (test review C1), so a
+/// news or insight draft in a project on its default branch gets its own branch like any other task.
+pub fn worktree_possible(cwd: &Path, home: &Path) -> bool {
+    let canon = |p: &Path| p.canon().unwrap_or_else(|_| p.to_path_buf());
+    canon(cwd) != canon(home) && crate::team::repo_status(cwd, home) == crate::team::RepoStatus::Ok
+}
+
 pub fn start_ctx(conn: &Connection, cwd: &Path, home: Option<&Path>, worktree_possible: bool, hook_exe: Option<&Path>) -> Result<StartCtx, &'static str> {
     start_ctx_with(conn, cwd, home, worktree_possible, hook_exe, None)
 }
@@ -2622,6 +2630,25 @@ mod tests {
         assert!(key_within("/work/client/packages/api", "/work/client"));
         assert!(!key_within("/work/client2", "/work/client"));
         assert!(key_within("/work/client", "/work/client"));
+    }
+
+    #[test]
+    fn worktree_is_possible_by_folder_not_by_origin() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let t = tempfile::tempdir().unwrap();
+        let base = t.path().canon().unwrap();
+        let home = base.join("home");
+        let repo = home.join("proj");
+        std::fs::create_dir_all(&repo).unwrap();
+        init_repo(&repo);
+        // A news draft in a project repo on its default branch: the shell passes this to start_ctx, which forces a worktree.
+        assert!(worktree_possible(&repo, &home));
+        assert!(start_ctx(&conn, &repo, Some(&home), worktree_possible(&repo, &home), None).unwrap().force_worktree);
+        // The home folder (where insight drafts may run) never gets one, repository or not.
+        assert!(!worktree_possible(&home, &home));
+        init_repo(&home);
+        assert!(!worktree_possible(&home, &home));
+        assert!(!worktree_possible(&base.join("nope"), &home));
     }
 
     fn init_repo(dir: &Path) {

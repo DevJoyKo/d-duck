@@ -4,7 +4,7 @@
 // footprints for steps, forks for flagged decisions, dots for the rest, puddles for blocks.
 import { useQuery } from "@tanstack/react-query";
 import { ExternalLink, ShieldAlert, X } from "lucide-react";
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { alertLines, guardChip } from "../lib/delivery";
 import { api, type Delegated, type Report, type ReportBlocked, type ReportDecision, type ReportReference, type SessionStatus, type TaskReportView, failure, shown, type Shown } from "../lib/api";
@@ -41,6 +41,7 @@ import { YELLOW } from "../lib/yellow";
 import { RoleChip } from "./RoleDuck";
 import { markDone } from "../lib/onboarding";
 import { Button } from "./ui";
+import { useModal } from "../lib/useModal";
 import { AttachmentsBlock, EvidenceChips, LegacyChip, overlayEscape } from "./ReportEvidence";
 
 // DuckAvatar's stroke (ink, 1.7) for the duck's own marks; 1.5 for paths and branches.
@@ -729,58 +730,6 @@ export function ReportBody({ view, session, onRetry, bgId }: { view: TaskReportV
   );
 }
 
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-/** Modal behaviour: everything else on the page is `inert`, Tab cycles inside the dialog, Escape closes, and focus
- *  goes back where it was. The dialog is portalled to <body> so the rest of the app can be made inert as a whole. */
-function useModal(root: RefObject<HTMLElement | null>, dialog: RefObject<HTMLElement | null>, first: RefObject<HTMLElement | null>, onClose: () => void) {
-  // The parent re-renders on every poll: keep the latest callback without re-running the effect.
-  const close = useRef(onClose);
-  useEffect(() => {
-    close.current = onClose;
-  });
-  useEffect(() => {
-    const before = document.activeElement as HTMLElement | null;
-    const host = root.current;
-    const made: Element[] = [];
-    for (const el of Array.from(document.body.children)) {
-      if (el === host || el.hasAttribute("inert")) continue;
-      el.setAttribute("inert", "");
-      made.push(el);
-    }
-    first.current?.focus();
-    const focusables = () => Array.from(dialog.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
-    // Capture phase, stopped here: the task detail's own Escape (close the panel) does not fire as well.
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        // An open image or full document view closes first (report-evidence).
-        if (overlayEscape.current) overlayEscape.current();
-        else close.current();
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const list = focusables();
-      e.preventDefault();
-      if (!list.length) return;
-      const i = list.indexOf(document.activeElement as HTMLElement);
-      const next = i < 0 ? (e.shiftKey ? list.length - 1 : 0) : (i + (e.shiftKey ? -1 : 1) + list.length) % list.length;
-      list[next].focus();
-    };
-    const onFocusIn = (e: FocusEvent) => {
-      if (dialog.current && !dialog.current.contains(e.target as Node)) first.current?.focus();
-    };
-    window.addEventListener("keydown", onKey, true);
-    document.addEventListener("focusin", onFocusIn);
-    return () => {
-      window.removeEventListener("keydown", onKey, true);
-      document.removeEventListener("focusin", onFocusIn);
-      for (const el of made) el.removeAttribute("inert");
-      before?.focus?.();
-    };
-  }, [root, dialog, first]);
-}
-
 export type ReportStage = "reviewWait" | "reviewed" | "done";
 export const stageLabel = (s: ReportStage) => t(`report.stage.${s}`);
 
@@ -816,7 +765,9 @@ export function TaskReportDialog({
   const rootRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  useModal(rootRef, dialogRef, closeRef, onClose);
+  // Everything else on the page is inert; Escape is caught first so the task detail's own Escape does not fire too,
+  // and an open image or full document view closes before the dialog (report-evidence).
+  useModal(dialogRef, () => (overlayEscape.current ? overlayEscape.current() : onClose()), { initial: closeRef, inert: { root: rootRef }, escapePhase: "capture" });
   const types = useTeamConfig().data?.config.types;
   const head = headOf(q.data, session, q.isError);
   const updated = q.data?.kind === "ready" ? updatedText(q.data.report.updatedAt) : null;

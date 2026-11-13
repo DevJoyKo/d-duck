@@ -33,6 +33,23 @@ export default {
     recent: "New features",
     new: "New",
     meta: "v{version} · {date}",
+    source: "Source ↗",
+    sourceLabel: "View the source of {title}",
+  },
+  adopt: {
+    update: "Just update",
+    config: "Needs setup",
+    optIn: "Opt in",
+  },
+  apply: {
+    title: "Try it",
+    noSteps: "The draft starts from the best practice",
+    verify: "Check it worked · {text}",
+    sourceLabel: "Source",
+    target: "Project",
+    targetNone: "Pick in the composer",
+    button: "Apply to my project",
+    note: "Opens a plan-mode draft in the composer · You press start",
   },
   category: {
     model: "Model",

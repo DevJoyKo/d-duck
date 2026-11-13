@@ -31,6 +31,23 @@ export default {
     recent: "새로 나온 기능",
     new: "새 소식",
     meta: "v{version} · {date}",
+    source: "원문 ↗",
+    sourceLabel: "{title} 원문 열기",
+  },
+  adopt: {
+    update: "바로 됨",
+    config: "설정 필요",
+    optIn: "골라 쓰기",
+  },
+  apply: {
+    title: "적용 제안",
+    noSteps: "베스트 프랙티스를 바탕으로 초안을 만들어요",
+    verify: "됐는지 확인하기 · {text}",
+    sourceLabel: "원문",
+    target: "대상 프로젝트",
+    targetNone: "작성 창에서 고르기",
+    button: "내 프로젝트에 적용",
+    note: "작성 창에 계획 모드 초안만 열어요 · 시작은 직접 눌러요",
   },
   category: {
     model: "모델",

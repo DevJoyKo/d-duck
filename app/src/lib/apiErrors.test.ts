@@ -54,7 +54,7 @@ describe("messageOf", () => {
 
   it("has the same reason codes in both languages, all English free of Korean", () => {
     expect(Object.keys(enErrors.invalidInput)).toEqual(Object.keys(koErrors.invalidInput));
-    expect(Object.keys(koErrors.invalidInput)).toHaveLength(54);
+    expect(Object.keys(koErrors.invalidInput)).toHaveLength(56);
     for (const v of Object.values(enErrors.invalidInput)) expect(v).not.toMatch(HANGUL);
   });
 });

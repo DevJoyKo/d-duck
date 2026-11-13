@@ -50,12 +50,13 @@ describe("소식 tab", () => {
     await waitFor(() => expect(rows().length).toBe(12));
     // Same date: the numeric version decides (2.1.321 fable before remote-control by id).
     expect(rows().slice(0, 3)).toEqual(["2.1.322-vertex-fast-mode", "2.1.321-fable-5-2", "2.1.321-remote-control-settings"]);
-    const recent = within(section("새로 나온 기능")!).getAllByRole("button");
-    const earlier = within(section("이미 나온 기능")!).getAllByRole("button");
+    // Each row is the row button plus its own "원문 ↗" button (news-apply 2.3a).
+    const recent = Array.from(section("새로 나온 기능")!.querySelectorAll("[data-news-row]"));
+    const earlier = Array.from(section("이미 나온 기능")!.querySelectorAll("[data-news-row]"));
     expect(recent.length).toBe(8);
     expect(earlier.map((b) => b.getAttribute("data-news-row"))).toEqual(["2.1.298-resume-in-desktop", "2.1.296-restricted-flag", "2.1.292-model-picker-setting", "2.1.288-agent-feedback"]);
     expect(document.querySelectorAll("[data-news-new]").length).toBe(7);
-    const first = document.querySelector('[data-news-row="2.1.322-vertex-fast-mode"]') as HTMLElement;
+    const first = document.querySelector('[data-news-row="2.1.322-vertex-fast-mode"]')!.closest("li") as HTMLElement;
     expect(first.textContent).toContain("Vertex에서도 빠른 모드");
     expect(first.textContent).toContain("v2.1.322 · ");
     expect(first.textContent).toContain("새 소식");

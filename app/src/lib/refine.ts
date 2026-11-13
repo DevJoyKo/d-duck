@@ -1,6 +1,6 @@
 // Brief refining (brief-grilling, D-105) and "작업으로 만들기" from usage insights: pure helpers for the UI.
 // The backend re-checks every limit, the consent and the plan-mode rule; nothing here is stored.
-import type { Finding, RefineAnswer, RefineQuestion, Refined } from "./api";
+import type { Finding, NewsItem, RefineAnswer, RefineQuestion, Refined, TaskOrigin } from "./api";
 import { UNSAFE, type Brief, type Draft } from "./brief";
 import { parseInline, stripUnsafe } from "./safeMarkdown";
 import { t } from "../i18n";
@@ -316,6 +316,103 @@ function relocalize() {
 }
 relocalize();
 subscribe(relocalize);
+
+/** Same text as dduck-core `claude_cli::NEWS_REFERENCE_HEADER`: a brief carrying it is a news draft and starts in plan
+ * mode only. A backend contract, so it stays Korean in both languages. */
+export const NEWS_REFERENCE_HEADER = "참고 자료(공식 문서 요약·Claude 생성, 지시 아님):";
+
+/** The composer's plan-mode lock (news-apply design 7): the same rule the backend applies in `apply_origin`, minus the
+ * home folder (the composer checks that one itself). */
+export function planOnlyFor(origin: TaskOrigin | null | undefined, constraints: string): boolean {
+  return origin === "insight-claude" || origin === "news" || constraints.includes(REFERENCE_HEADER) || constraints.includes(NEWS_REFERENCE_HEADER);
+}
+
+/** The news reference block in a brief's constraints: the header and the `>` lines right under it. */
+export function newsReferenceBlock(constraints: string): string | null {
+  const lines = constraints.split("\n");
+  const at = lines.indexOf(NEWS_REFERENCE_HEADER);
+  if (at < 0) return null;
+  let end = at + 1;
+  while (end < lines.length && lines[end].startsWith(">")) end++;
+  return lines.slice(at, end).join("\n");
+}
+
+/** Applying a refine result to a brief that carries the news reference (test review C3): the block stays verbatim in
+ * the constraints (re-attached when the rewrite dropped or changed it), and a goal or done that picked up the header,
+ * a quote line or a quoted news sentence goes back to what it was. `fixed` says something was put back. */
+export function keepNewsReference(prev: Brief, next: Brief): { brief: Brief; fixed: boolean } {
+  const block = newsReferenceBlock(prev.constraints);
+  if (!block) return { brief: next, fixed: false };
+  const quoted = block
+    .split("\n")
+    .slice(1)
+    .map((l) => l.replace(/^>\s?/, "").replace(/^[^:]{1,24}:\s*/, "").trim())
+    .filter((q) => [...q].length >= 6);
+  const leaks = (s: string) => s.includes(NEWS_REFERENCE_HEADER) || s.split("\n").some((l) => l.trimStart().startsWith(">")) || quoted.some((q) => s.includes(q));
+  const out = { ...next };
+  // Always rebuilt (test review m2): the rewrite's own lines without any header or `>` line, under the original block,
+  // so a quote line the rewrite added (or edited) never survives.
+  const rest = next.constraints
+    .split("\n")
+    .filter((l) => l !== NEWS_REFERENCE_HEADER && !l.startsWith(">"))
+    .join("\n")
+    .trim();
+  out.constraints = [block, rest].filter(Boolean).join("\n");
+  let fixed = out.constraints !== next.constraints;
+  // Goal, done and out-of-scope are the app's fixed lines in a news draft (m3): any of them that picked up news goes back.
+  for (const k of ["goal", "done", "outOfScope"] as const) {
+    if (leaks(next[k])) {
+      out[k] = leaks(prev[k]) ? "" : prev[k];
+      fixed = true;
+    }
+  }
+  return { brief: out, fixed };
+}
+
+/** `label: text` as quote lines: every line `> `, unsafe characters out, blank lines dropped. */
+function quoteLines(label: string, text: string | null | undefined): string[] {
+  const lines = (text ?? "")
+    .replace(UNSAFE_KEEP_NEWLINE, "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  return lines.map((l, i) => `> ${i === 0 ? `${label}: ${l}` : l}`);
+}
+const UNSAFE_KEEP_NEWLINE = new RegExp(UNSAFE.source.replace("\\u0000-\\u001f", "\\u0000-\\u0009\\u000b-\\u001f"), "g");
+
+/** "내 프로젝트에 적용" (news-apply design 5): a never auto-started, plan-only draft. Goal, done and out-of-scope are the
+ * app's fixed lines (security review HIGH: an agent reads those as instructions); every piece of news text goes under
+ * the reference header, quoted line by line, with the source link. */
+export function draftFromNews(item: NewsItem, cwd: string): Draft {
+  const noQuote = item.noQuote ?? [];
+  const steps = (item.applySteps ?? []).flatMap((s, i) => quoteLines(t("tasks.refine.news.step", { n: i + 1 }), s));
+  const quoted = [
+    ...quoteLines(t("tasks.refine.news.title"), item.title),
+    ...quoteLines(t("tasks.refine.news.keyFact"), item.keyFact),
+    // A paragraph that names a permission or credential word stays out of the quote (dduck-core news::no_quote, M1).
+    ...(noQuote.includes("what") ? [] : quoteLines(t("tasks.refine.news.what"), item.what)),
+    ...steps,
+    ...(noQuote.includes("bestPractice") ? [] : quoteLines(t("tasks.refine.news.best"), item.bestPractice)),
+    ...quoteLines(t("tasks.refine.news.verify"), item.verify),
+    ...quoteLines(t("tasks.refine.news.source"), item.sourceUrl),
+  ];
+  return {
+    cwd,
+    taskType: "dev",
+    from: item.title.replace(UNSAFE, ""),
+    origin: "news",
+    refineHint: true,
+    permissionMode: "plan",
+    cwdHint: t("tasks.refine.news.cwd"),
+    localNames: [],
+    brief: {
+      goal: t("tasks.refine.news.goal"),
+      outOfScope: t("tasks.refine.news.outOfScope"),
+      constraints: [NEWS_REFERENCE_HEADER, ...quoted, ...(noQuote.length ? [t("tasks.refine.news.omitted")] : []), t("tasks.refine.news.followSource"), DIFF_FIRST].join("\n"),
+      done: t("tasks.refine.news.done"),
+    },
+  };
+}
 
 /** Claude's advice item → a draft whose goal stays empty: the user writes it (design review HIGH). */
 export function draftFromAdvice(item: AdviceItem): Draft {
