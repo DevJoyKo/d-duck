@@ -409,11 +409,7 @@ pub fn windows_lexical_ok(s: &str) -> bool {
         if matches!(c, "" | "." | "..") {
             return true;
         }
-        let stem = c.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
-        let device = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$")
-            || (stem.len() == 4 && (stem.starts_with("COM") || stem.starts_with("LPT")) && stem.as_bytes()[3].is_ascii_digit())
-            || ((stem.starts_with("COM") || stem.starts_with("LPT")) && ["¹", "²", "³"].iter().any(|d| stem.len() == 3 + d.len() && stem.ends_with(d)));
-        !c.contains(':') && !device && !c.ends_with(['.', ' '])
+        !c.contains(':') && !is_device_name(c) && !c.ends_with(['.', ' '])
     })
 }
 
@@ -427,6 +423,15 @@ pub fn relative_ok(s: &str) -> bool {
 /// (so `C:/x`, `C:x`, `\\x` and `a.md:s` are refused), and no `?` or `*`.
 pub fn windows_relative_ok(s: &str) -> bool {
     windows_lexical_ok(s) && !s.contains([':', '?', '*']) && !s.starts_with(['\\', '/'])
+}
+
+/// A Windows reserved device name, also with an extension or trailing spaces: `CON`, `prn.md`, `nul `, `COM1`,
+/// `lpt9.txt`, `COM¹`, `CONIN$`. Checked on every OS where names may later reach Windows (authoring, QA re-review).
+pub fn is_device_name(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$")
+        || (stem.len() == 4 && (stem.starts_with("COM") || stem.starts_with("LPT")) && stem.as_bytes()[3].is_ascii_digit())
+        || ((stem.starts_with("COM") || stem.starts_with("LPT")) && ["¹", "²", "³"].iter().any(|d| stem.len() == 3 + d.len() && stem.ends_with(d)))
 }
 
 /// A file or folder name equal to `want`: exact on macOS, ignoring ASCII case on Windows (NTFS), for deny lists.

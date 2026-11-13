@@ -18,6 +18,6 @@ describe("window chrome", () => {
   // OSes are in components/WindowsPreview.test.tsx).
   it("keeps the sidebar drag strip and its padding to macOS", () => {
     expect(sidebarSource).toContain('{isMac() && <div data-tauri-drag-region className="absolute top-0 left-0 h-10 w-[216px]" />}');
-    expect(sidebarSource).toContain('${isMac() ? "pt-11" : "pt-4"}');
+    expect(sidebarSource).toContain('${isMac() ? "pt-11" : "pt-3"}');
   });
 });

@@ -32,8 +32,10 @@ static NAME_RE: LazyLock<Regex> = LazyLock::new(|| re(r"\A[A-Za-z0-9][A-Za-z0-9_
 static STR: &str = r#"(?:'([^'\n\\]*)'|"([^"\n\\]*)")"#;
 static PHASE_CALL_RE: LazyLock<Regex> = LazyLock::new(|| re(&format!(r"(?:^|[^A-Za-z0-9_.$])phase\(\s*{STR}")));
 
+/// A skill, command or workflow name: also never a Windows device name (`nul`, `con`, `com1`, `aux.md`, …) on any
+/// OS, so `create_item` cannot make `commands\nul.md` or `skills\con\` (QA re-review MEDIUM).
 pub fn valid_name(n: &str) -> bool {
-    NAME_RE.is_match(n)
+    NAME_RE.is_match(n) && !crate::platform::is_device_name(n)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -2044,3 +2046,21 @@ mod tests {
         assert!(copy_risk(&crlf.join("SKILL.md")).map(|r| r.allowed_tools.is_some()).unwrap_or(false));
     }
 }
+
+/// QA re-review [CI, both OSes]: authoring names refuse Windows device names.
+#[cfg(test)]
+mod device_names {
+    #[test]
+    fn device_names_are_refused() {
+        for bad in ["nul", "NUL", "con", "Con", "aux", "prn", "com1", "COM9", "lpt1", "Lpt3"] {
+            assert!(!super::valid_name(bad), "{bad}");
+        }
+        for ok in ["console", "com10", "null", "auxiliary", "nul-check", "lpt", "pr-writer"] {
+            assert!(super::valid_name(ok), "{ok}");
+        }
+        for bad in ["COM¹", "lpt²", "nul.md", "con.txt", "aux "] {
+            assert!(crate::platform::is_device_name(bad), "{bad}");
+        }
+    }
+}
+

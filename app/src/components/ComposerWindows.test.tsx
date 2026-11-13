@@ -40,9 +40,9 @@ describe("Git Bash note", () => {
     setPlatformForTest({ os: "windows", gitBash: false });
     show();
     const note = await waitFor(() => document.querySelector("[data-git-bash-missing]") as HTMLElement);
-    expect(note.textContent).toContain("Git for Windows를 설치해 주세요");
+    expect(note.textContent).toContain("Git for Windows가 없으면 명령을 실행할 수 없어요");
     expect(note.className).toContain("bg-warn-soft");
-    fireEvent.click(screen.getByRole("button", { name: "설치 페이지 열기" }));
+    fireEvent.click(screen.getByRole("button", { name: "Git for Windows 설치하기" }));
     const { invoke } = await import("@tauri-apps/api/core");
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("open_insight_link", { url: GIT_FOR_WINDOWS_URL }));
   });

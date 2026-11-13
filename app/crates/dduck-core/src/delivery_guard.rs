@@ -300,8 +300,9 @@ pub fn deny_rules(guard: Guard, start_on_default: bool, detected_default: Option
 
 /// Windows additions (decision 9, re-check fixes): the `PowerShell` and `Monitor` tools are off, so Bash (Git Bash)
 /// is the only shell tool the `Bash(...)` rules cover; Bash commands that start another shell are refused; and each
-/// `git`/`gh` rule also gets its `git.exe`/`gh.exe` form. Absolute-path and letter-case variants of git stay a known
-/// gap, as on macOS. Real enforcement by the Windows CLI is a [manual] scenario.
+/// `git`/`gh` rule also gets three letter cases (`git`, `Git`, `GIT`) each with no suffix, `.exe` or `.EXE`. Mixed
+/// case (`gIt`), absolute paths (`/mingw64/bin/git`), `git -C … push` and `bash -c "git push"` stay known gaps, as on
+/// macOS: these rules prevent mistakes and are not a security boundary. Real enforcement is a [manual] scenario.
 pub fn windows_variants(rules: Vec<String>) -> Vec<String> {
     // Rules match case-sensitively but Windows runs `Git.exe` or `GIT` the same (review MEDIUM): each git/gh rule
     // also gets the capitalised and upper-case names, with and without `.exe`/`.EXE`.

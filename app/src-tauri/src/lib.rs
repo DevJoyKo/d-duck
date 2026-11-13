@@ -4221,10 +4221,12 @@ mod mac_only_tests {
         let first = |src: &str, sig: &str, guard: &str| {
             let at = src.find(sig).unwrap_or_else(|| panic!("{sig}"));
             let body = &src[at..];
-            let line = body.lines().nth(1).unwrap_or("");
-            assert!(line.contains(guard), "{sig}: first line is {line:?}");
+            let line = body.lines().nth(1).unwrap_or("").trim();
+            assert!(!line.starts_with("//") && line.contains(guard), "{sig}: first line is {line:?}");
         };
         first(news, "pub async fn news_fetch(", "hook_ready()");
+        first(news, "pub async fn news_set_daily(", "target_os = \"macos\"");
+        assert!(news.contains("if enabled && !dduck_core::cli_path::hooks_allowed() {"), "news_set_daily asks for a CLI update");
         first(lib, "async fn force_stop(", "target_os = \"macos\"");
         first(delivery, "pub async fn set_local_only(", "target_os = \"macos\"");
         first(delivery, "pub async fn set_local_only_cwd(", "target_os = \"macos\"");

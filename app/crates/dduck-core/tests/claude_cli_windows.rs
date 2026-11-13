@@ -27,9 +27,10 @@ fn start_background_emits_the_windows_rules() {
     assert_eq!(cli.start_background(&spec(&work, "fix it".into()), None).unwrap(), "ab12cd34");
     let argv: Vec<String> = std::fs::read_to_string(t.path().join("bin").join("argv.log")).unwrap().lines().map(str::to_string).collect();
     assert_eq!(argv[0], "--bg");
-    let tools = argv.iter().find(|a| a.starts_with("--disallowedTools=")).expect("disallowed tools");
+    let tools = argv.iter().find_map(|a| a.strip_prefix("--disallowedTools=")).expect("disallowed tools");
+    let rules: Vec<&str> = tools.split(',').collect();
     for r in ["PowerShell", "Monitor", "Bash(git.exe push * main)", "Bash(Git push * main)", "Bash(cmd *)", "Bash(wsl*)"] {
-        assert!(tools.split(',').any(|x| x == r || x.ends_with(r)), "{r} missing");
+        assert!(rules.contains(&r), "{r} missing");
     }
     assert_eq!(argv.last().map(String::as_str), Some("fix it"));
 }

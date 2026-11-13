@@ -64,7 +64,7 @@ export default {
     insights: "Claude 분석은 Windows 미리보기에서 아직 쓸 수 없어요",
     refine: "요구사항 다듬기는 Windows 미리보기에서 아직 쓸 수 없어요",
     cloud: "클라우드 루틴 불러오기·고치기는 Windows 미리보기에서 아직 쓸 수 없어요",
-    gitBash: "Git for Windows가 없으면 명령을 실행할 수 없어요 · Git for Windows를 설치해 주세요",
-    gitBashLink: "설치 페이지 열기",
+    gitBash: "Git for Windows가 없으면 명령을 실행할 수 없어요",
+    gitBashLink: "Git for Windows 설치하기",
   },
 } as const;

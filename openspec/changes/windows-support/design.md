@@ -222,18 +222,24 @@ Each item supersedes the decision text it names; the original text above stays f
 5. **Decision 6, Recycle Bin** — ~~the `trash` crate~~: `SHFileOperationW` with `FOF_ALLOWUNDO | FOF_NOCONFIRMATION |
    FOF_SILENT | FOF_NOERRORUI | FOF_WANTNUKEWARNING` (never `FOF_NO_UI`), only on a fixed drive whose Recycle Bin
    answers `SHQueryRecycleBinW`, and the bin must hold more items afterwards (review H1). Wildcards are refused.
-   Restoring from the bin is [manual].
+   Restoring from the bin is [manual]. Re-review 8.3: when the count does not confirm it but the original is gone,
+   the caller finishes its cleanup and refresh and reports `TrashUnconfirmed` (it may be gone for good); the shell's
+   warning is owned by the main window. `subst` drives and mounted volumes are [manual].
 6. **Decision 6, WebView2** — ~~a run-time new-window test~~: wry 0.57 denies every new-window request when no
    handler is registered; a source guard test fails if the shell ever registers one.
-7. **Decision 5, git** — the app's git reads the system config on Windows (it sits under Program Files, admin-only,
-   and holds `core.autocrlf`; without it every text file reads as changed). `GIT_CONFIG_NOSYSTEM` stays on macOS.
-   Moving that config check to an ACL check of `etc\gitconfig` is deferred (review LOW).
+7. **Decision 5, git** — ~~the app's git reads the system config on Windows; moving that to an ACL check is
+   deferred~~ (superseded by the re-review, 8.5): `GIT_CONFIG_NOSYSTEM=1` on every OS (the system config can also
+   come from ProgramData), and on Windows only `core.autocrlf` is read from Git for Windows' own `etc\gitconfig` next
+   to the checked `git.exe` and passed with `-c` (missing or unknown: `true`, Git for Windows' default).
 8. **Decision 8, version gate** — one core gate (`cli_path::hooks_allowed`, set from the resolved CLI) inside the hook
-   self-test, so the daily News run, local-only starts and report grants pass it too, not only the UI commands.
+   self-test, so the daily News run and local-only starts pass it too; `report_guard::grant` (no self-test) checks it
+   directly and answers `NoHooks`. Local-only and News say "update Claude Code" before the self-test runs. A CLI
+   downgraded outside the app passes until the next resolve (deferred).
 9. **Decision 7, local-only** — the core start refuses a local-only folder off macOS (`MAC_ONLY`) before any git or
    hook run; Windows managed settings come from `%ProgramFiles%\ClaudeCode` only (the registry policy is not read).
-10. **Decision 1, untrusted paths** — the Windows rule also covers relative evidence files, attachment names and skill
-    parts (`relative_ok`: no drive, stream, device name, `?`/`*`), review H3.
+10. **Decision 1, untrusted paths** — the Windows rule also covers relative evidence files, attachment names and the
+    parts of installed or copied skill folders (`relative_ok`: no drive, stream, device name, `?*<>"|`), review H3.
+    Authoring item names refuse Windows device names on every OS (`platform::is_device_name`, QA re-review).
 11. **Deferred LOWs** — a Windows owner-SID check for agent files is not done (the file-index swap check now runs on
     Windows too; the folder ACL is the user's profile); see decisions.md.
 

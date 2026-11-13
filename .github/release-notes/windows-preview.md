@@ -14,10 +14,17 @@ gh attestation verify .\D.Duck_*_x64-setup.exe --repo <owner>/<repo> --source-re
 ```
 `gh attestation verify`가 통과하면 이 저장소의 릴리스 워크플로가 그 태그에서 만든 파일이에요.
 
+### 알아 둘 점
+- 작업에 붙는 git·gh 금지 규칙은 실수를 막는 장치이지 보안 경계가 아니에요. 섞인 대소문자(`gIt`), 절대 경로, `git -C … push`, `bash -c "git push"`는 막지 못해요.
+- 관리자가 레지스트리(`HKLM\SOFTWARE\Policies\ClaudeCode`)로 정한 관리 정책은 확인하지 않아요. `%ProgramFiles%\ClaudeCode`의 파일만 읽어요.
+- 휴지통은 로컬 고정 드라이브에서만 써요. `subst` 드라이브나 폴더에 마운트한 볼륨에서는 지우기를 거부하거나 "휴지통에서 찾지 못했어요"라고 알려요.
+
 ### Windows에서 Mac 전용인 기능
 로컬만(원격 금지) 작업, 남은 Claude 프로세스 강제 종료, 뉴스 가져오기, 사용량 인사이트, 브리프 다듬기, 클라우드 루틴, 리포트 쓰기 허용은 Windows에서 막혀 있고 "Mac 전용"으로 보여요. Windows CLI에서 훅이 실제로 막히는지 확인한 뒤에 풀어요.
 
 ### 실제 Windows에서 아직 확인하지 못한 것 ([manual])
+- 로그인을 취소하면 남은 `claude.exe`가 0개예요.
+- `subst` 드라이브·마운트 볼륨에서 휴지통으로 옮기기가 거부되거나 확인 불가로 안내돼요.
 - **(필수)** 브라우저가 꺼진 상태에서 로그인을 시작해도, CLI가 연 브라우저가 로그인이 끝난 뒤에도 남아 있어요.
 - 휴지통으로 옮긴 에이전트·스킬을 휴지통에서 되살릴 수 있어요.
 - 백그라운드 작업이 앱을 닫아도 계속 돌고, 다시 열면 보여요.
@@ -27,3 +34,10 @@ gh attestation verify .\D.Duck_*_x64-setup.exe --repo <owner>/<repo> --source-re
 - 받은 설치 파일을 `gh attestation verify`로 확인할 수 있어요.
 - 새로 설치한 Windows 11에서 시작 메뉴에 나타나고 두 번째 실행은 기존 창을 앞으로 가져와요.
 - 프로젝트 목록·작성 폴더·외부 링크·휴지통(Recycle Bin)·터미널 열기·트레이 아이콘이 실제 화면에서 맞게 보여요.
+
+### 릴리스 담당자용: Windows 설치 파일 만들기
+태그를 먼저 만든 뒤, 그 태그를 ref로 실행해요(다른 ref면 워크플로가 멈춰요).
+```bash
+gh workflow run release-windows.yml --ref vX.Y.Z -f tag=vX.Y.Z -f attach=true
+```
+
