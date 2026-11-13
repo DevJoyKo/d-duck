@@ -322,6 +322,39 @@ pub struct TaskSpec {
 
 const MAX_ARGV_BYTES: usize = 512 * 1024;
 
+/// Windows `CreateProcessW` takes at most 32,767 UTF-16 units for the whole command line; this leaves room for the
+/// quoted program path (decision 4).
+pub const MAX_CMDLINE_UTF16: usize = 30_000;
+
+/// UTF-16 length of `args` as std quotes them on Windows (`make_command_line`: quotes around an empty argument or one
+/// with a space or tab, backslashes doubled before a quote, `"` escaped), plus one separator each. The program path
+/// is not included (see [`MAX_CMDLINE_UTF16`]).
+pub fn windows_cmdline_len(args: &[OsString]) -> usize {
+    let mut total = 0;
+    for a in args {
+        let s = a.to_string_lossy();
+        let quote = s.is_empty() || s.contains([' ', '\t']);
+        let mut n = 1 + usize::from(quote) * 2; // separator and the quotes
+        let mut backslashes = 0;
+        for c in s.chars() {
+            if c == '\\' {
+                backslashes += 1;
+            } else {
+                if c == '"' {
+                    n += backslashes + 1; // each backslash doubled, then `\"`
+                }
+                backslashes = 0;
+            }
+            n += c.len_utf16();
+        }
+        if quote {
+            n += backslashes; // trailing backslashes before the closing quote are doubled
+        }
+        total += n;
+    }
+    total
+}
+
 /// `[a-z0-9-]`, starts with a letter, at most 40 chars, always prefixed `dduck-` (D-067).
 pub fn remote_name(task_name: Option<&str>, now_ms: i64) -> String {
     let slug: String = task_name
@@ -476,10 +509,23 @@ impl TaskSpec {
         let preferred = crate::preferred::line(&config.preferred, &env.preferred, config.lang, ctx);
         self.policy_text = Some(tc::policy_text_with(&config, self.remote_name.is_some(), guard, self.task_type.as_deref(), preferred.as_deref()));
         // Last: every injected value is in place.
+        self.check_fit()
+    }
+
+    /// [`Self::args_fit`] and, on Windows, the command-line limit (its own reason, so the composer can say so).
+    fn check_fit(&self) -> Result<(), CliError> {
         if !self.args_fit() {
             return Err(CliError::invalid(ReasonCode::TooLong));
         }
+        if cfg!(windows) && !self.fits_windows_cmdline() {
+            return Err(CliError::invalid(ReasonCode::WindowsCommandTooLong));
+        }
         Ok(())
+    }
+
+    /// The quoted command line fits the Windows limit (checked on every OS by tests, enforced on Windows).
+    pub fn fits_windows_cmdline(&self) -> bool {
+        windows_cmdline_len(&self.bg_args()) <= MAX_CMDLINE_UTF16
     }
 
     /// Decides the model (design 4) and replaces an unsupported one (design 11). Called by the shell after
@@ -511,10 +557,7 @@ impl TaskSpec {
         }
         self.model_pin = Some(pin);
         self.model_requested = requested;
-        if !self.args_fit() {
-            return Err(CliError::invalid(ReasonCode::TooLong));
-        }
-        Ok(())
+        self.check_fit()
     }
 
     /// `--model=<v>` as one token, if a value is passed (design 2).
@@ -852,7 +895,12 @@ impl ClaudeCli {
         if spec.permission_mode.is_some_and(PermissionMode::is_dangerous) && approval.is_none() {
             return Err(CliError::DangerNotConfirmed);
         }
-        let out = run_detached(self.command().current_dir(&spec.cwd).args(spec.bg_args()), Duration::from_secs(30), 64 * 1024, Keep::Head)?;
+        let args = spec.bg_args();
+        // Windows: refused before anything starts when the quoted command line is over the limit (decision 4).
+        if cfg!(windows) && windows_cmdline_len(&args) > MAX_CMDLINE_UTF16 {
+            return Err(CliError::invalid(ReasonCode::WindowsCommandTooLong));
+        }
+        let out = run_detached(self.command().current_dir(&spec.cwd).args(args), Duration::from_secs(30), 64 * 1024, Keep::Head)?;
         parse_bg_id(&out.stdout).ok_or(CliError::UnsupportedOutput)
     }
 
@@ -866,6 +914,9 @@ impl ClaudeCli {
             return Err(CliError::invalid(ReasonCode::DirNotFound));
         }
         let args = spec.args()?;
+        if cfg!(windows) && windows_cmdline_len(&args) > MAX_CMDLINE_UTF16 {
+            return Err(CliError::invalid(ReasonCode::WindowsCommandTooLong));
+        }
         let out = run_detached(self.command().current_dir(&spec.cwd).args(args), Duration::from_secs(30), 64 * 1024, Keep::Head)?;
         parse_resume_output(&out.stdout).ok_or(CliError::UnsupportedOutput)
     }
@@ -2003,5 +2054,39 @@ mod help_cli {
         assert_eq!(std::fs::read_to_string(dir.path().join("args")).unwrap().trim(), "--help", "nothing else is passed");
         let broken = fake(dir.path(), "exit 3");
         assert!(broken.help_text(dir.path()).is_err(), "a failed help leaves only the CLI source out");
+    }
+}
+
+/// windows-support 2.3 [CI]: the Windows command-line rule, checked on every OS.
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod windows_cmdline {
+    use super::*;
+
+    fn len(args: &[&str]) -> usize {
+        windows_cmdline_len(&args.iter().map(OsString::from).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn quoting_is_counted_like_std() {
+        assert_eq!(len(&["--bg"]), 5);
+        assert_eq!(len(&[""]), 3, "an empty argument is quoted");
+        assert_eq!(len(&["a b"]), 6, "space: quoted");
+        assert_eq!(len(&[r#"a"b"#]), 5, "a quote is escaped");
+        assert_eq!(len(&[r#"a\"b"#]), 7, "a backslash before a quote is doubled");
+        assert_eq!(len(&[r"a b\"]), 8, "a trailing backslash before the closing quote is doubled");
+        assert_eq!(len(&["가"]), 2, "UTF-16 units, not bytes");
+        assert_eq!(len(&["😀"]), 3);
+    }
+
+    #[test]
+    fn a_long_prompt_is_too_long_for_windows_only() {
+        let mut s = TaskSpec::basic(std::env::temp_dir(), "가 ".repeat(16_000), None, None);
+        s.guard_ctx = None;
+        assert!(s.args_fit(), "within the macOS byte cap");
+        assert!(!s.fits_windows_cmdline(), "over 30,000 UTF-16 units once quoted");
+        let short = TaskSpec::basic(std::env::temp_dir(), "fix the bug".into(), None, None);
+        assert!(short.fits_windows_cmdline());
+        assert_eq!(ReasonCode::WindowsCommandTooLong.code(), "windowsCommandTooLong");
     }
 }

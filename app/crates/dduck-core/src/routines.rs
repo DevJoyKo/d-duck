@@ -518,7 +518,7 @@ pub fn add_preferred(spec: &mut TaskSpec, conn: &Connection, installed: &[crate:
     let Some(line) = crate::preferred::line(&config.preferred, installed, config.lang, crate::preferred::Ctx::default()) else { return };
     let guard = spec.guard_ctx.as_ref().map_or(crate::delivery_guard::Guard::DraftPr, |g| g.guard);
     let before = spec.policy_text.replace(crate::team_config::policy_text_with(&config, false, guard, None, Some(&line)));
-    if !spec.args_fit() {
+    if !spec.args_fit() || cfg!(windows) && !spec.fits_windows_cmdline() {
         spec.policy_text = before;
     }
 }

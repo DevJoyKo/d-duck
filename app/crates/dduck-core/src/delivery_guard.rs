@@ -290,10 +290,31 @@ pub fn deny_rules(guard: Guard, start_on_default: bool, detected_default: Option
         out.extend(LOCAL_ONLY_RULES.iter().map(|s| s.to_string()));
         out.extend(GITHUB_WRITE_TOOLS.iter().map(|t| format!("mcp__*__{t}")));
     }
+    if cfg!(windows) {
+        out = windows_variants(out);
+    }
     let mut seen = std::collections::BTreeSet::new();
     out.retain(|r| seen.insert(r.clone()));
     out
 }
+
+/// Windows additions (decision 9, re-check fixes): the `PowerShell` and `Monitor` tools are off, so Bash (Git Bash)
+/// is the only shell tool the `Bash(...)` rules cover; Bash commands that start another shell are refused; and each
+/// `git`/`gh` rule also gets its `git.exe`/`gh.exe` form. Absolute-path and letter-case variants of git stay a known
+/// gap, as on macOS. Real enforcement by the Windows CLI is a [manual] scenario.
+pub fn windows_variants(rules: Vec<String>) -> Vec<String> {
+    let mut out = Vec::with_capacity(rules.len() * 2 + 6);
+    for r in rules {
+        let exe = ["git", "gh"].iter().find_map(|t| r.strip_prefix(&format!("Bash({t} ")).map(|rest| format!("Bash({t}.exe {rest}")));
+        out.push(r);
+        out.extend(exe);
+    }
+    out.extend(WINDOWS_RULES.iter().map(|s| s.to_string()));
+    out
+}
+
+/// Tools and shell launches refused on Windows on top of the shared rules.
+pub const WINDOWS_RULES: &[&str] = &["PowerShell", "Monitor", "Bash(powershell*)", "Bash(pwsh*)", "Bash(cmd *)", "Bash(cmd.exe *)"];
 
 /// Shell-quoted hook command: `'<exe>' --dduck-guard-local-only`.
 pub fn hook_command(exe: &Path) -> String {
@@ -2810,5 +2831,33 @@ mod tests {
         assert_eq!(Guard::from_code("local_only"), Some(Guard::LocalOnly));
         assert_eq!(Guard::from_code("x"), None);
         assert_eq!(Guard::DraftPr.code(), "draft_pr");
+    }
+}
+
+/// windows-support 2.4 [CI]: the rules a Windows task gets.
+#[cfg(test)]
+mod windows_rules {
+    use super::*;
+
+    #[test]
+    fn git_and_gh_rules_get_exe_forms_and_other_shells_are_refused() {
+        let base = deny_rules(Guard::DraftPr, false, Some("main"));
+        let w = windows_variants(base.clone());
+        for r in base.iter().filter(|r| r.starts_with("Bash(git ") || r.starts_with("Bash(gh ")) {
+            let exe = r.replacen("Bash(git ", "Bash(git.exe ", 1).replacen("Bash(gh ", "Bash(gh.exe ", 1);
+            assert!(w.contains(&exe), "{exe} missing");
+        }
+        assert!(w.contains(&"Bash(git.exe push * main)".to_string()));
+        for r in WINDOWS_RULES {
+            assert!(w.contains(&r.to_string()), "{r}");
+        }
+        assert!(base.iter().all(|r| w.contains(r)), "nothing shared is dropped");
+    }
+
+    #[test]
+    fn emitted_rules_follow_the_os() {
+        let rules = deny_rules(Guard::DraftPr, true, Some("main"));
+        assert_eq!(rules.iter().any(|r| r == "PowerShell"), cfg!(windows));
+        assert_eq!(rules.iter().any(|r| r.starts_with("Bash(git.exe ")), cfg!(windows));
     }
 }
