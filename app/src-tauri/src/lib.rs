@@ -555,9 +555,8 @@ fn update_tray(app: &AppHandle, state: &AppState, sessions: &[AgentSession], lan
     if let Ok(menu) = build_tray_menu(app, &waiting) {
         let _ = tray.set_menu(Some(menu));
     }
-    let count = (review > 0).then(|| review.to_string());
     #[cfg(target_os = "macos")]
-    let _ = tray.set_title(count.as_deref());
+    let _ = tray.set_title((review > 0).then(|| review.to_string()).as_deref());
     let _ = tray.set_tooltip(Some(dduck_core::task_lifecycle::tooltip(review, pending, i18n::current())));
     // Windows has no dock badge: the count is in the tooltip above (windows-support 4.4).
     #[cfg(not(windows))]
@@ -4172,6 +4171,7 @@ pub fn run() {
         eprintln!("D.Duck failed to start");
         std::process::exit(1);
     };
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
     app.run(|app, event| match event {
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => show_main(app),

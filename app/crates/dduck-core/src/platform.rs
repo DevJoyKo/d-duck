@@ -330,14 +330,10 @@ pub mod acl {
         }
     }
 
-    /// `Ok` when `file` and every folder above it pass at their level. Any read failure refuses.
-    pub fn check_chain(file: &Path) -> Result<(), ()> {
-        let t = Trusted::new().ok_or(())?;
-        check(file, Level::File, &t)?;
-        for (i, dir) in file.ancestors().skip(1).filter(|d| !d.as_os_str().is_empty()).enumerate() {
-            check(dir, if i == 0 { Level::Folder } else { Level::Ancestor }, &t)?;
-        }
-        Ok(())
+    /// `true` when `file` and every folder above it pass at their level. Any read failure refuses.
+    pub fn check_chain(file: &Path) -> bool {
+        let Some(t) = Trusted::new() else { return false };
+        check(file, Level::File, &t).is_ok() && file.ancestors().skip(1).filter(|d| !d.as_os_str().is_empty()).enumerate().all(|(i, dir)| check(dir, if i == 0 { Level::Folder } else { Level::Ancestor }, &t).is_ok())
     }
 
     fn check(p: &Path, level: Level, t: &Trusted) -> Result<(), ()> {
@@ -447,7 +443,7 @@ pub fn git_program() -> Option<PathBuf> {
 
 #[cfg(windows)]
 fn windows_exe_trusted(p: &Path) -> bool {
-    canon(p).is_ok_and(|real| acl::check_chain(&real).is_ok())
+    canon(p).is_ok_and(|real| acl::check_chain(&real))
 }
 
 #[cfg(not(windows))]

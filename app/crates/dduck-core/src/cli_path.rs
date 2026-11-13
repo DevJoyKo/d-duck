@@ -323,7 +323,9 @@ pub fn validate(candidate: &Path) -> Result<CliInfo, Rejection> {
     }
     // Windows: the final file and every folder above it, before anything runs, even `--version`.
     #[cfg(windows)]
-    crate::platform::acl::check_chain(&real).map_err(|()| Rejection::WritableByOthers)?;
+    if !crate::platform::acl::check_chain(&real) {
+        return Err(Rejection::WritableByOthers);
+    }
     let out = run_with_timeout(Command::new(candidate).arg("--version"), PROBE_TIMEOUT, 4096)
         .ok_or(Rejection::VersionCheckFailed)?;
     let caps = VERSION_RE.captures(out.trim()).ok_or(Rejection::NotClaudeCode)?;
