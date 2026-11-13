@@ -4230,6 +4230,10 @@ mod mac_only_tests {
         first(news, "pub async fn news_fetch(", "hook_ready()");
         first(news, "pub async fn news_set_daily(", "target_os = \"macos\"");
         assert!(news.contains("if enabled && !dduck_core::cli_path::hooks_allowed() {"), "news_set_daily asks for a CLI update");
+        // Every News run (also the daily one) asks for a CLI update before the hook self-test.
+        let run = &news[news.find("fn run(").unwrap()..];
+        let (gate, self_test) = (run.find("hooks_allowed()").unwrap(), run.find("guard_self_test(").unwrap());
+        assert!(gate < self_test && run[gate..self_test].contains("NewsError::CliOutdated"));
         first(lib, "async fn force_stop(", "target_os = \"macos\"");
         first(delivery, "pub async fn set_local_only(", "target_os = \"macos\"");
         first(delivery, "pub async fn set_local_only_cwd(", "target_os = \"macos\"");

@@ -38,6 +38,17 @@ pub fn valid_name(n: &str) -> bool {
     NAME_RE.is_match(n) && !crate::platform::is_device_name(n)
 }
 
+/// Why `n` is refused: a Windows reserved name gets its own sentence (group 8 check LOW), anything else `otherwise`.
+pub fn name_error(n: &str, otherwise: crate::i18n::Fail) -> Option<String> {
+    if valid_name(n) {
+        None
+    } else if NAME_RE.is_match(n) {
+        Some(crate::i18n::Fail::ReservedWindowsName.str().to_string())
+    } else {
+        Some(otherwise.str().to_string())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Kind {
@@ -1010,8 +1021,8 @@ fn kind_dir(target: &Target, kind: Kind) -> Result<PathBuf, String> {
 
 /// Creates a new item; never overwrites. Returns the file path.
 pub fn create_item(target: &Target, kind: Kind, name: &str, content: &str) -> Result<PathBuf, String> {
-    if !valid_name(name) {
-        return Err(crate::i18n::Fail::ItemNameFormat.str().into());
+    if let Some(e) = name_error(name, crate::i18n::Fail::ItemNameFormat) {
+        return Err(e);
     }
     check_content(kind, name, content)?;
     let mode = target.dir_mode();
@@ -1232,7 +1243,7 @@ pub fn copy_risk(src_main: &Path) -> Result<SkillRisk, String> {
 fn produced_one(kind: Kind, name: &str, main: &Path, files: Result<Vec<String>, String>) -> Produced {
     let text = read_text(main);
     let content = text.as_deref().map(|t| display_marked(t, 200_000)).unwrap_or_default();
-    let mut problem = if valid_name(name) { None } else { Some(crate::i18n::Fail::ItemNameFormat.str().to_string()) };
+    let mut problem = name_error(name, crate::i18n::Fail::ItemNameFormat);
     let mut warnings = Vec::new();
     let mut risk = SkillRisk::default();
     match &text {
@@ -1301,8 +1312,8 @@ pub fn jobs(root: &Path) -> Vec<Job> {
 
 /// Installs one produced item at `target` through the same checks as a direct create (never overwrites).
 pub fn install_produced(root: &Path, token: &str, kind: Kind, name: &str, target: &Target) -> Result<PathBuf, String> {
-    if !valid_name(name) {
-        return Err(crate::i18n::Fail::NameBad.str().into());
+    if let Some(e) = name_error(name, crate::i18n::Fail::NameBad) {
+        return Err(e);
     }
     job_meta(root, token).ok_or(crate::i18n::Fail::JobNotFound.str())?;
     let work = root.join(token).join("work").join(kind.folder());
@@ -1514,8 +1525,8 @@ pub fn retitle(kind: Kind, text: &str, name: &str, origin: &str) -> String {
 /// The source is never changed and nothing is overwritten: a skill is built in a hidden folder next to the target
 /// and renamed exclusively. Returns the new main file.
 pub fn copy_item(src_main: &Path, kind: Kind, origin: &str, name: &str, target: &Target) -> Result<PathBuf, String> {
-    if !valid_name(name) {
-        return Err(crate::i18n::Fail::ItemNameFormat2.str().into());
+    if let Some(e) = name_error(name, crate::i18n::Fail::ItemNameFormat2) {
+        return Err(e);
     }
     if kind == Kind::Workflow {
         return Err(crate::i18n::Fail::WorkflowNoCopy.str().into());
@@ -2058,6 +2069,9 @@ mod device_names {
         for ok in ["console", "com10", "null", "auxiliary", "nul-check", "lpt", "pr-writer"] {
             assert!(super::valid_name(ok), "{ok}");
         }
+        assert_eq!(super::name_error("nul", crate::i18n::Fail::ItemNameFormat).as_deref(), Some(crate::i18n::Fail::ReservedWindowsName.str()));
+        assert_eq!(super::name_error("a b", crate::i18n::Fail::ItemNameFormat).as_deref(), Some(crate::i18n::Fail::ItemNameFormat.str()));
+        assert_eq!(super::name_error("pr-writer", crate::i18n::Fail::ItemNameFormat), None);
         for bad in ["COM¹", "lpt²", "nul.md", "con.txt", "aux "] {
             assert!(crate::platform::is_device_name(bad), "{bad}");
         }

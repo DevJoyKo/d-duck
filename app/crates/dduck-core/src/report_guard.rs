@@ -201,15 +201,14 @@ mod tests {
         assert_eq!(r, before, "the role is unchanged");
     }
 
-    /// Re-review 8.2: an old CLI gets no `Write` either.
-    #[cfg(target_os = "macos")]
+    /// Re-review 8.2 [both OSes]: an old CLI gets no `Write` either (Windows answers MacOnly first).
     #[test]
     fn grant_needs_a_cli_that_blocks_on_hook_failure() {
         let mut r = Some(r#"{"dduck-reviewer":{"description":"d","prompt":"p","tools":["Read"]}}"#.to_string());
         crate::cli_path::set_test_version(Some(Some("2.1.200")));
         let g = grant(&mut r, Some("dduck-reviewer"), Some(Path::new("/r")), Some(Path::new("/d")), false, true);
         crate::cli_path::set_test_version(None);
-        assert_eq!(g, Grant::NoHooks);
+        assert_eq!(g, if cfg!(target_os = "macos") { Grant::NoHooks } else { Grant::MacOnly });
         assert!(!r.unwrap().contains("Write"));
     }
 

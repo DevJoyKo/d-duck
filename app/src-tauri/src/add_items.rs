@@ -458,8 +458,8 @@ pub async fn create_authoring_item(app: AppHandle, kind: Kind, project: Option<S
         let state = app.state::<AppState>();
         let add = app.state::<AddState>();
         let t = target(&state, project.as_deref())?;
-        if !authoring::valid_name(&name) {
-            return Err(Fail::ItemNameFormat.now());
+        if let Some(e) = authoring::name_error(&name, Fail::ItemNameFormat) {
+            return Err(e);
         }
         authoring::check_content(kind, &name, &content)?;
         let rt = risk_text(&link::skill_risk(&content));

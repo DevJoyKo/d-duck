@@ -727,6 +727,7 @@ table! {
         NotSkillLink => ("스킬 링크가 아니에요", "This isn't a skill link"),
         ConfigDirMissing => ("Claude 설정 폴더를 찾을 수 없어요", "Couldn't find the Claude config folder"),
         ItemNameFormat => ("이름은 영문·숫자·-·_ 만, 1–64자여야 해요", "Names use letters, numbers, - and _ only, 1–64 characters"),
+        ReservedWindowsName => ("con·nul·com1 같은 Windows 예약 이름은 쓸 수 없어요", "Windows reserved names such as con, nul or com1 can't be used"),
         ItemNotListed => ("목록에 없는 항목이에요. 다시 열어 주세요", "This item isn't in the list. Open it again"),
         NoDefinitionFile => ("정의 파일이 없어요", "There's no definition file"),
         FileNotFound => ("파일을 찾을 수 없어요", "Couldn't find the file"),

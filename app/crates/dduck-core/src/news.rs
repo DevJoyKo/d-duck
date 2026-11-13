@@ -1355,3 +1355,16 @@ mod tests {
         assert_eq!(version_key(None), (0, 0, 0));
     }
 }
+
+/// Group 8 check LOW [both OSes]: the old-CLI refusal has its own code and the update sentence.
+#[cfg(test)]
+mod cli_outdated {
+    #[test]
+    fn code_and_message() {
+        let e = super::NewsError::CliOutdated;
+        assert_eq!(e.code(), "cliOutdated");
+        assert_eq!(e.message(), crate::i18n::ReasonCode::CliUpdateNeeded.now());
+        assert_eq!(e.cost_usd(), None);
+    }
+}
+

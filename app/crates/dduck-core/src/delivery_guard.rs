@@ -893,15 +893,35 @@ fn refused_git() -> Command {
 /// (it sits under Program Files, admin-only, and holds Git for Windows' `core.autocrlf`, without which every checked
 /// out text file would count as changed).
 fn base_git(dir: &Path) -> Command {
+    base_git_with(dir, crate::platform::git_autocrlf(), &[])
+}
+
+/// [`base_git`] with Git for Windows' `core.autocrlf` (`default_crlf`) as a fallback only: it is passed with `-c` just
+/// when neither the user's global config nor the repository sets the key, so their own value always wins
+/// (group 8 check MEDIUM). macOS passes `None` and runs exactly as before.
+/// `env` is for tests only (a fake HOME for both the check and the command).
+fn base_git_with(dir: &Path, default_crlf: Option<&str>, env: &[(&str, &Path)]) -> Command {
     let (Some(program), Some(hooks)) = (crate::platform::git_program(), crate::platform::git_hooks_path()) else { return refused_git() };
-    let mut cmd = Command::new(program);
-    cmd.arg("-c").arg("core.fsmonitor=false").arg("-c").arg(format!("core.hooksPath={}", hooks.display())).args(["-c", "protocol.allow=never"]);
-    // Windows: the system config is not read either (it may live in ProgramData); only Git for Windows'
-    // `core.autocrlf` is carried over, so checked-out text files do not all read as changed (re-review 8.5).
-    if let Some(v) = crate::platform::git_autocrlf() {
-        cmd.arg("-c").arg(format!("core.autocrlf={v}"));
+    let hardened = || {
+        let mut c = Command::new(&program);
+        c.arg("-c").arg("core.fsmonitor=false").arg("-c").arg(format!("core.hooksPath={}", hooks.display())).args(["-c", "protocol.allow=never"]);
+        c.env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_TERMINAL_PROMPT", "0").env("GIT_OPTIONAL_LOCKS", "0");
+        for (k, v) in env {
+            c.env(k, v);
+        }
+        c
+    };
+    let mut cmd = hardened();
+    if let Some(v) = default_crlf {
+        let mut q = hardened();
+        q.arg("-C").arg(dir).args(["config", "--get", "core.autocrlf"]);
+        // Exit 1 = the key is set nowhere git reads (system config is off); anything else keeps git's own answer.
+        let unset = crate::process::run(&mut q, Duration::from_secs(2), 1024, crate::process::Keep::Head, 1024).is_ok_and(|o| o.status.code() == Some(1));
+        if unset {
+            cmd.arg("-c").arg(format!("core.autocrlf={v}"));
+        }
     }
-    cmd.arg("-C").arg(dir).env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_TERMINAL_PROMPT", "0").env("GIT_OPTIONAL_LOCKS", "0");
+    cmd.arg("-C").arg(dir);
     cmd
 }
 
@@ -2081,7 +2101,8 @@ mod tests {
         assert!(args.windows(2).any(|w| w[0] == "-c" && w[1] == "core.fsmonitor=false"));
         // No system config on either OS; Windows passes only core.autocrlf and uses an app-owned hooks folder.
         assert!(c.get_envs().any(|(k, v)| k == "GIT_CONFIG_NOSYSTEM" && v.is_some_and(|v| v == "1")));
-        assert_eq!(args.iter().any(|a| a.starts_with("core.autocrlf=")), cfg!(windows));
+        // On Windows only when the key is unset (see autocrlf_default_never_overrides_the_repo).
+        let _ = &args;
         assert!(c.get_envs().any(|(k, v)| k == "GIT_TERMINAL_PROMPT" && v.is_some_and(|v| v == "0")));
         let hooks = args.iter().find_map(|a| a.strip_prefix("core.hooksPath=")).unwrap();
         if cfg!(windows) {
@@ -2978,3 +2999,44 @@ mod cli_outdated {
         assert_eq!(crate::i18n::ReasonCode::from_guard(CLI_OUTDATED), crate::i18n::ReasonCode::CliUpdateNeeded);
     }
 }
+
+/// Group 8 check MEDIUM [both OSes]: the Windows autocrlf fallback never overrides a repository or global value.
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod autocrlf_fallback {
+    use super::*;
+
+    #[test]
+    fn repo_false_stays_false_and_unset_gets_the_default() {
+        let t = tempfile::tempdir().unwrap();
+        let base = t.path().canon().unwrap();
+        let (repo, home) = (base.join("r"), base.join("home"));
+        std::fs::create_dir(&repo).unwrap();
+        std::fs::create_dir(&home).unwrap();
+        // An empty HOME/XDG/USERPROFILE, so the machine's own global config cannot answer.
+        let env: [(&str, &Path); 3] = [("HOME", &home), ("XDG_CONFIG_HOME", &home), ("USERPROFILE", &home)];
+        let get = |default: Option<&str>| {
+            let mut c = base_git_with(&repo, default, &env);
+            c.args(["config", "--get", "core.autocrlf"]);
+            let o = crate::process::run(&mut c, Duration::from_secs(5), 1024, crate::process::Keep::Head, 1024).unwrap();
+            String::from_utf8_lossy(&o.stdout).trim().to_string()
+        };
+        let git = |args: &[&str]| {
+            let mut c = Command::new("git");
+            c.arg("-C").arg(&repo).args(args).env("GIT_CONFIG_NOSYSTEM", "1");
+            for (k, v) in env {
+                c.env(k, v);
+            }
+            assert!(c.status().unwrap().success(), "{args:?}");
+        };
+        git(&["init", "-q"]);
+        assert_eq!(get(Some("true")), "true", "unset everywhere: the Git for Windows default applies");
+        assert_eq!(get(None), "", "macOS: nothing is added");
+        git(&["config", "core.autocrlf", "false"]);
+        assert_eq!(get(Some("true")), "false", "the repository value wins");
+        std::fs::write(home.join(".gitconfig"), "[core]\n\tautocrlf = input\n").unwrap();
+        git(&["config", "--unset", "core.autocrlf"]);
+        assert_eq!(get(Some("true")), "input", "the user's global value wins");
+    }
+}
+

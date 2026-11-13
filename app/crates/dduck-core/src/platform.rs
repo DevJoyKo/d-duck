@@ -887,7 +887,12 @@ mod tests {
         assert_eq!(autocrlf_in("[http]\n\tautocrlf = false\n[core]\n\tfscache = true\n"), None);
         assert_eq!(autocrlf_in("[core]\n autocrlf = input ; comment\n[core]\nAutoCRLF=false\n"), Some("false"));
         assert_eq!(autocrlf_in("[core]\nautocrlf = evil\n"), None);
-        assert_eq!(git_autocrlf().is_some(), cfg!(windows));
+        let v = git_autocrlf();
+        if cfg!(windows) {
+            assert!(v.is_some_and(|v| ["true", "false", "input"].contains(&v)), "{v:?}: Windows always has a value (default true)");
+        } else {
+            assert_eq!(v, None);
+        }
     }
 
     #[test]

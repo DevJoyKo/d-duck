@@ -285,7 +285,7 @@ pub(crate) mod win {
     /// unreaped child, so no process that names it as parent can belong to someone else.
     pub fn kill_descendants_named(root: u32, names: &[&str]) {
         use windows_sys::Win32::System::Diagnostics::ToolHelp::{PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS};
-        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
+        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE, TerminateProcess};
         // SAFETY: a process snapshot of the system; closed below.
         let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
         if snap == INVALID_HANDLE_VALUE {
@@ -312,19 +312,64 @@ pub(crate) mod win {
             tree.extend(all.iter().filter(|(pid, ppid, _)| *ppid == parent && *pid != root && !tree.contains(pid)).map(|(pid, _, _)| *pid).collect::<Vec<_>>());
             i += 1;
         }
+        // Every real descendant was created after the root (a reused pid would be older): the root's creation time is
+        // the lower bound, and the name is checked again on the opened handle (group 8 check LOW).
+        let Some(root_born) = created(root) else { return };
         for pid in tree.iter().skip(1).rev() {
             let named = all.iter().any(|(p, _, exe)| p == pid && names.iter().any(|n| exe.eq_ignore_ascii_case(n)));
-            if named {
-                // SAFETY: open, terminate and close one process handle.
-                unsafe {
-                    let h = OpenProcess(PROCESS_TERMINATE, 0, *pid);
-                    if !h.is_null() {
-                        TerminateProcess(h, 1);
-                        CloseHandle(h);
-                    }
+            if !named {
+                continue;
+            }
+            // SAFETY: open, query, terminate and close one process handle.
+            unsafe {
+                let h = OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION, 0, *pid);
+                if h.is_null() {
+                    continue;
                 }
+                let ok = handle_created(h).is_some_and(|t| t >= root_born) && handle_exe_name(h).is_some_and(|n| names.iter().any(|w| n.eq_ignore_ascii_case(w)));
+                if ok {
+                    TerminateProcess(h, 1);
+                }
+                CloseHandle(h);
             }
         }
+    }
+
+    /// Creation time (100 ns units) of an open process handle.
+    fn handle_created(h: HANDLE) -> Option<u64> {
+        use windows_sys::Win32::Foundation::FILETIME;
+        use windows_sys::Win32::System::Threading::GetProcessTimes;
+        let z = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+        let (mut c, mut e, mut k, mut u) = (z, z, z, z);
+        // SAFETY: valid handle and four out structs.
+        (unsafe { GetProcessTimes(h, &mut c, &mut e, &mut k, &mut u) } != 0).then(|| (u64::from(c.dwHighDateTime) << 32) | u64::from(c.dwLowDateTime))
+    }
+
+    fn created(pid: u32) -> Option<u64> {
+        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+        // SAFETY: open, query and close one handle.
+        unsafe {
+            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if h.is_null() {
+                return None;
+            }
+            let t = handle_created(h);
+            CloseHandle(h);
+            t
+        }
+    }
+
+    /// The executable's file name of an open process handle.
+    fn handle_exe_name(h: HANDLE) -> Option<String> {
+        use windows_sys::Win32::System::Threading::{PROCESS_NAME_WIN32, QueryFullProcessImageNameW};
+        let mut buf = vec![0u16; 1024];
+        let mut len = buf.len() as u32;
+        // SAFETY: `buf` has `len` slots; `len` receives the written length.
+        if unsafe { QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len) } == 0 {
+            return None;
+        }
+        let full = String::from_utf16_lossy(&buf[..len as usize]);
+        full.rsplit(['\\', '/']).next().map(str::to_string)
     }
 
     /// Spawns without a console window.

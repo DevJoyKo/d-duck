@@ -36,7 +36,7 @@ gh attestation verify .\D.Duck_*_x64-setup.exe --repo <owner>/<repo> --source-re
 - 프로젝트 목록·작성 폴더·외부 링크·휴지통(Recycle Bin)·터미널 열기·트레이 아이콘이 실제 화면에서 맞게 보여요.
 
 ### 릴리스 담당자용: Windows 설치 파일 만들기
-태그를 먼저 만든 뒤, 그 태그를 ref로 실행해요(다른 ref면 워크플로가 멈춰요).
+태그를 먼저 만든 뒤, 그 태그를 ref로 실행해요(다른 ref면 워크플로가 멈춰요). 이 워크플로 파일이 들어 있는 태그에서만 실행할 수 있어요.
 ```bash
 gh workflow run release-windows.yml --ref vX.Y.Z -f tag=vX.Y.Z -f attach=true
 ```

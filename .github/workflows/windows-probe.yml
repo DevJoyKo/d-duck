@@ -99,8 +99,9 @@ jobs:
             "after claude $($c -join ' '): $(@($after).Count) new claude processes" | Out-File -Append "$out\background.txt"
             $after | Format-Table Id, ProcessName, Path -AutoSize | Out-String -Width 300 | Out-File -Append "$out\background.txt"
           }
-          # Re-review 8.4: what `auth login` leaves running. Start it (no login happens), record its process tree after
-          # 5 s, end only the started process (what D.Duck does), then count claude.exe still below it.
+          # Re-review 8.4: what `auth login` leaves running. Start it (no login happens), record after 5 s whether it
+          # is still alive and its process tree, end the started process (D.Duck also ends claude.exe/node.exe found
+          # below it, by name and creation time), then assert no claude.exe from that tree is left.
           function Tree($root) {
             $all = Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name
             $ids = @($root); $i = 0
@@ -110,7 +111,9 @@ jobs:
           $login = Start-Process -FilePath $exe -ArgumentList @('auth','login','--claudeai') -NoNewWindow -PassThru -RedirectStandardOutput "$out\login.out" -RedirectStandardError "$out\login.err"
           Start-Sleep -Seconds 5
           $kids = @(Tree $login.Id)
-          "login descendants after 5 s: $($kids.Count)" | Out-File "$out\login-tree.txt"
+          $aliveAt5 = -not $login.HasExited
+          "login alive after 5 s: $aliveAt5" | Out-File "$out\login-tree.txt"
+          "login descendants after 5 s: $($kids.Count)" | Out-File -Append "$out\login-tree.txt"
           $kids | Format-Table ProcessId, ParentProcessId, Name -AutoSize | Out-String -Width 200 | Out-File -Append "$out\login-tree.txt"
           Stop-Process -Id $login.Id -Force -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 2
