@@ -448,14 +448,15 @@ pub fn git_program() -> Option<PathBuf> {
             let user = std::env::var_os("LOCALAPPDATA").map(|l| PathBuf::from(l).join("Programs"));
             let fixed = roots.chain(user).map(|r| r.join("Git").join("cmd").join("git.exe"));
             let path = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).filter(|d| d.is_absolute()).map(|d| d.join("git.exe")).collect::<Vec<_>>()).unwrap_or_default();
-            fixed.chain(path).find(|g| g.is_file() && windows_exe_trusted(g))
+            // The checked final path is what runs (review MEDIUM: no link swap between check and use).
+            fixed.chain(path).filter(|g| g.is_file()).find_map(|g| canon(g).ok().filter(|real| windows_exe_trusted(real)))
         })
         .clone()
 }
 
 #[cfg(windows)]
-fn windows_exe_trusted(p: &Path) -> bool {
-    canon(p).is_ok_and(|real| acl::check_chain(&real))
+fn windows_exe_trusted(real: &Path) -> bool {
+    acl::check_chain(real)
 }
 
 #[cfg(not(windows))]

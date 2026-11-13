@@ -544,6 +544,13 @@ pub struct ManagedSources {
 impl ManagedSources {
     /// The macOS locations, for this user and Claude config folder.
     pub fn system(config_dir: Option<&Path>, user: Option<&str>) -> Self {
+        // Windows: Program Files only (a `\Library` path would be a user-creatable `C:\Library`, review MEDIUM).
+        if cfg!(windows) {
+            let root = crate::permissions::windows_managed_root();
+            let mut files: Vec<PathBuf> = root.iter().map(|r| r.join("managed-settings.json")).collect();
+            files.extend(config_dir.map(|c| c.join("remote-settings.json")));
+            return ManagedSources { files, dropin_dirs: root.iter().map(|r| r.join("managed-settings.d")).collect(), plists: Vec::new() };
+        }
         let mut files = vec![PathBuf::from(MANAGED_SETTINGS)];
         if let Some(c) = config_dir {
             files.push(c.join("remote-settings.json"));

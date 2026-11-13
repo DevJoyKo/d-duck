@@ -409,9 +409,19 @@ pub struct Managed {
 pub fn default_managed_roots() -> Vec<PathBuf> {
     if cfg!(target_os = "macos") {
         vec![PathBuf::from("/Library/Application Support/ClaudeCode")]
+    } else if cfg!(windows) {
+        // Claude Code's Windows location (admin-only under Program Files). `/etc/claude-code` would be `C:\etc\…`,
+        // which any user may create (review MEDIUM). The `HKLM\SOFTWARE\Policies\ClaudeCode` registry value is not
+        // read in this preview.
+        windows_managed_root().into_iter().collect()
     } else {
         vec![PathBuf::from("/etc/claude-code")]
     }
+}
+
+/// `%ProgramFiles%\ClaudeCode` when `ProgramFiles` is an absolute path.
+pub fn windows_managed_root() -> Option<PathBuf> {
+    std::env::var_os("ProgramFiles").map(PathBuf::from).filter(|p| p.is_absolute()).map(|p| p.join("ClaudeCode"))
 }
 
 pub fn default_mdm_files() -> Vec<PathBuf> {
@@ -1575,3 +1585,15 @@ mod tests {
         assert_eq!(ko.groups[0].label, "읽기·탐색");
     }
 }
+
+/// Review MEDIUM [CI]: Windows reads managed settings from Program Files, never from a `\etc` folder.
+#[cfg(all(test, windows))]
+mod windows_managed {
+    #[test]
+    fn managed_root_is_under_program_files() {
+        let roots = super::default_managed_roots();
+        assert!(roots.iter().all(|r| r.ends_with("ClaudeCode") && !r.to_string_lossy().contains("etc")), "{roots:?}");
+        assert_eq!(roots.len(), 1);
+    }
+}
+

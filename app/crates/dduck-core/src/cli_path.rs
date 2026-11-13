@@ -326,12 +326,15 @@ pub fn validate(candidate: &Path) -> Result<CliInfo, Rejection> {
     if !crate::platform::acl::check_chain(&real) {
         return Err(Rejection::WritableByOthers);
     }
-    let out = run_with_timeout(Command::new(candidate).arg("--version"), PROBE_TIMEOUT, 4096)
+    // Windows: the checked final path is what runs, is stored and is cached, so a link swapped after the check
+    // cannot redirect it (review MEDIUM). macOS keeps running the path as found (nvm links), as before.
+    let program: &Path = if cfg!(windows) { &real } else { candidate };
+    let out = run_with_timeout(Command::new(program).arg("--version"), PROBE_TIMEOUT, 4096)
         .ok_or(Rejection::VersionCheckFailed)?;
     let caps = VERSION_RE.captures(out.trim()).ok_or(Rejection::NotClaudeCode)?;
     let num = |i: usize| caps.get(i).and_then(|m| m.as_str().parse::<u32>().ok()).unwrap_or(0);
     let version = format!("{}.{}.{}", num(1), num(2), num(3));
-    Ok(CliInfo { path: candidate.to_path_buf(), version, supported: (num(1), num(2)) == SUPPORTED_MAJOR_MINOR })
+    Ok(CliInfo { path: program.to_path_buf(), version, supported: (num(1), num(2)) == SUPPORTED_MAJOR_MINOR })
 }
 
 /// Paths are later embedded in a shell command line for "open in terminal"; reject characters whose meaning differs
