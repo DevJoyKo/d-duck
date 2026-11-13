@@ -46,7 +46,7 @@
 - [x] 6.2 Full macOS checks unchanged (core test, clippy, tsc, vitest, lint); Windows gate green; NSIS smoke green — macOS core/shell/clippy/tsc/vitest/lint green locally; latest green CI run 43358189030 (c4c6743), 10 jobs incl. NSIS smoke
 - [x] 6.3 Mock UI screenshots with `?os=win` (composer, settings, extensions, news) light/dark — docs/assets/review/windows-support/ (composer, settings, extensions, news, routines, agents, composer-bottom; mac and win; light 1440, dark 900), see 7.12
 - [x] 6.4 Test review (qa-verifier + design-critic + security-privacy-reviewer + brand-reviewer) — reviews 2026-11-13 fixed in groups 7–9; security re-review PASS (the basis for this mark); QA and brand re-reviews PASS; design-critic findings fixed in 9
-- [ ] 6.5 After user approval: add the Windows gate to branch protection
+- [x] 6.5 After user approval: add the Windows gate to branch protection
 
 ## 7. 리뷰 수정 (test-stage reviews 2026-11-13)
 
