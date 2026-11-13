@@ -33,3 +33,7 @@ export const winOut = <T,>(v: T): T => (mockWindows() ? (walk(v, (s) => (/^\/Use
 /** Input: `C:\Users\…` back to `/Users/…` so the macOS-written handlers find their rows. */
 export const winIn = (a: Record<string, unknown>): Record<string, unknown> =>
   mockWindows() ? (walk(a, (s) => (/^[Cc]:\\Users(\\|$)/.test(s) ? toMac(s) : s)) as Record<string, unknown>) : a;
+
+/** `?trash=unconfirmed`: trash commands answer as when the Windows Recycle Bin did not confirm the move (9.1). */
+export const trashUnconfirmed = () => param("trash") === "unconfirmed";
+

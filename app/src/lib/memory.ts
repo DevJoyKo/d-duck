@@ -1,6 +1,7 @@
 // Memory tab (memory-tab, D-091): typed wrappers and small pure helpers. The webview only sends an opaque project id
 // from `projects_known` (project-switcher), a file name and hash tokens; Rust resolves every path.
 import { invoke } from "@tauri-apps/api/core";
+import type { Trashed } from "./api";
 import { t } from "../i18n";
 import { baseName } from "./platform";
 
@@ -130,7 +131,7 @@ export const memoryApi = {
     invoke<string | null>("save_memory", { project, file, token, indexToken, edit }),
   setEnabled: (project: string, file: string, enabled: boolean, token: string, indexToken: string) =>
     invoke<string | null>("set_memory_enabled", { project, file, enabled, token, indexToken }),
-  trash: (project: string, file: string, token: string, indexToken: string) => invoke<boolean>("trash_memory", { project, file, token, indexToken }),
+  trash: (project: string, file: string, token: string, indexToken: string) => invoke<Trashed>("trash_memory", { project, file, token, indexToken }),
   autoMemory: () => invoke<AutoMemory>("auto_memory_setting"),
   setAutoMemory: (enabled: boolean, token: string) => invoke<boolean>("set_auto_memory", { enabled, token }),
   /** `null` = global only (the user's CLAUDE.md). */

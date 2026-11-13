@@ -169,7 +169,7 @@ function TurnOnPreview({ e, onConfirm, onCancel, busy }: { e: MemoryEntry; onCon
   );
 }
 
-function Editor({ project, entry, indexToken, onGone }: { project: string; entry: MemoryEntry; indexToken: string; onGone: () => void }) {
+function Editor({ project, entry, indexToken, onGone }: { project: string; entry: MemoryEntry; indexToken: string; onGone: (unconfirmed?: boolean) => void }) {
   const t = useT();
   const qc = useQueryClient();
   const doc = useQuery({ queryKey: ["memory-doc", project, entry.file], queryFn: () => memoryApi.read(project, entry.file), staleTime: Infinity });
@@ -200,7 +200,7 @@ function Editor({ project, entry, indexToken, onGone }: { project: string; entry
   );
 }
 
-function EditorForm({ project, doc, indexToken, onSaved, onReload, onGone }: { project: string; doc: MemoryDoc; indexToken: string; onSaved: () => void; onReload: () => void; onGone: () => void }) {
+function EditorForm({ project, doc, indexToken, onSaved, onReload, onGone }: { project: string; doc: MemoryDoc; indexToken: string; onSaved: () => void; onReload: () => void; onGone: (unconfirmed?: boolean) => void }) {
   const t = useT();
   const qc = useQueryClient();
   const [name, setName] = useState(doc.name);
@@ -220,11 +220,11 @@ function EditorForm({ project, doc, indexToken, onSaved, onReload, onGone }: { p
   });
   const trash = useMutation({
     mutationFn: () => memoryApi.trash(project, doc.file, doc.token, indexToken),
-    onSuccess: (done) => {
-      if (done) {
+    onSuccess: (r) => {
+      if (r.done) {
         qc.invalidateQueries({ queryKey: ["memory-entries", project] });
         qc.invalidateQueries({ queryKey: ["memory-projects"] });
-        onGone();
+        onGone(r.unconfirmed);
       }
     },
   });
@@ -324,7 +324,7 @@ function EditorForm({ project, doc, indexToken, onSaved, onReload, onGone }: { p
 
 const keyOf = (e: MemoryEntry) => `${e.enabled ? "on" : "off"}:${e.file}`;
 
-function MemorySection({ project, list, loading, globalOff }: { project: string; list?: MemoryList; loading: boolean; globalOff: boolean }) {
+export function MemorySection({ project, list, loading, globalOff }: { project: string; list?: MemoryList; loading: boolean; globalOff: boolean }) {
   const t = useT();
   const qc = useQueryClient();
   const editorRef = useRef<HTMLDivElement>(null);
@@ -412,7 +412,10 @@ function MemorySection({ project, list, loading, globalOff }: { project: string;
           <Sheet>
             <div ref={editorRef} className="scroll-mt-16" />
             {current ? (
-              <Editor key={keyOf(current)} project={project} entry={current} indexToken={list.indexToken} onGone={() => setSelected(null)} />
+              <Editor key={keyOf(current)} project={project} entry={current} indexToken={list.indexToken} onGone={(unconfirmed) => {
+                  setSelected(null);
+                  setNote(unconfirmed ? t("common.trash.unconfirmed") : null);
+                }} />
             ) : (
               <p className="p-6 text-center text-xs text-ink-3">{t("extensions.memory.section.pick")}</p>
             )}

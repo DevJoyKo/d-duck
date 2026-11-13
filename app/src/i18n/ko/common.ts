@@ -9,6 +9,10 @@ export default {
     /** The only choice named in the current language; 한국어 and English are always shown in their own language. */
     system: "시스템 언어 따름",
   },
+  /** A Windows Recycle Bin move the bin did not confirm (Rust Fail::TrashUnconfirmed). */
+  trash: {
+    unconfirmed: "지웠지만 휴지통에서 찾지 못했어요 · 영구 삭제됐을 수 있어요",
+  },
   actions: {
     close: "닫기",
     cancel: "취소",

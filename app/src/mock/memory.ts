@@ -77,7 +77,7 @@ export const memoryHandlers: Record<string, (a: Record<string, unknown>) => unkn
     if (m) m.enabled = Boolean(a.enabled);
     return a.enabled ? "MEMORY.md가 200줄/25KB를 넘어 새 줄은 시작할 때 읽히지 않아요" : null;
   },
-  trash_memory: () => false,
+  trash_memory: () => ({ done: false, unconfirmed: false }),
   auto_memory_setting: () => ({ enabled: autoMemory, explicit: !autoMemory, token: "s", path: "/Users/me/.claude/settings.json", readonlyReason: null, customDir: null }),
   set_auto_memory: (a) => {
     autoMemory = Boolean(a.enabled);

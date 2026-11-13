@@ -1,3 +1,4 @@
+import { trashUnconfirmed } from "./os";
 // Mock-mode data for "추가 ▾" (install-from-link, skill-authoring). Design review only: the real parsing, GitHub
 // reads, staging, confirmation dialogs and file writes live in Rust (install_link.rs, authoring.rs, add_items.rs).
 import rawTemplates from "../../crates/dduck-core/data/authoring_templates.json";
@@ -113,7 +114,7 @@ export const addItemHandlers: Record<string, (a: Record<string, unknown>) => unk
     if (s.name === "release-check") fail("휴지통으로 옮기지 못했어요");
     skills.splice(i, 1);
     if (s.uses > 0 && s.kind !== "workflow") skills.push(row(s.name, "builtin", "skill", null, { uses: s.uses, lastUsed: s.lastUsed, defined: false, id: null, scope: null }));
-    return true;
+    return { done: true, unconfirmed: trashUnconfirmed() };
   },
   inspect_link: (a) => {
     const input = String(a.input ?? "").trim();

@@ -117,5 +117,5 @@ export const rulesHandlers: Record<string, (a: Record<string, unknown>) => unkno
     if (r) Object.assign(r, { enabled: Boolean(a.enabled), offBy: a.enabled ? null : "app" });
     return undefined;
   },
-  trash_rule: () => false,
+  trash_rule: () => ({ done: false, unconfirmed: false }),
 };

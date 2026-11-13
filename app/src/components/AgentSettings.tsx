@@ -222,6 +222,8 @@ function AgentsTab({ catalog, types }: { catalog: AgentDef[]; types: TeamType[] 
       if ((r.off || r.hidden) && window.confirm(tr("agents.manage.trashed", { name: r.name, what: [r.off ? tr("agents.manage.offRule") : "", r.hidden ? tr("agents.manage.hiddenMark") : ""].filter(Boolean).join("·") }))) {
         await teamApi.forget(r.name, r.project);
       }
+      // After the deny-rule and hidden cleanup above, as on a confirmed move (re-review 9.1).
+      if (r.unconfirmed) setMsg({ tone: "ok", text: tr("common.trash.unconfirmed") });
       return null;
     });
 

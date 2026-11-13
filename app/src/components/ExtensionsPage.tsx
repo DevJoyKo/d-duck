@@ -436,8 +436,8 @@ export function ExtensionsPage({ initialChip }: { initialChip?: ExtChip | null }
       setTrashError(null);
       setCopied(null);
     },
-    onSuccess: (moved, { s }) => {
-      if (!moved) return;
+    onSuccess: (r, { s }) => {
+      if (!r.done) return;
       const id = s.id ?? "";
       deletedThisRun.set(id, { id, name: s.name, kind: s.kind });
       setDeleted([...deletedThisRun.values()]);
@@ -445,7 +445,7 @@ export function ExtensionsPage({ initialChip }: { initialChip?: ExtChip | null }
       for (const k of ["skills", "authoring-info", "loadout-options", "agents"]) qc.invalidateQueries({ queryKey: [k] });
       setEditing((e) => (e === id ? null : e));
       setCopying(null);
-      setCopied(t("extensions.page.trashed", { name: s.name }));
+      setCopied(r.unconfirmed ? `${s.name} · ${t("common.trash.unconfirmed")}` : t("extensions.page.trashed", { name: s.name }));
     },
     onError: (e, { key }) => setTrashError({ key, text: failure(e) }),
   });

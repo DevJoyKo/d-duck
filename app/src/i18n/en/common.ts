@@ -10,6 +10,9 @@ export default {
   language: {
     system: "System language",
   },
+  trash: {
+    unconfirmed: "Deleted, but it isn't in the Recycle Bin · It may be gone for good",
+  },
   actions: {
     close: "Close",
     cancel: "Cancel",

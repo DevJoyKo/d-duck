@@ -1,6 +1,7 @@
 // Rules (rules-editor, D-106): typed wrappers and small pure helpers. The webview sends a memory project id, an
 // opaque rule id from `rules_list` (or a new file name) and hash tokens; Rust resolves every path.
 import { invoke } from "@tauri-apps/api/core";
+import type { Trashed } from "./api";
 import { t } from "../i18n";
 import { subscribe } from "../i18n/language";
 import type { SecretHit } from "./memory";
@@ -82,7 +83,7 @@ export const rulesApi = {
   read: (project: string | null, id: string) => invoke<RuleDoc>("rule_read", { project, id }),
   save: (project: string | null, rule: RuleSave) => invoke<string>("save_rule", { project, rule }),
   setEnabled: (project: string | null, id: string, enabled: boolean, settingsToken: string) => invoke<void>("set_rule_enabled", { project, id, enabled, settingsToken }),
-  trash: (project: string | null, id: string, token: string) => invoke<boolean>("trash_rule", { project, id, token }),
+  trash: (project: string | null, id: string, token: string) => invoke<Trashed>("trash_rule", { project, id, token }),
 };
 
 /** Same pattern as Rust `valid_new_name`: letters, digits, `-`, `_`, one optional subfolder, `.md`. */

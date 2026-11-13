@@ -79,3 +79,9 @@
 - [x] 8.8 QA re-review: authoring item names refuse Windows device names (also with extension or superscript digit) on every OS; test; 1.3/7.3 notes corrected — platform::is_device_name in authoring::valid_name (both OSes); device_names test
 - [x] 8.9 QA re-review LOWs: delivery_guard comment on the three letter cases and the mixed-case gap; refusing_commands_check_first fails on comment lines and covers news_set_daily; claude_cli_windows exact rule match — comment updated; check fails on comment lines, news_set_daily checked; exact rule match
 
+
+## 9. 확인 리뷰 수정 (group 8 check 2026-11-13)
+
+- [ ] 9.1 HIGH: an unconfirmed Recycle Bin move is a success with `unconfirmed: true` (ext items, memory, rules, agents after off/hidden); RulesPanel, MemoryPage, ExtensionsPage and AgentSettings refresh as on success and show the note (ko/en); Rust tests with an injected trash; vitest
+- [ ] 9.2 MEDIUM: `core.autocrlf` passed only when neither the global nor the repo config sets it; test "repo false stays false" on macOS too
+- [ ] 9.3 LOWs: login helpers checked by creation time and by name on the opened handle; probe records whether the login was alive at 5 s, comment and 8.4 wording match; release notes "only from a tag that contains this workflow"; device-name refusal has its own message (ko/en); Windows-run tests for CliOutdated News and grant NoHooks; autocrlf test values; 6.2 run and 6.4 wording

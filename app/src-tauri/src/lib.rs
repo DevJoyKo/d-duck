@@ -16,6 +16,7 @@ mod report_save_cmds;
 mod delivery_cmds;
 mod lifecycle_cmds;
 mod timing;
+mod trash_flow;
 mod workflow_check_cmds;
 
 use dduck_core::platform::CanonExt;
@@ -2492,7 +2493,8 @@ fn move_to_trash(_app: &AppHandle, _path: &std::path::Path) -> Res<bool> {
     Err(Fail::TrashMacOnly.now().into())
 }
 
-/// The error for `Ok(false)` from [`move_to_trash`], after the caller refreshed (re-review 8.3).
+/// `Ok(false)` from [`move_to_trash`] for commands without a list to refresh (the bundled `/dduck-new`): an error
+/// after the cleanup, so the user still hears it may be gone for good (re-review 8.3).
 fn trash_unconfirmed(in_bin: bool) -> Res<()> {
     if in_bin { Ok(()) } else { Err(Fail::TrashUnconfirmed.now()) }
 }
@@ -2505,6 +2507,8 @@ struct TrashResult {
     /// A same-named `Agent(<name>)` deny rule or hidden entry remains; the UI offers to clean it up.
     off: bool,
     hidden: bool,
+    /// Gone, but the Recycle Bin did not show it (Windows): the screen says it may be deleted for good (9.1).
+    unconfirmed: bool,
 }
 
 /// Moves a user or project agent definition to the Trash. The target comes from the catalog id only; the file is
@@ -2537,17 +2541,16 @@ async fn trash_agent(app: AppHandle, id: String) -> Res<TrashResult> {
         if !ok {
             return Err(ReasonCode::Cancelled.now());
         }
-        ac::recheck(&plan).map_err(|e| e.to_string())?;
-        let in_bin = move_to_trash(&app, &plan.path)?;
-        let _ = fresh_catalog(&state);
-        trash_unconfirmed(in_bin)?;
-        let target = match &plan.project {
-            Some(p) => p.join(".claude/settings.local.json"),
-            None => config_dir.join("settings.json"),
-        };
-        let off = ac::denied_names(&dduck_core::permissions::read_scope(&target)).contains(&plan.name);
-        let hidden = settings::hidden_agents(&*state.conn()?).map_err(err)?.contains(&plan.name);
-        Ok(TrashResult { name: plan.name, project: plan.project.map(|p| p.display().to_string()), off, hidden })
+        let done = trash_flow::finish_agent(
+            &plan,
+            &config_dir,
+            |p| move_to_trash(&app, p),
+            || {
+                let _ = fresh_catalog(&state);
+            },
+            || settings::hidden_agents(&*state.conn()?).map_err(err),
+        )?;
+        Ok(TrashResult { name: plan.name, project: plan.project.map(|p| p.display().to_string()), off: done.off, hidden: done.hidden, unconfirmed: done.unconfirmed })
     })
     .await
     .map_err(err)?

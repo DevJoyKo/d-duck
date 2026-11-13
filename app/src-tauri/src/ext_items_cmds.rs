@@ -21,7 +21,7 @@ fn kind_label(kind: &str) -> String {
 
 /// `true` when moved, `false` when cancelled. `unsaved` only adds a line to the dialog (the editor had changes).
 #[tauri::command]
-pub async fn trash_extension_item(app: AppHandle, id: String, unsaved: bool) -> Res<bool> {
+pub async fn trash_extension_item(app: AppHandle, id: String, unsaved: bool) -> Res<crate::trash_flow::Trashed> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let item = crate::add_items::find_item(&state, &id)?;
@@ -70,12 +70,9 @@ pub async fn trash_extension_item(app: AppHandle, id: String, unsaved: bool) -> 
             .buttons(MessageDialogButtons::OkCancelCustom(tr(C::BtnTrash), tr(C::BtnCancel)))
             .blocking_show();
         if !ok {
-            return Ok(false);
+            return Ok(crate::trash_flow::Trashed::CANCELLED);
         }
-        ext_trash::recheck(&plan).map_err(|e| e.to_string())?;
-        let in_bin = crate::move_to_trash(&app, &plan.path)?;
-        crate::trash_unconfirmed(in_bin)?;
-        Ok(true)
+        crate::trash_flow::finish_ext(&plan, |p| crate::move_to_trash(&app, p))
     })
     .await
     .map_err(err)?

@@ -175,7 +175,7 @@ pub async fn set_memory_enabled(app: AppHandle, project: String, file: String, e
 }
 
 #[tauri::command]
-pub async fn trash_memory(app: AppHandle, project: String, file: String, token: String, index_token: String) -> Res<bool> {
+pub async fn trash_memory(app: AppHandle, project: String, file: String, token: String, index_token: String) -> Res<crate::trash_flow::Trashed> {
     let handle = app.clone();
     blocking(app, move |state| {
         let dir = dir_for(state, &project)?;
@@ -189,13 +189,9 @@ pub async fn trash_memory(app: AppHandle, project: String, file: String, token: 
             .buttons(MessageDialogButtons::OkCancelCustom(tr(C::BtnTrash), tr(C::BtnCancel)))
             .blocking_show();
         if !ok {
-            return Ok(false);
+            return Ok(crate::trash_flow::Trashed::CANCELLED);
         }
-        memory::recheck_trash(&dir, &plan).map_err(|_| Fail::ChangedWhileChecking.now())?;
-        let in_bin = crate::move_to_trash(&handle, &plan.path)?;
-        memory::forget_after_trash(&dir, &plan.file, plan.enabled).map_err(|_| Fail::MemoryLineLeft.now())?;
-        crate::trash_unconfirmed(in_bin)?;
-        Ok(true)
+        crate::trash_flow::finish_memory(&dir, &plan, |p| crate::move_to_trash(&handle, p))
     })
     .await
 }
@@ -381,7 +377,7 @@ pub async fn set_rule_enabled(app: AppHandle, project: Option<String>, id: Strin
 }
 
 #[tauri::command]
-pub async fn trash_rule(app: AppHandle, project: Option<String>, id: String, token: String) -> Res<bool> {
+pub async fn trash_rule(app: AppHandle, project: Option<String>, id: String, token: String) -> Res<crate::trash_flow::Trashed> {
     let handle = app.clone();
     blocking(app, move |state| {
         let roots = rule_roots(state, project.as_deref())?;
@@ -395,12 +391,9 @@ pub async fn trash_rule(app: AppHandle, project: Option<String>, id: String, tok
             .buttons(MessageDialogButtons::OkCancelCustom(tr(C::BtnTrash), tr(C::BtnCancel)))
             .blocking_show();
         if !ok {
-            return Ok(false);
+            return Ok(crate::trash_flow::Trashed::CANCELLED);
         }
-        rules::recheck_trash(&plan).map_err(|_| Fail::ChangedWhileChecking.now())?;
-        let in_bin = crate::move_to_trash(&handle, &plan.path)?;
-        crate::trash_unconfirmed(in_bin)?;
-        Ok(true)
+        crate::trash_flow::finish_rule(&plan, |p| crate::move_to_trash(&handle, p))
     })
     .await
 }
