@@ -2470,23 +2470,31 @@ fn set_agent_hidden(state: State<'_, AppState>, name: String, hidden: bool) -> R
     settings::set_agent_hidden(&*state.conn()?, &name, hidden).map_err(err)
 }
 
+/// Moves to the Trash / Recycle Bin. `Ok(true)` = it is there. `Ok(false)` (Windows only) = it is gone but the bin
+/// did not show it: the caller finishes its cleanup and refreshes, then reports [`trash_unconfirmed`].
 #[cfg(target_os = "macos")]
-fn move_to_trash(path: &std::path::Path) -> Res<()> {
+fn move_to_trash(_app: &AppHandle, path: &std::path::Path) -> Res<bool> {
     use objc2_foundation::{NSFileManager, NSString, NSURL};
     let s = path.to_str().ok_or_else(|| Fail::BadPath.now())?;
     let url = NSURL::fileURLWithPath(&NSString::from_str(s));
-    NSFileManager::defaultManager().trashItemAtURL_resultingItemURL_error(&url, None).map_err(|_| Fail::TrashFailed.now())
+    NSFileManager::defaultManager().trashItemAtURL_resultingItemURL_error(&url, None).map(|_| true).map_err(|_| Fail::TrashFailed.now())
 }
 
-/// Windows: the Recycle Bin through the shell (a link is moved itself, never its target).
+/// Windows: the Recycle Bin through the shell; its warning (before anything is destroyed) belongs to the main window.
 #[cfg(windows)]
-fn move_to_trash(path: &std::path::Path) -> Res<()> {
-    dduck_core::platform::shell::trash(path).map_err(|_| Fail::TrashFailed.now())
+fn move_to_trash(app: &AppHandle, path: &std::path::Path) -> Res<bool> {
+    let owner = app.get_webview_window("main").and_then(|w| w.hwnd().ok()).map_or(0, |h| h.0 as isize);
+    dduck_core::platform::shell::trash(path, owner).map_err(|_| Fail::TrashFailed.now())
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]
-fn move_to_trash(_path: &std::path::Path) -> Res<()> {
+fn move_to_trash(_app: &AppHandle, _path: &std::path::Path) -> Res<bool> {
     Err(Fail::TrashMacOnly.now().into())
+}
+
+/// The error for `Ok(false)` from [`move_to_trash`], after the caller refreshed (re-review 8.3).
+fn trash_unconfirmed(in_bin: bool) -> Res<()> {
+    if in_bin { Ok(()) } else { Err(Fail::TrashUnconfirmed.now()) }
 }
 
 #[derive(Serialize)]
@@ -2530,8 +2538,9 @@ async fn trash_agent(app: AppHandle, id: String) -> Res<TrashResult> {
             return Err(ReasonCode::Cancelled.now());
         }
         ac::recheck(&plan).map_err(|e| e.to_string())?;
-        move_to_trash(&plan.path)?;
+        let in_bin = move_to_trash(&app, &plan.path)?;
         let _ = fresh_catalog(&state);
+        trash_unconfirmed(in_bin)?;
         let target = match &plan.project {
             Some(p) => p.join(".claude/settings.local.json"),
             None => config_dir.join("settings.json"),

@@ -213,7 +213,15 @@ fn signal_group(child: &mut Child, sig: Signal) {
             libc::killpg(child.id() as libc::pid_t, s);
         }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        // No job for the login (review H2): end the CLI's own helpers below it first, never other programs such as
+        // the browser it opened (re-review 8.4), then the login itself.
+        let _ = sig;
+        crate::process::win::kill_descendants_named(child.id(), &["claude.exe", "node.exe"]);
+        let _ = child.kill();
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = sig;
         let _ = child.kill();

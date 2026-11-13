@@ -668,6 +668,7 @@ table! {
         LocalNotIgnored => (".claude/settings.local.json이 .gitignore에 없어요. 커밋되지 않게 추가해 두세요.", ".claude/settings.local.json isn't in .gitignore. Add it so it isn't committed."),
         BadPath => ("경로를 처리할 수 없어요", "Couldn't handle the path"),
         TrashFailed => ("휴지통으로 옮기지 못했어요", "Couldn't move it to the Trash"),
+        TrashUnconfirmed => ("지웠지만 휴지통에서 찾지 못했어요 · 영구 삭제됐을 수 있어요", "Deleted, but it isn't in the Recycle Bin · It may be gone for good"),
         TrashMacOnly => ("휴지통 이동은 macOS에서만 지원해요", "Moving to the Trash works only on macOS"),
         AgentInUse => ("이 agent를 쓰는 작업이 실행 중이에요. 끝난 뒤에 지우세요", "A task using this agent is running. Delete it after it ends"),
         BadAgentName => ("agent 이름이 올바르지 않아요", "The agent name isn't valid"),

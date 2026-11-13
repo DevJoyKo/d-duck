@@ -73,7 +73,8 @@ pub async fn trash_extension_item(app: AppHandle, id: String, unsaved: bool) -> 
             return Ok(false);
         }
         ext_trash::recheck(&plan).map_err(|e| e.to_string())?;
-        crate::move_to_trash(&plan.path)?;
+        let in_bin = crate::move_to_trash(&app, &plan.path)?;
+        crate::trash_unconfirmed(in_bin)?;
         Ok(true)
     })
     .await

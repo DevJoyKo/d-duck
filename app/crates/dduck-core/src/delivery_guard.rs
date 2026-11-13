@@ -894,11 +894,13 @@ fn refused_git() -> Command {
 fn base_git(dir: &Path) -> Command {
     let (Some(program), Some(hooks)) = (crate::platform::git_program(), crate::platform::git_hooks_path()) else { return refused_git() };
     let mut cmd = Command::new(program);
-    cmd.arg("-c").arg("core.fsmonitor=false").arg("-c").arg(format!("core.hooksPath={}", hooks.display())).args(["-c", "protocol.allow=never"]).arg("-C").arg(dir);
-    if !cfg!(windows) {
-        cmd.env("GIT_CONFIG_NOSYSTEM", "1");
+    cmd.arg("-c").arg("core.fsmonitor=false").arg("-c").arg(format!("core.hooksPath={}", hooks.display())).args(["-c", "protocol.allow=never"]);
+    // Windows: the system config is not read either (it may live in ProgramData); only Git for Windows'
+    // `core.autocrlf` is carried over, so checked-out text files do not all read as changed (re-review 8.5).
+    if let Some(v) = crate::platform::git_autocrlf() {
+        cmd.arg("-c").arg(format!("core.autocrlf={v}"));
     }
-    cmd.env("GIT_TERMINAL_PROMPT", "0").env("GIT_OPTIONAL_LOCKS", "0");
+    cmd.arg("-C").arg(dir).env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_TERMINAL_PROMPT", "0").env("GIT_OPTIONAL_LOCKS", "0");
     cmd
 }
 
@@ -2076,8 +2078,9 @@ mod tests {
         let c = app_git(&repo);
         let args: Vec<String> = c.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
         assert!(args.windows(2).any(|w| w[0] == "-c" && w[1] == "core.fsmonitor=false"));
-        // macOS skips the system config; Windows reads its admin-only one (autocrlf) and uses an app-owned hooks folder.
-        assert_eq!(c.get_envs().any(|(k, v)| k == "GIT_CONFIG_NOSYSTEM" && v.is_some_and(|v| v == "1")), !cfg!(windows));
+        // No system config on either OS; Windows passes only core.autocrlf and uses an app-owned hooks folder.
+        assert!(c.get_envs().any(|(k, v)| k == "GIT_CONFIG_NOSYSTEM" && v.is_some_and(|v| v == "1")));
+        assert_eq!(args.iter().any(|a| a.starts_with("core.autocrlf=")), cfg!(windows));
         assert!(c.get_envs().any(|(k, v)| k == "GIT_TERMINAL_PROMPT" && v.is_some_and(|v| v == "0")));
         let hooks = args.iter().find_map(|a| a.strip_prefix("core.hooksPath=")).unwrap();
         if cfg!(windows) {

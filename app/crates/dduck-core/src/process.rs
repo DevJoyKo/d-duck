@@ -280,6 +280,53 @@ pub(crate) mod win {
         last
     }
 
+    /// Ends the processes below `root` whose executable is one of `names` (ASCII case ignored), deepest first. Used
+    /// when a login ends (re-review 8.4): the CLI's own helpers go, a browser it opened stays. `root` must be a live,
+    /// unreaped child, so no process that names it as parent can belong to someone else.
+    pub fn kill_descendants_named(root: u32, names: &[&str]) {
+        use windows_sys::Win32::System::Diagnostics::ToolHelp::{PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS};
+        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
+        // SAFETY: a process snapshot of the system; closed below.
+        let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+        if snap == INVALID_HANDLE_VALUE {
+            return;
+        }
+        let mut all: Vec<(u32, u32, String)> = Vec::new();
+        // SAFETY: zeroed is valid; dwSize set as the API requires.
+        let mut pe: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+        pe.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        // SAFETY: valid snapshot and out pointer for every call.
+        let mut more = unsafe { Process32FirstW(snap, &mut pe) } != 0;
+        while more {
+            let len = pe.szExeFile.iter().position(|&c| c == 0).unwrap_or(pe.szExeFile.len());
+            all.push((pe.th32ProcessID, pe.th32ParentProcessID, String::from_utf16_lossy(&pe.szExeFile[..len])));
+            // SAFETY: as above.
+            more = unsafe { Process32NextW(snap, &mut pe) } != 0;
+        }
+        // SAFETY: owned snapshot handle.
+        unsafe { CloseHandle(snap) };
+        let mut tree = vec![root];
+        let mut i = 0;
+        while i < tree.len() && tree.len() < 256 {
+            let parent = tree[i];
+            tree.extend(all.iter().filter(|(pid, ppid, _)| *ppid == parent && *pid != root && !tree.contains(pid)).map(|(pid, _, _)| *pid).collect::<Vec<_>>());
+            i += 1;
+        }
+        for pid in tree.iter().skip(1).rev() {
+            let named = all.iter().any(|(p, _, exe)| p == pid && names.iter().any(|n| exe.eq_ignore_ascii_case(n)));
+            if named {
+                // SAFETY: open, terminate and close one process handle.
+                unsafe {
+                    let h = OpenProcess(PROCESS_TERMINATE, 0, *pid);
+                    if !h.is_null() {
+                        TerminateProcess(h, 1);
+                        CloseHandle(h);
+                    }
+                }
+            }
+        }
+    }
+
     /// Spawns without a console window.
     pub fn spawn_no_window(cmd: &mut Command) -> std::io::Result<Child> {
         cmd.creation_flags(CREATE_NO_WINDOW).spawn()
@@ -448,6 +495,22 @@ mod tests {
             let kept = alive(pid);
             let _ = Command::new("taskkill").args(["/F", "/PID", &pid.to_string()]).output();
             assert!(kept, "a --bg style child must survive its parent");
+        }
+
+        /// Re-review 8.4: a login's own helpers are ended with it; other programs are not named and stay.
+        #[test]
+        fn named_descendants_are_ended() {
+            let t = tempfile::tempdir().unwrap();
+            let pidfile = t.path().join("pid");
+            let mut child = Command::new(fake()).arg("spawn").arg(&pidfile).arg("30").spawn().unwrap();
+            assert!(wait_for(|| pid_in(&pidfile).is_some()));
+            let grandchild = pid_in(&pidfile).unwrap();
+            win::kill_descendants_named(child.id(), &["notepad.exe"]);
+            assert!(alive(grandchild), "an unnamed program stays");
+            win::kill_descendants_named(child.id(), &["FAKE_CLAUDE.EXE"]);
+            assert!(wait_for(|| !alive(grandchild)), "the named helper is ended");
+            let _ = child.kill();
+            let _ = child.wait();
         }
 
         #[test]

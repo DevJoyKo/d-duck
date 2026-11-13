@@ -357,6 +357,10 @@ pub fn validate(candidate: &Path) -> Result<CliInfo, Rejection> {
         return Err(Rejection::WrongName);
     }
     let real = crate::platform::canon(candidate).map_err(|_| Rejection::NotFound)?;
+    // The resolved path is what may run (Windows) and reach a terminal: the same character rule applies to it.
+    if !is_shell_safe_path(&real) {
+        return Err(Rejection::UnsafeCharacters);
+    }
     let meta = std::fs::metadata(&real).map_err(|_| Rejection::NotFound)?;
     if !meta.is_file() {
         return Err(Rejection::NotRegularFile);

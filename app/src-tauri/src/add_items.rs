@@ -756,9 +756,9 @@ pub async fn remove_authoring_command(app: AppHandle) -> Res<()> {
             return Err(Fail::NotPristine.now());
         }
         let path = config.join("commands").join("dduck-new.md");
-        crate::move_to_trash(&path)?;
+        let in_bin = crate::move_to_trash(&app, &path)?;
         let _ = std::fs::remove_file(add.dduck_new_hash());
-        Ok(())
+        crate::trash_unconfirmed(in_bin)
     })
     .await
     .map_err(err)?

@@ -393,7 +393,7 @@ pub fn lexical_guard(p: &Path) -> bool {
 /// name (alternate streams), reserved device names (`CON`, `NUL`, `COM1`, `LPT1`, … also with an extension), names
 /// ending in a dot or a space, and control characters.
 pub fn windows_lexical_ok(s: &str) -> bool {
-    if s.is_empty() || s.chars().any(char::is_control) || s.contains(['?', '*']) || s.starts_with(['\\', '/']) && s[1..].starts_with(['\\', '/']) {
+    if s.is_empty() || s.chars().any(char::is_control) || s.contains(['?', '*', '<', '>', '"', '|']) || s.starts_with(['\\', '/']) && s[1..].starts_with(['\\', '/']) {
         return false;
     }
     let b = s.as_bytes();
@@ -462,6 +462,49 @@ fn windows_exe_trusted(real: &Path) -> bool {
 #[cfg(not(windows))]
 fn windows_exe_trusted(_p: &Path) -> bool {
     false
+}
+
+/// `core.autocrlf` for the app's git on Windows (re-review 8.5): the system config stays unread
+/// (`GIT_CONFIG_NOSYSTEM`), and only this one value is taken from Git for Windows' own `etc\gitconfig` next to the
+/// checked `git.exe` (`<root>\cmd\git.exe` → `<root>\etc\gitconfig`). `true`, Git for Windows' default, when the
+/// file or the value is missing or unknown. `None` off Windows.
+pub fn git_autocrlf() -> Option<&'static str> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let root = git_program()?.parent()?.parent()?.to_path_buf();
+    let text = std::fs::File::open(root.join("etc").join("gitconfig")).ok().and_then(|f| {
+        use std::io::Read;
+        let mut s = String::new();
+        f.take(64 * 1024).read_to_string(&mut s).ok().map(|_| s)
+    });
+    Some(text.as_deref().and_then(autocrlf_in).unwrap_or("true"))
+}
+
+/// `core.autocrlf` in a git config text: `true`, `false` or `input`, the last one in a `[core]` section wins.
+pub fn autocrlf_in(text: &str) -> Option<&'static str> {
+    let mut core = false;
+    let mut found = None;
+    for line in text.lines().map(str::trim) {
+        if line.starts_with('[') {
+            core = line.trim_start_matches('[').trim_end_matches(']').trim().eq_ignore_ascii_case("core");
+            continue;
+        }
+        if !core {
+            continue;
+        }
+        let Some((k, v)) = line.split_once('=') else { continue };
+        if k.trim().eq_ignore_ascii_case("autocrlf") {
+            let v = v.split(['#', ';']).next().unwrap_or("").trim().trim_matches('"').to_ascii_lowercase();
+            found = match v.as_str() {
+                "true" | "yes" | "on" | "1" => Some("true"),
+                "false" | "no" | "off" | "0" => Some("false"),
+                "input" => Some("input"),
+                _ => found,
+            };
+        }
+    }
+    found
 }
 
 /// `core.hooksPath` for the app's git. macOS: `/dev/null`, as before. Windows: an empty folder the app owns
@@ -585,9 +628,12 @@ pub mod shell {
     /// shell recycles without asking but warns before destroying anything it cannot recycle (`FOF_WANTNUKEWARNING`,
     /// never `FOF_NO_UI`), and afterwards the bin must hold more items than before. A link is moved itself, never its
     /// target. Wildcards are refused (the shell would expand them).
-    pub fn trash(path: &Path) -> std::io::Result<()> {
+    /// `Ok(true)`: the item is in the Recycle Bin. `Ok(false)`: the item is gone but the bin did not show it (it may
+    /// have been destroyed after the shell's warning, or the bin count could not confirm it, e.g. a `subst` drive or a
+    /// mounted volume, [manual]). `Err`: nothing was removed. `owner` is the window the shell's warning belongs to.
+    pub fn trash(path: &Path, owner: isize) -> std::io::Result<bool> {
         use windows_sys::Win32::UI::Shell::{FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, FOF_WANTNUKEWARNING, SHFILEOPSTRUCTW, SHFileOperationW};
-        if !path.is_absolute() || !super::lexical_guard(path) || path.to_str().is_none_or(|s| s.contains(['*', '?'])) {
+        if !path.is_absolute() || !super::lexical_guard(path) || path.to_str().is_none_or(|s| s.contains(['*', '?', '<', '>', '"', '|'])) {
             return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
         }
         let Some(before) = bin_items(path) else { return Err(std::io::Error::other("no Recycle Bin on this drive")) };
@@ -596,6 +642,7 @@ pub mod shell {
         from.push(0);
         // SAFETY: zeroed is a valid SHFILEOPSTRUCTW (null handles and pointers).
         let mut op: SHFILEOPSTRUCTW = unsafe { std::mem::zeroed() };
+        op.hwnd = owner as _;
         op.wFunc = FO_DELETE;
         op.pFrom = from.as_ptr();
         op.fFlags = (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI | FOF_WANTNUKEWARNING) as u16;
@@ -605,8 +652,11 @@ pub mod shell {
             return Err(std::io::Error::other(format!("SHFileOperationW {rc}")));
         }
         match bin_items(path) {
-            Some(after) if after > before => Ok(()),
-            _ => Err(std::io::Error::other("not found in the Recycle Bin afterwards")),
+            Some(after) if after > before => Ok(true),
+            // Re-review 8.3: the count may not move (another app emptied the bin meanwhile, a mounted volume); what
+            // matters for the caller is whether the original is still there.
+            _ if std::fs::symlink_metadata(path).is_err() => Ok(false),
+            _ => Err(std::io::Error::other("still in place after the Recycle Bin move")),
         }
     }
 }
@@ -772,6 +822,9 @@ mod tests {
             assert!(!windows_relative_ok(bad), "{bad}");
         }
         assert!(!windows_lexical_ok(r"\??\C:\x"), "NT object prefix");
+        for bad in [r"C:\a<b", r"C:\a>b", r#"C:\a"b"#, r"C:\a|b"] {
+            assert!(!windows_lexical_ok(bad), "DOS wildcard {bad}");
+        }
         assert!(relative_ok("CON") == !cfg!(windows));
     }
 
@@ -801,17 +854,17 @@ mod tests {
         let j = base.join("j");
         assert!(std::process::Command::new("cmd").arg("/C").arg("mklink").arg("/J").arg(&j).arg(&target).output().unwrap().status.success());
         let before = shell::bin_items(&j).expect("the runner's C: has a Recycle Bin");
-        shell::trash(&j).unwrap();
+        assert!(shell::trash(&j, 0).unwrap());
         assert!(shell::bin_items(&j).unwrap() > before, "the junction went to the Recycle Bin");
         assert!(std::fs::symlink_metadata(&j).is_err(), "the junction is gone");
         assert!(target.join("keep.md").is_file(), "its target is untouched");
         let f = base.join("plain.md");
         std::fs::write(&f, "x").unwrap();
-        shell::trash(&f).unwrap();
+        assert!(shell::trash(&f, 0).unwrap());
         assert!(!f.exists());
-        assert!(shell::trash(Path::new(r"\\host\share\x.md")).is_err(), "UNC refused before the shell");
-        assert!(shell::trash(&base.join("*.md")).is_err(), "wildcards refused");
-        assert!(shell::trash(&base.join("a?.md")).is_err());
+        assert!(shell::trash(Path::new(r"\\host\share\x.md"), 0).is_err(), "UNC refused before the shell");
+        assert!(shell::trash(&base.join("*.md"), 0).is_err(), "wildcards refused");
+        assert!(shell::trash(&base.join("a?.md"), 0).is_err());
     }
 
     #[cfg(windows)]
@@ -821,6 +874,15 @@ mod tests {
         assert!(!shell::open_url("file:///C:/Windows/System32/calc.exe"));
         assert!(!shell::open_url("https://example.com/\" x\""));
         assert!(!shell::open_in_editor(Path::new(r"C:\Windows\System32\calc.exe")), "only .md and .txt");
+    }
+
+    #[test]
+    fn autocrlf_is_read_from_the_core_section_only() {
+        assert_eq!(autocrlf_in("[core]\n\tautocrlf = true\n"), Some("true"));
+        assert_eq!(autocrlf_in("[http]\n\tautocrlf = false\n[core]\n\tfscache = true\n"), None);
+        assert_eq!(autocrlf_in("[core]\n autocrlf = input ; comment\n[core]\nAutoCRLF=false\n"), Some("false"));
+        assert_eq!(autocrlf_in("[core]\nautocrlf = evil\n"), None);
+        assert_eq!(git_autocrlf().is_some(), cfg!(windows));
     }
 
     #[test]
