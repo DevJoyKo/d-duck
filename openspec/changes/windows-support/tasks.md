@@ -47,3 +47,22 @@
 - [ ] 6.3 Mock UI screenshots with `?os=win` (composer, settings, extensions, news) light/dark
 - [ ] 6.4 Test review (qa-verifier + design-critic + security-privacy-reviewer + brand-reviewer)
 - [ ] 6.5 After user approval: add the Windows gate to branch protection
+
+## 7. 리뷰 수정 (test-stage reviews 2026-11-13)
+
+- [ ] 7.1 H1 Recycle Bin: only when the item really goes to the bin (else TrashFailed); `*`/`?` refused; test asserts the bin count grows; restore [manual]
+- [ ] 7.2 H2 auth login outside the kill-on-close job (own kill); "login with the browser closed" in the release-notes [manual] list; 0.2 note corrected (auth status, not auth login)
+- [ ] 7.3 H3 Windows lexical rule for evidence `file`, attachment and authoring paths; Windows CI tests (UNC, stream, device names, drive-absolute)
+- [ ] 7.4 Run, store and cache the ACL-checked real path (CLI and git)
+- [ ] 7.5 Windows managed settings: never `/etc/claude-code`; `%ProgramFiles%\ClaudeCode` or empty + "not checked"
+- [ ] 7.6 CLI ≥ 2.1.295 gate in one core place, passed by daily News, news_set_daily on, local-only start; tests
+- [ ] 7.7 Awaited runs: end the job on normal exit before joining the pipes; time-bound test
+- [ ] 7.8 release-windows.yml: refs/tags/ forced and checked, build and attest jobs split, pinned toolchain; `--source-ref` in the verify command
+- [ ] 7.9 Windows deny rules: case variants (PowerShell, Git.exe, CMD, bare cmd), start/wsl/winpty; tests
+- [ ] 7.10 Test gaps: Windows start_background arg rules and too-long refusal; `cargo test -p dduck` in CI; Mac-only refusal tests (news_fetch, force_stop, set_local_only, hook_ready)
+- [ ] 7.11 design.md/proposal.md "Implementation corrections" with superseded marks; proposal sentences (node.exe, /bin/sh, macOS behaviour) fixed; macOS hook-gate change noted
+- [ ] 7.12 6.3 evidence moved to docs/assets/review/windows-support/; extensions and composer-bottom shots
+- [ ] 7.13 Brand: ko "맥" wording per OS (osWords + test), Git Bash note with the fix and a link in warn tone, "요구사항 다듬기" everywhere
+- [ ] 7.14 Cheap LOWs: News px-3, LocalOnly disabled tone, Sidebar logo pt-3, git_bash roots = git_program, Toolhelp retry, Windows local-only start disabled, shim take(16K+1), `\??\` and `?` refused, fd_path None refused on Windows, evidence run ids, comment placement, new_window_guard assert, Composer gitBash=false render test
+- [ ] 7.15 Deferred LOWs recorded (Windows owner SID / swap defence in agents_catalog, git system config NOSYSTEM)
+
