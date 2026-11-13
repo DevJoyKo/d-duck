@@ -202,3 +202,38 @@ Inventory from 2026-11-13 (static read; nothing has been built for a Windows tar
 
 - Does the background supervisor run on Windows? Task 5.4 installs the CLI on the Windows runner and checks `claude --version`, `claude agents --help`, `claude logs --help` and `claude stop --help` (no login needed). Anything missing gets the Mac-only treatment.
 - Does the Windows CLI support `--bg`, `agents --json`, `attach`, `logs` and `stop`? Features that need missing ones get the Mac-only treatment.
+
+## Implementation corrections (2026-11-13)
+
+Each item supersedes the decision text it names; the original text above stays for the record.
+1. **Decision 3, job assignment** — ~~direct CreateProcessW with `PROC_THREAD_ATTRIBUTE_JOB_LIST`~~: std spawns the
+   child with `CREATE_SUSPENDED | CREATE_NO_WINDOW`, it is assigned to the job, then its only thread is resumed
+   (Toolhelp snapshot, short retry). Nothing runs before assignment, and std's pipes and `Child` stay in use.
+2. **Decision 3, `auth login`** — ~~in the job~~: the CLI opens the browser as its own child, and a kill-on-close job
+   would close it with the login (review H2). Login runs without a job; cancelling ends only that process.
+   "Login with the browser closed" is a required [manual] release check. Group 0 only checked `auth status`, not
+   `auth login` (0.2 corrected).
+3. **Decision 2, ACL** — ~~FILE_DELETE_CHILD / ADD_SUBDIR on an ancestor~~: ADD_FILE/ADD_SUBDIR refuse only on the
+   executable's own folder (DLL planting). On higher folders only DELETE, FILE_DELETE_CHILD, WRITE_DAC, WRITE_OWNER,
+   GENERIC_ALL and MAXIMUM_ALLOWED refuse: `C:\` grants Authenticated Users "create folders" by default, which
+   would refuse every path. The checked final path is what runs, is stored and cached (CLI and git).
+4. **Decision 10, bundle** — ~~nsis added to `bundle.targets`~~: `src-tauri/tauri.windows.conf.json` (merged only on
+   Windows) holds the nsis target, `embedBootstrapper` and `currentUser`; the macOS config is untouched.
+5. **Decision 6, Recycle Bin** — ~~the `trash` crate~~: `SHFileOperationW` with `FOF_ALLOWUNDO | FOF_NOCONFIRMATION |
+   FOF_SILENT | FOF_NOERRORUI | FOF_WANTNUKEWARNING` (never `FOF_NO_UI`), only on a fixed drive whose Recycle Bin
+   answers `SHQueryRecycleBinW`, and the bin must hold more items afterwards (review H1). Wildcards are refused.
+   Restoring from the bin is [manual].
+6. **Decision 6, WebView2** — ~~a run-time new-window test~~: wry 0.57 denies every new-window request when no
+   handler is registered; a source guard test fails if the shell ever registers one.
+7. **Decision 5, git** — the app's git reads the system config on Windows (it sits under Program Files, admin-only,
+   and holds `core.autocrlf`; without it every text file reads as changed). `GIT_CONFIG_NOSYSTEM` stays on macOS.
+   Moving that config check to an ACL check of `etc\gitconfig` is deferred (review LOW).
+8. **Decision 8, version gate** — one core gate (`cli_path::hooks_allowed`, set from the resolved CLI) inside the hook
+   self-test, so the daily News run, local-only starts and report grants pass it too, not only the UI commands.
+9. **Decision 7, local-only** — the core start refuses a local-only folder off macOS (`MAC_ONLY`) before any git or
+   hook run; Windows managed settings come from `%ProgramFiles%\ClaudeCode` only (the registry policy is not read).
+10. **Decision 1, untrusted paths** — the Windows rule also covers relative evidence files, attachment names and skill
+    parts (`relative_ok`: no drive, stream, device name, `?`/`*`), review H3.
+11. **Deferred LOWs** — a Windows owner-SID check for agent files is not done (the file-index swap check now runs on
+    Windows too; the folder ACL is the user's profile); see decisions.md.
+

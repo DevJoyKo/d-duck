@@ -10,14 +10,16 @@
 ### 받은 파일 확인하기
 ```powershell
 Get-FileHash .\D.Duck_*_x64-setup.exe -Algorithm SHA256   # SHA256SUMS-windows.txt와 같아야 해요
-gh attestation verify .\D.Duck_*_x64-setup.exe --repo <owner>/<repo>
+gh attestation verify .\D.Duck_*_x64-setup.exe --repo <owner>/<repo> --source-ref refs/tags/<vX.Y.Z>
 ```
-`gh attestation verify`가 통과하면 이 저장소의 릴리스 워크플로가 태그에서 만든 파일이에요.
+`gh attestation verify`가 통과하면 이 저장소의 릴리스 워크플로가 그 태그에서 만든 파일이에요.
 
 ### Windows에서 Mac 전용인 기능
 로컬만(원격 금지) 작업, 남은 Claude 프로세스 강제 종료, 뉴스 가져오기, 사용량 인사이트, 브리프 다듬기, 클라우드 루틴, 리포트 쓰기 허용은 Windows에서 막혀 있고 "Mac 전용"으로 보여요. Windows CLI에서 훅이 실제로 막히는지 확인한 뒤에 풀어요.
 
 ### 실제 Windows에서 아직 확인하지 못한 것 ([manual])
+- **(필수)** 브라우저가 꺼진 상태에서 로그인을 시작해도, CLI가 연 브라우저가 로그인이 끝난 뒤에도 남아 있어요.
+- 휴지통으로 옮긴 에이전트·스킬을 휴지통에서 되살릴 수 있어요.
 - 백그라운드 작업이 앱을 닫아도 계속 돌고, 다시 열면 보여요.
 - claude·git을 실행할 때 콘솔 창이 뜨지 않아요.
 - PowerShell이나 Bash로 `git push origin main`을 시키면 거부돼요.

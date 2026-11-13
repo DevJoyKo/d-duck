@@ -31,7 +31,7 @@ On Windows the app SHALL look for the Claude CLI in the native installer locatio
 - **THEN** it is refused without being run, with the existing unsafe-location message
 
 ### Requirement: Starting Claude on Windows
-Starting a Claude process on Windows SHALL show no console window and SHALL never pass arguments through cmd.exe: an npm `claude.cmd` shim is resolved to the native `claude.exe` it wraps before anything is run. A run the app waits for (brief refinement, login, version checks) SHALL end with its whole process tree when cancelled, timed out or when the app quits. A background task SHALL keep running after the app quits, as on macOS. A command line that exceeds the Windows limit SHALL be refused before starting.
+Starting a Claude process on Windows SHALL show no console window and SHALL never pass arguments through cmd.exe: an npm `claude.cmd` shim is resolved to the native `claude.exe` it wraps before anything is run. A run the app waits for (brief refinement, version checks, plugin and MCP commands) SHALL end with its whole process tree when cancelled, timed out or when the app quits; a login ends only its own process, so a browser it opened stays open. A background task SHALL keep running after the app quits, as on macOS. A command line that exceeds the Windows limit SHALL be refused before starting.
 
 #### Scenario: Cancel an awaited run [CI]
 - **WHEN** an awaited Claude run is cancelled on Windows
@@ -82,7 +82,7 @@ On Windows, opening a link, file or folder SHALL use the Windows shell, deletion
 - **WHEN** the user clicks an external link
 - **THEN** the default browser opens it
 
-#### Scenario: Delete an agent definition [CI]
+#### Scenario: Delete an agent definition [CI] (restore: [manual])
 - **WHEN** the user deletes an agent definition and confirms
 - **THEN** the file is in the Recycle Bin and can be restored
 
