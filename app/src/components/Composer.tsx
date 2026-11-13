@@ -32,6 +32,9 @@ const REPO_REASON: Record<string, string> = localized({
   noCommits: "tasks.composer.repo.noCommits",
 });
 
+
+/** Git for Windows download page; opened after the app's native link confirmation (open_insight_link). */
+export const GIT_FOR_WINDOWS_URL = "https://git-scm.com/download/win";
 /** Task type chip (radio in the composer, a still copy in the tour). */
 export const typeChipClass = (on: boolean) => `h-7 rounded-full border px-3 text-[12px] transition-colors ${on ? "border-ink bg-ink font-medium text-paper" : "border-line bg-sheet text-ink-2 hover:border-ink-3"}`;
 
@@ -212,7 +215,9 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
   // Strict types refuse personas that can write or run commands, not only risky ones (QA review).
   const strictWrites = !!preset?.strict && !!chosen && writesFiles(chosen);
   const strictRisky = (risky && !!preset?.strict) || strictWrites;
-  const disabled = !status?.cli || !cwd || !brief.goal.trim() || !!nameError || start.isPending || (sensitive && risky) || strictRisky || (roleOff && !agent);
+  // Windows preview: a local-only folder cannot start a task (the backend refuses it as Mac only too).
+  const localOnlyHere = isWindows() && guard.data?.guard === "local_only";
+  const disabled = !status?.cli || !cwd || !brief.goal.trim() || !!nameError || start.isPending || (sensitive && risky) || strictRisky || (roleOff && !agent) || localOnlyHere;
   // Why 작업 시작 is off, one line in the footer next to the button.
   const blocked = !status?.cli
     ? t("tasks.composer.blocked.noCli")
@@ -222,7 +227,9 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
         ? t("tasks.composer.blocked.noGoal")
         : nameError || (sensitive && risky) || strictRisky || (roleOff && !agent)
           ? t("tasks.composer.blocked.check")
-          : null;
+          : localOnlyHere
+            ? t("common.macOnly.localOnly")
+            : null;
   const starting = useStartingCards(agents?.sessions);
   const label = (name.trim() || brief.goal.trim().split("\n")[0]).slice(0, 60);
   const set = (k: keyof Brief) => (e: React.ChangeEvent<HTMLTextAreaElement>) => setBrief({ ...brief, [k]: e.target.value });
@@ -276,9 +283,12 @@ export function Composer({ status, agents, draft, onClose: close }: { status?: S
           </div>
           {!cwd && draft?.cwdHint && <span className="block text-xs text-ink-2">{draft.cwdHint}</span>}
           {isWindows() && !platform().gitBash && (
-            <span className="block text-xs text-ink-2" data-git-bash-missing>
-              {t("common.macOnly.gitBash")}
-            </span>
+            <p className="rounded-md border border-warn/30 bg-warn-soft px-2 py-1 text-xs text-ink" data-git-bash-missing>
+              {t("common.macOnly.gitBash")}{" "}
+              <button type="button" className="underline underline-offset-2" onClick={() => void api.openInsightLink(GIT_FOR_WINDOWS_URL)}>
+                {t("common.macOnly.gitBashLink")}
+              </button>
+            </p>
           )}
           {atHome && (
             <span role="alert" className="block text-xs text-danger">

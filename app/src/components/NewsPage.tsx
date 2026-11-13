@@ -313,7 +313,11 @@ export function NewsPage({ onDraft }: { onDraft?: (d: Draft) => void } = {}) {
             </div>
           </div>
         )}
-        {macOnly && <MacOnlyNote text={t("common.macOnly.news")} />}
+        {macOnly && (
+          <div className="px-3">
+            <MacOnlyNote text={t("common.macOnly.news")} />
+          </div>
+        )}
         {dailyNote && <p className="px-3 text-xs text-ink-3">{dailyNote}</p>}
         <GateLine force={gate} />
         {runError && (

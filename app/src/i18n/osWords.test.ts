@@ -20,6 +20,13 @@ describe("OS words", () => {
     expect(translate("ko", "settings.notifyFinished.description")).toContain("Windows 알림");
     expect(translate("en", "tasks.limits.autoNote")).toBe("Your PC needs to be awake");
     expect(translate("ko", "common.macOnly.chip")).toBe("Mac 전용");
+    const note = translate("ko", "routines.list.note");
+    expect(note).toContain("PC가 깨어 있을 때만");
+    expect(note).toContain("이 PC의 앱 데이터");
+    expect(note).not.toContain("맥");
+    expect(translate("en", "routines.list.note")).toContain("the PC is awake");
+    expect(translate("en", "routines.list.note")).toContain("this PC's app data");
+    expect(translate("ko", "tour.cards.solo.point2")).toContain("맥락");
     expect(translate("en", "common.macOnly.chip")).toBe("Mac only");
   });
   it("never rewrites a filled-in value", () => {

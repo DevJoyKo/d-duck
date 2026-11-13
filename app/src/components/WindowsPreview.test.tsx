@@ -8,7 +8,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { setPlatformForTest } from "../lib/platform";
 import { DeliveryGuardLine, LocalOnlyList } from "./LocalOnlySection";
 import { Sidebar } from "./Sidebar";
-import { MacOnlyNote } from "./MacOnly";
 import { messageOf } from "../lib/api";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -64,10 +63,7 @@ describe("Windows preview: backend reasons", () => {
     expect(messageOf({ kind: "invalidInput", code: "macOnly", params: {}, text: "x", reason: "x" }, "ko")).toBe("Mac 전용이에요 · Windows 미리보기에서는 아직 쓸 수 없어요.");
     expect(messageOf({ kind: "invalidInput", code: "windowsCommandTooLong", params: {}, text: "x", reason: "x" }, "en")).toBe("The instructions and settings are too long for Windows · Shorten them and try again.");
   });
-  it("Git Bash note text", () => {
-    wrap(<MacOnlyNote text="Git for Windows가 없으면 명령을 실행할 수 없어요" />);
-    expect(screen.getByText("Git for Windows가 없으면 명령을 실행할 수 없어요")).toBeTruthy();
-  });
+  // The Git Bash note is rendered by the composer itself (ComposerWindows.test.tsx).
 });
 
 describe("window chrome per OS", () => {

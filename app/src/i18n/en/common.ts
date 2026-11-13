@@ -62,6 +62,7 @@ export default {
     insights: "Claude analysis isn't available in the Windows preview yet",
     refine: "Brief refinement isn't available in the Windows preview yet",
     cloud: "Loading and editing cloud routines isn't available in the Windows preview yet",
-    gitBash: "Without Git for Windows, tasks can't run commands",
+    gitBash: "Without Git for Windows, tasks can't run commands · Install Git for Windows",
+    gitBashLink: "Open the download page",
   },
 } satisfies Shape<typeof ko>;

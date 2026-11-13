@@ -57,7 +57,7 @@ function ProjectRow({ r, worktrees, busy, onChange }: { r: LocalOnlyRow; worktre
         />
         <Check size={12} strokeWidth={3} className="pointer-events-none absolute top-0.5 left-0.5 hidden text-paper peer-checked:block" aria-hidden />
       </span>
-      <label htmlFor={id} className={`min-w-0 flex-1 ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}>
+      <label htmlFor={id} className={`min-w-0 flex-1 ${disabled ? "cursor-not-allowed text-ink-3" : "cursor-pointer"}`}>
         <span className="flex items-center gap-1.5 text-[13px]">
           <span className={`truncate ${r.missing ? "text-ink-2" : ""}`}>{r.name}</span>
           {r.checked && (

@@ -9,6 +9,9 @@ const WINDOWS: Record<Lang, [RegExp, string][]> = {
     [/이 Mac/g, "이 PC"],
     [/Mac이/g, "PC가"],
     [/Mac 앞/g, "PC 앞"],
+    // Informal "맥" (routines note); never inside "맥락" (context).
+    [/이 맥(?!락)/g, "이 PC"],
+    [/(^|[^가-힣])맥이(?!락)/g, "$1PC가"],
     [/macOS/g, "Windows"],
     [/Finder/g, "파일 탐색기"],
     [/⌘/g, "Ctrl+"],
