@@ -169,6 +169,32 @@ fn kill_group(child: &mut Child) {
     }
 }
 
+/// Which processes below `root` a login end may terminate (re-review 8.4, group 9 check), deepest first. Only those
+/// whose listed name is in `names`, and only along edges where the parent was created no later than the child and the
+/// child no later than `snap_at` (the moment before the process list was taken): a pid reused after its parent died
+/// is older than nothing it claims, or newer than the list, and is skipped with its whole branch. `created` answers
+/// a pid's creation time (`None` = gone or unreadable: skipped). Pure, so it is tested on every OS.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn select_descendants(root: u32, edges: &[(u32, u32)], names: &[&str], snap_at: u64, created: impl Fn(u32) -> Option<u64>, name: &dyn Fn(u32) -> Option<String>) -> Vec<u32> {
+    let Some(root_born) = created(root) else { return Vec::new() };
+    let mut tree: Vec<(u32, u64)> = vec![(root, root_born)];
+    let mut i = 0;
+    while i < tree.len() && tree.len() < 256 {
+        let (parent, parent_born) = tree[i];
+        for &(pid, ppid) in edges {
+            if ppid != parent || pid == root || tree.iter().any(|(p, _)| *p == pid) {
+                continue;
+            }
+            match created(pid) {
+                Some(born) if parent_born <= born && born <= snap_at => tree.push((pid, born)),
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    tree.iter().skip(1).rev().map(|(p, _)| *p).filter(|p| name(*p).is_some_and(|n| names.iter().any(|w| n.eq_ignore_ascii_case(w)))).collect()
+}
+
 /// Windows process plumbing (windows-support decision 3).
 #[cfg(windows)]
 pub(crate) mod win {
@@ -286,6 +312,7 @@ pub(crate) mod win {
     pub fn kill_descendants_named(root: u32, names: &[&str]) {
         use windows_sys::Win32::System::Diagnostics::ToolHelp::{PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS};
         use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE, TerminateProcess};
+        let snap_at = now_filetime();
         // SAFETY: a process snapshot of the system; closed below.
         let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
         if snap == INVALID_HANDLE_VALUE {
@@ -305,34 +332,33 @@ pub(crate) mod win {
         }
         // SAFETY: owned snapshot handle.
         unsafe { CloseHandle(snap) };
-        let mut tree = vec![root];
-        let mut i = 0;
-        while i < tree.len() && tree.len() < 256 {
-            let parent = tree[i];
-            tree.extend(all.iter().filter(|(pid, ppid, _)| *ppid == parent && *pid != root && !tree.contains(pid)).map(|(pid, _, _)| *pid).collect::<Vec<_>>());
-            i += 1;
-        }
-        // Every real descendant was created after the root (a reused pid would be older): the root's creation time is
-        // the lower bound, and the name is checked again on the opened handle (group 8 check LOW).
-        let Some(root_born) = created(root) else { return };
-        for pid in tree.iter().skip(1).rev() {
-            let named = all.iter().any(|(p, _, exe)| p == pid && names.iter().any(|n| exe.eq_ignore_ascii_case(n)));
-            if !named {
-                continue;
-            }
+        // `snap_at` (taken just before the snapshot) bounds every creation time from above (group 9 check).
+        let edges: Vec<(u32, u32)> = all.iter().map(|(pid, ppid, _)| (*pid, *ppid)).collect();
+        let listed = |pid: u32| all.iter().find(|(p, _, _)| *p == pid).map(|(_, _, n)| n.clone());
+        for pid in super::select_descendants(root, &edges, names, snap_at, created, &listed) {
             // SAFETY: open, query, terminate and close one process handle.
             unsafe {
-                let h = OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION, 0, *pid);
+                let h = OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
                 if h.is_null() {
                     continue;
                 }
-                let ok = handle_created(h).is_some_and(|t| t >= root_born) && handle_exe_name(h).is_some_and(|n| names.iter().any(|w| n.eq_ignore_ascii_case(w)));
-                if ok {
+                // Same process as checked: its creation time and name read again on this handle.
+                let same = handle_created(h).is_some_and(|t| t <= snap_at) && handle_exe_name(h).is_some_and(|n| names.iter().any(|w| n.eq_ignore_ascii_case(w)));
+                if same {
                     TerminateProcess(h, 1);
                 }
                 CloseHandle(h);
             }
         }
+    }
+
+    fn now_filetime() -> u64 {
+        use windows_sys::Win32::Foundation::FILETIME;
+        use windows_sys::Win32::System::SystemInformation::GetSystemTimeAsFileTime;
+        let mut f = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+        // SAFETY: valid out struct.
+        unsafe { GetSystemTimeAsFileTime(&mut f) };
+        (u64::from(f.dwHighDateTime) << 32) | u64::from(f.dwLowDateTime)
     }
 
     /// Creation time (100 ns units) of an open process handle.
@@ -455,6 +481,19 @@ impl Spawned {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    /// Group 9 check: an older (reused) pid, a pid newer than the list and a different name are never picked.
+    #[test]
+    fn login_descendants_are_picked_by_time_and_name() {
+        // root 10 (t=100) → 11 claude (t=110) → 12 claude (t=120); 13 named claude but born before 10 (reused pid);
+        // 14 claude born after the list; 15 browser (t=115) under 11; 16 claude under 13 (t=130).
+        let edges = [(11, 10), (12, 11), (13, 10), (14, 10), (15, 11), (16, 13)];
+        let born = |p: u32| Some(match p { 10 => 100, 11 => 110, 12 => 120, 13 => 50, 14 => 999, 15 => 115, 16 => 130, _ => return None });
+        let name = |p: u32| Some(if p == 15 { "msedge.exe".to_string() } else { "claude.exe".to_string() });
+        let got = select_descendants(10, &edges, &["claude.exe", "node.exe"], 200, born, &name);
+        assert_eq!(got, vec![12, 11], "deepest first; 13, 14, 16 (time) and 15 (name) left alone");
+        assert!(select_descendants(10, &edges, &["claude.exe"], 200, |_| None, &name).is_empty(), "unreadable root");
+    }
 
     #[test]
     fn tail_keeps_the_end() {

@@ -423,6 +423,8 @@ export function ExtensionsPage({ initialChip }: { initialChip?: ExtChip | null }
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [copying, setCopying] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  /** Windows: deleted but not seen in the Recycle Bin (9.1), shown apart from the ok-toned status line. */
+  const [trashWarn, setTrashWarn] = useState<string | null>(null);
   const [trashError, setTrashError] = useState<{
     key: string;
     text: Shown;
@@ -435,6 +437,7 @@ export function ExtensionsPage({ initialChip }: { initialChip?: ExtChip | null }
     onMutate: () => {
       setTrashError(null);
       setCopied(null);
+      setTrashWarn(null);
     },
     onSuccess: (r, { s }) => {
       if (!r.done) return;
@@ -445,7 +448,8 @@ export function ExtensionsPage({ initialChip }: { initialChip?: ExtChip | null }
       for (const k of ["skills", "authoring-info", "loadout-options", "agents"]) qc.invalidateQueries({ queryKey: [k] });
       setEditing((e) => (e === id ? null : e));
       setCopying(null);
-      setCopied(r.unconfirmed ? `${s.name} · ${t("common.trash.unconfirmed")}` : t("extensions.page.trashed", { name: s.name }));
+      setCopied(t("extensions.page.trashed", { name: s.name }));
+      setTrashWarn(r.unconfirmed ? t("common.trash.unconfirmed") : null);
     },
     onError: (e, { key }) => setTrashError({ key, text: failure(e) }),
   });
@@ -496,6 +500,7 @@ export function ExtensionsPage({ initialChip }: { initialChip?: ExtChip | null }
     });
   const startCopy = (key: string) => {
     setCopied(null);
+    setTrashWarn(null);
     setTrashError(null);
     setCopying(copying === key ? null : key);
   };
@@ -624,6 +629,11 @@ export function ExtensionsPage({ initialChip }: { initialChip?: ExtChip | null }
         {copied && (
           <p role="status" className="text-xs text-ok">
             {copied}
+          </p>
+        )}
+        {trashWarn && (
+          <p role="status" data-tone="warn" className="rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 text-xs text-ink">
+            {trashWarn}
           </p>
         )}
         {error ? (

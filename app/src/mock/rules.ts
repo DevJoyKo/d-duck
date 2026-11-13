@@ -1,5 +1,6 @@
 // Mock-mode data for the rules segment. Design review only, fake rules: the real listing, frontmatter edits,
 // claudeMdExcludes writes, confirmations and the Trash live in Rust (rules.rs, memory_cmds.rs).
+import { trashUnconfirmed } from "./os";
 import rawTemplates from "../../crates/dduck-core/data/authoring_templates.json";
 import { pickLang } from "../lib/bundled";
 import { MOCK_IDS } from "./projects";
@@ -117,5 +118,6 @@ export const rulesHandlers: Record<string, (a: Record<string, unknown>) => unkno
     if (r) Object.assign(r, { enabled: Boolean(a.enabled), offBy: a.enabled ? null : "app" });
     return undefined;
   },
-  trash_rule: () => ({ done: false, unconfirmed: false }),
+  // `?trash=unconfirmed`: a confirmed delete the Recycle Bin did not show (9.1); otherwise as cancelled.
+  trash_rule: () => (trashUnconfirmed() ? { done: true, unconfirmed: true } : { done: false, unconfirmed: false }),
 };

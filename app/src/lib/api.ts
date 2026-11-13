@@ -1010,7 +1010,7 @@ export const api = {
     }),
   setSessionLabel: (sessionId: string, label: string | null) => invoke<void>("set_session_label", { sessionId, label }),
   skillCatalog: () => invoke<Skill[]>("skill_catalog"),
-  /** "삭제" (D-147): Rust confirms natively and moves the item to the Trash. `true` moved, `false` cancelled. */
+  /** "삭제" (D-147): Rust confirms natively and moves the item to the Trash. See {@link Trashed} (`done` false = cancelled). */
   trashExtensionItem: (id: string, unsaved = false) => invoke<Trashed>("trash_extension_item", { id, unsaved }),
   /** Starts every server (`claude mcp list`): only from the "상태 확인" button. */
   mcpStatus: (project: string | null = null) => invoke<ConnectorList>("mcp_status", { project }),

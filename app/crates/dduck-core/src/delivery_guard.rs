@@ -888,10 +888,9 @@ fn refused_git() -> Command {
     Command::new("")
 }
 
-/// macOS: `git` with hooks off through `/dev/null` and no system config (as before). Windows (task 1.5): the
-/// resolved, ACL-checked `git.exe` and an empty app-owned hooks folder, or no git; the system config is read there
-/// (it sits under Program Files, admin-only, and holds Git for Windows' `core.autocrlf`, without which every checked
-/// out text file would count as changed).
+/// macOS: `git` with hooks off through `/dev/null`. Windows (task 1.5, 8.5): the resolved, ACL-checked `git.exe` and
+/// an empty app-owned hooks folder, or no git. Neither OS reads the system config (`GIT_CONFIG_NOSYSTEM`); Windows
+/// only adds Git for Windows' `core.autocrlf` as a fallback when the user and repository leave it unset.
 fn base_git(dir: &Path) -> Command {
     base_git_with(dir, crate::platform::git_autocrlf(), &[])
 }
@@ -899,6 +898,37 @@ fn base_git(dir: &Path) -> Command {
 /// [`base_git`] with Git for Windows' `core.autocrlf` (`default_crlf`) as a fallback only: it is passed with `-c` just
 /// when neither the user's global config nor the repository sets the key, so their own value always wins
 /// (group 8 check MEDIUM). macOS passes `None` and runs exactly as before.
+/// Whether neither the global nor the repository config sets `core.autocrlf` for `dir` (exit 1 from `config --get`).
+/// Cached per folder for a minute (one extra git per folder, not per command, group 9 check LOW); a check that does not
+/// finish counts as unset, so Git for Windows' default still applies (no 8.5 regression). `cache` false for tests.
+fn autocrlf_unset(dir: &Path, cache: bool, query: impl FnOnce() -> Command) -> bool {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    use std::time::Instant;
+    static SEEN: Mutex<Option<HashMap<PathBuf, (Instant, bool)>>> = Mutex::new(None);
+    if cache {
+        if let Some(&(at, v)) = SEEN.lock().ok().as_ref().and_then(|g| g.as_ref()?.get(dir)) {
+            if at.elapsed() < Duration::from_secs(60) {
+                return v;
+            }
+        }
+    }
+    let unset = match crate::process::run(&mut query(), Duration::from_secs(2), 1024, crate::process::Keep::Head, 1024) {
+        Ok(o) => o.status.code() == Some(1),
+        Err(_) => true,
+    };
+    if cache {
+        if let Ok(mut g) = SEEN.lock() {
+            let m = g.get_or_insert_with(HashMap::new);
+            if m.len() > 256 {
+                m.clear();
+            }
+            m.insert(dir.to_path_buf(), (Instant::now(), unset));
+        }
+    }
+    unset
+}
+
 /// `env` is for tests only (a fake HOME for both the check and the command).
 fn base_git_with(dir: &Path, default_crlf: Option<&str>, env: &[(&str, &Path)]) -> Command {
     let (Some(program), Some(hooks)) = (crate::platform::git_program(), crate::platform::git_hooks_path()) else { return refused_git() };
@@ -913,10 +943,11 @@ fn base_git_with(dir: &Path, default_crlf: Option<&str>, env: &[(&str, &Path)]) 
     };
     let mut cmd = hardened();
     if let Some(v) = default_crlf {
-        let mut q = hardened();
-        q.arg("-C").arg(dir).args(["config", "--get", "core.autocrlf"]);
-        // Exit 1 = the key is set nowhere git reads (system config is off); anything else keeps git's own answer.
-        let unset = crate::process::run(&mut q, Duration::from_secs(2), 1024, crate::process::Keep::Head, 1024).is_ok_and(|o| o.status.code() == Some(1));
+        let unset = autocrlf_unset(dir, env.is_empty(), || {
+            let mut q = hardened();
+            q.arg("-C").arg(dir).args(["config", "--get", "core.autocrlf"]);
+            q
+        });
         if unset {
             cmd.arg("-c").arg(format!("core.autocrlf={v}"));
         }
@@ -2101,8 +2132,6 @@ mod tests {
         assert!(args.windows(2).any(|w| w[0] == "-c" && w[1] == "core.fsmonitor=false"));
         // No system config on either OS; Windows passes only core.autocrlf and uses an app-owned hooks folder.
         assert!(c.get_envs().any(|(k, v)| k == "GIT_CONFIG_NOSYSTEM" && v.is_some_and(|v| v == "1")));
-        // On Windows only when the key is unset (see autocrlf_default_never_overrides_the_repo).
-        let _ = &args;
         assert!(c.get_envs().any(|(k, v)| k == "GIT_TERMINAL_PROMPT" && v.is_some_and(|v| v == "0")));
         let hooks = args.iter().find_map(|a| a.strip_prefix("core.hooksPath=")).unwrap();
         if cfg!(windows) {

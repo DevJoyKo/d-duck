@@ -1,5 +1,6 @@
 // Mock-mode data for the memory tab. Design review only, fake memories: the real reading, moving to `.off/`,
 // index rebuilding, confirmations and writes live in Rust (memory.rs, memory_cmds.rs).
+import { trashUnconfirmed } from "./os";
 import { MOCK_IDS } from "./projects";
 const now = Date.now();
 const hour = 3_600_000;
@@ -77,7 +78,8 @@ export const memoryHandlers: Record<string, (a: Record<string, unknown>) => unkn
     if (m) m.enabled = Boolean(a.enabled);
     return a.enabled ? "MEMORY.md가 200줄/25KB를 넘어 새 줄은 시작할 때 읽히지 않아요" : null;
   },
-  trash_memory: () => ({ done: false, unconfirmed: false }),
+  // `?trash=unconfirmed`: a confirmed delete the Recycle Bin did not show (9.1); otherwise as cancelled.
+  trash_memory: () => (trashUnconfirmed() ? { done: true, unconfirmed: true } : { done: false, unconfirmed: false }),
   auto_memory_setting: () => ({ enabled: autoMemory, explicit: !autoMemory, token: "s", path: "/Users/me/.claude/settings.json", readonlyReason: null, customDir: null }),
   set_auto_memory: (a) => {
     autoMemory = Boolean(a.enabled);

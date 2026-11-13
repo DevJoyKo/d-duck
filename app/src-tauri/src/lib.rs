@@ -2472,7 +2472,8 @@ fn set_agent_hidden(state: State<'_, AppState>, name: String, hidden: bool) -> R
 }
 
 /// Moves to the Trash / Recycle Bin. `Ok(true)` = it is there. `Ok(false)` (Windows only) = it is gone but the bin
-/// did not show it: the caller finishes its cleanup and refreshes, then reports [`trash_unconfirmed`].
+/// did not show it: the delete still succeeds with `unconfirmed: true` (`trash_flow`, 9.1); only the bundled
+/// `/dduck-new`, which has no list, reports it as [`trash_unconfirmed`].
 #[cfg(target_os = "macos")]
 fn move_to_trash(_app: &AppHandle, path: &std::path::Path) -> Res<bool> {
     use objc2_foundation::{NSFileManager, NSString, NSURL};

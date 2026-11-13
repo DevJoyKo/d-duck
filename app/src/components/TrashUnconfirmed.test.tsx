@@ -49,7 +49,7 @@ describe("memory editor", () => {
     const spy = wrap(<MemorySection project={MOCK_IDS.home} list={list} loading={false} globalOff={false} />);
     fireEvent.click(await screen.findByText("review-gates"));
     fireEvent.click(await screen.findByRole("button", { name: "휴지통으로" }));
-    expect(await screen.findByText(NOTE)).toBeTruthy();
+    expect((await screen.findByText(NOTE)).getAttribute("data-tone")).toBe("warn");
     expect(spy).toHaveBeenCalledWith({ queryKey: ["memory-entries", MOCK_IDS.home] });
     expect(screen.queryByRole("button", { name: "휴지통으로" })).toBeNull();
   });
@@ -73,7 +73,7 @@ describe("agent settings", () => {
     const own = catalog.find((d) => (d.source === "user" || d.source === "project") && d.editable)!;
     const spy = wrap(<AgentSettings catalog={catalog} onClose={() => {}} />);
     fireEvent.click(await screen.findByRole("button", { name: new RegExp(`^${own.name}.*삭제|삭제.*${own.name}`) }));
-    expect(await screen.findByText(NOTE)).toBeTruthy();
+    expect((await screen.findByText(NOTE)).getAttribute("data-tone")).toBe("warn");
     expect(calls).toContain("trash_agent");
     expect(spy).toHaveBeenCalledWith({ queryKey: ["agent-catalog"] });
   });

@@ -120,6 +120,7 @@ jobs:
           $left = @($kids | Where-Object { $_.Name -ieq 'claude.exe' -and (Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue) })
           "claude.exe left after cancel: $($left.Count)" | Out-File -Append "$out\login-tree.txt"
           Get-ChildItem $out | ForEach-Object { "===== $($_.Name)"; Get-Content $_.FullName -TotalCount 120 }
+          if (-not $aliveAt5) { Write-Error "auth login was not running at 5 s, so the tree check measured nothing"; exit 1 }
           if ($left.Count -ne 0) { Write-Error "claude.exe left after cancelling auth login: $($left.Count)"; exit 1 }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()

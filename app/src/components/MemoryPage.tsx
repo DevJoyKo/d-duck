@@ -368,7 +368,7 @@ export function MemorySection({ project, list, loading, globalOff }: { project: 
         )}
       </div>
       {(toggle.error || openIndex.error) && <p className="text-xs text-danger">{errText(toggle.error ?? openIndex.error)}</p>}
-      {note && !toggle.error && <p className="text-xs text-ink-2">{note}</p>}
+      {note && !toggle.error && (note === t("common.trash.unconfirmed") ? <p role="status" data-tone="warn" className="rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 text-xs text-ink">{note}</p> : <p className="text-xs text-ink-2">{note}</p>)}
       {globalOff && (
         <p className="rounded-lg border border-line px-3 py-2 text-xs text-ink-2">{t("extensions.memory.section.globalOff")}</p>
       )}

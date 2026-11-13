@@ -636,6 +636,7 @@ export function RulesSection({ project, hasPath, onDirtyChange, scope }: { proje
   const taken: Record<RuleScope, string[]> = { global: data?.global?.rules.map((r) => r.rel) ?? [], project: data?.project?.rules.map((r) => r.rel) ?? [] };
   const startNew = () => {
     if (creating || !guard()) return;
+    setGoneNote(null);
     setSelected(null);
     setCreating(true);
     setFocusTick((t) => t + 1);
@@ -660,7 +661,7 @@ export function RulesSection({ project, hasPath, onDirtyChange, scope }: { proje
       </div>
       {toggle.isError && <p className="text-xs text-danger">{errText(toggle.error)}</p>}
       {goneNote && (
-        <p role="status" className="text-xs text-ink-2">
+        <p role="status" data-tone="warn" className="rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 text-xs text-ink">
           {goneNote}
         </p>
       )}
@@ -679,6 +680,7 @@ export function RulesSection({ project, hasPath, onDirtyChange, scope }: { proje
                   return;
                 }
                 if (!guard()) return;
+                setGoneNote(null);
                 setCreating(false);
                 setSelected(r.id);
                 setFocusTick((t) => t + 1);

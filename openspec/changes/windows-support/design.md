@@ -223,8 +223,9 @@ Each item supersedes the decision text it names; the original text above stays f
    FOF_SILENT | FOF_NOERRORUI | FOF_WANTNUKEWARNING` (never `FOF_NO_UI`), only on a fixed drive whose Recycle Bin
    answers `SHQueryRecycleBinW`, and the bin must hold more items afterwards (review H1). Wildcards are refused.
    Restoring from the bin is [manual]. Re-review 8.3: when the count does not confirm it but the original is gone,
-   the caller finishes its cleanup and refresh and reports `TrashUnconfirmed` (it may be gone for good); the shell's
-   warning is owned by the main window. `subst` drives and mounted volumes are [manual].
+   ~~the caller finishes its cleanup and refresh and reports `TrashUnconfirmed`~~ (superseded by 9.1) the delete is a
+   success with `{done: true, unconfirmed: true}` (agents: `unconfirmed` after off/hidden), the screens follow the
+   success flow and add a warn note that it may be gone for good; the shell's warning is owned by the main window. `subst` drives and mounted volumes are [manual].
 6. **Decision 6, WebView2** — ~~a run-time new-window test~~: wry 0.57 denies every new-window request when no
    handler is registered; a source guard test fails if the shell ever registers one.
 7. **Decision 5, git** — ~~the app's git reads the system config on Windows; moving that to an ACL check is

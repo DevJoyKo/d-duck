@@ -138,7 +138,9 @@ describe("확장 tab: delete", () => {
     const invoke = await boot();
     invoke.mockImplementation((c, a) => (c === "trash_extension_item" ? Promise.resolve({ done: true, unconfirmed: true }) : real(c, a)));
     fireEvent.click(within(await rowOf("pr-writer")).getByRole("button", { name: "삭제" }));
-    expect(await screen.findByRole("status")).toHaveProperty("textContent", "pr-writer · 지웠지만 휴지통에서 찾지 못했어요 · 영구 삭제됐을 수 있어요");
+    const warn = await screen.findByText("지웠지만 휴지통에서 찾지 못했어요 · 영구 삭제됐을 수 있어요");
+    expect(warn.getAttribute("data-tone")).toBe("warn");
+    expect(warn.className).toContain("bg-warn-soft");
     await waitFor(() => expect(invoke.mock.calls.filter(([c]) => c === "skill_catalog").length).toBeGreaterThan(1));
   });
 

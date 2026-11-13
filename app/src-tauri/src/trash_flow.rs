@@ -36,7 +36,10 @@ pub fn finish_ext(plan: &dduck_core::ext_trash::ExtTrash, trash: impl FnOnce(&Pa
 pub fn finish_memory(dir: &Path, plan: &dduck_core::memory::TrashPlan, trash: impl FnOnce(&Path) -> Res<bool>) -> Res<Trashed> {
     dduck_core::memory::recheck_trash(dir, plan).map_err(|_| Fail::ChangedWhileChecking.now())?;
     let in_bin = trash(&plan.path)?;
-    dduck_core::memory::forget_after_trash(dir, &plan.file, plan.enabled).map_err(|_| Fail::MemoryLineLeft.now())?;
+    // A line left in MEMORY.md must not hide that the bin did not confirm the move: both are said (group 9 check).
+    dduck_core::memory::forget_after_trash(dir, &plan.file, plan.enabled).map_err(|_| {
+        if in_bin { Fail::MemoryLineLeft.now() } else { format!("{} · {}", Fail::MemoryLineLeft.now(), Fail::TrashUnconfirmed.now()) }
+    })?;
     Ok(Trashed::moved(in_bin))
 }
 
@@ -101,6 +104,27 @@ mod tests {
         let r = finish_memory(&dir, &plan, gone_unconfirmed).unwrap();
         assert_eq!(r, Trashed { done: true, unconfirmed: true });
         assert!(!std::fs::read_to_string(dir.join("MEMORY.md")).unwrap().contains("a.md"), "index line removed");
+    }
+
+    #[test]
+    fn memory_line_left_still_says_unconfirmed() {
+        let t = tempfile::tempdir().unwrap();
+        let dir = canon(t.path()).join("memory");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.md"), "---\nname: a\n---\nA\n").unwrap();
+        std::fs::write(dir.join("MEMORY.md"), "- [A](a.md) — note\n").unwrap();
+        let l = dduck_core::memory::list(&dir);
+        let e = l.entries.iter().find(|e| e.file == "a.md").unwrap();
+        let plan = dduck_core::memory::plan_trash(&dir, "a.md", &e.token, &l.index_token).unwrap();
+        // The move also turns MEMORY.md into a folder, so the index line cannot be removed.
+        let err = finish_memory(&dir, &plan, |p| {
+            std::fs::remove_file(p).unwrap();
+            std::fs::remove_file(dir.join("MEMORY.md")).unwrap();
+            std::fs::create_dir(dir.join("MEMORY.md")).unwrap();
+            Ok(false)
+        })
+        .unwrap_err();
+        assert!(err.contains(&Fail::MemoryLineLeft.now()) && err.contains(&Fail::TrashUnconfirmed.now()), "{err}");
     }
 
     #[test]
