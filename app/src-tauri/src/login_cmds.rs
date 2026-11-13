@@ -394,6 +394,14 @@ mod tests {
 
     #[test]
     fn copy_command_matches_the_profile() {
+        if cfg!(windows) {
+            // PowerShell syntax with all five single quotes doubled (windows-support 3.2).
+            let c = ClaudeCli::new(r"C:\c\claude.exe".into(), Some(r"C:\p\it's".into()));
+            assert_eq!(command_line(&c, LoginMethod::Console), r"$env:CLAUDE_CONFIG_DIR = 'C:\p\it''s'; & 'C:\c\claude.exe' auth login --console");
+            let c = ClaudeCli::new(r"C:\c\claude.exe".into(), None);
+            assert!(command_line(&c, LoginMethod::ClaudeAi).starts_with("Remove-Item Env:CLAUDE_CONFIG_DIR"));
+            return;
+        }
         let c = ClaudeCli::new("/c/claude".into(), None);
         assert_eq!(command_line(&c, LoginMethod::ClaudeAi), "env -u CLAUDE_CONFIG_DIR '/c/claude' auth login --claudeai");
         let c = ClaudeCli::new("/c/claude".into(), Some("/p/it's".into()));
