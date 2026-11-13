@@ -709,7 +709,7 @@ impl ClaudeCli {
     }
 
     pub fn list_agents(&self) -> Result<Vec<AgentSession>, CliError> {
-        let out = run(self.command().args(["agents", "--json", "--all"]), Duration::from_secs(5), 4 * 1024 * 1024, Keep::Head)?;
+        let out = run_detached(self.command().args(["agents", "--json", "--all"]), Duration::from_secs(5), 4 * 1024 * 1024, Keep::Head)?;
         parse_agents(&out.stdout)
     }
 
@@ -836,7 +836,7 @@ impl ClaudeCli {
         if spec.permission_mode.is_some_and(PermissionMode::is_dangerous) && approval.is_none() {
             return Err(CliError::DangerNotConfirmed);
         }
-        let out = run(self.command().current_dir(&spec.cwd).args(spec.bg_args()), Duration::from_secs(30), 64 * 1024, Keep::Head)?;
+        let out = run_detached(self.command().current_dir(&spec.cwd).args(spec.bg_args()), Duration::from_secs(30), 64 * 1024, Keep::Head)?;
         parse_bg_id(&out.stdout).ok_or(CliError::UnsupportedOutput)
     }
 
@@ -850,7 +850,7 @@ impl ClaudeCli {
             return Err(CliError::invalid(ReasonCode::DirNotFound));
         }
         let args = spec.args()?;
-        let out = run(self.command().current_dir(&spec.cwd).args(args), Duration::from_secs(30), 64 * 1024, Keep::Head)?;
+        let out = run_detached(self.command().current_dir(&spec.cwd).args(args), Duration::from_secs(30), 64 * 1024, Keep::Head)?;
         parse_resume_output(&out.stdout).ok_or(CliError::UnsupportedOutput)
     }
 
@@ -858,13 +858,13 @@ impl ClaudeCli {
     pub fn logs(&self, id: &str) -> Result<Vec<u8>, CliError> {
         check_id(id)?;
         // The newest frame is at the end of the stream, so keep the tail (D-038).
-        let out = run(self.command().args(["logs", id]), Duration::from_secs(5), MAX_LOG_BYTES, Keep::Tail)?;
+        let out = run_detached(self.command().args(["logs", id]), Duration::from_secs(5), MAX_LOG_BYTES, Keep::Tail)?;
         Ok(last_screen(&out.stdout).to_vec())
     }
 
     pub fn stop(&self, id: &str) -> Result<(), CliError> {
         check_id(id)?;
-        run(self.command().args(["stop", id]), Duration::from_secs(10), 64 * 1024, Keep::Head).map(|_| ())
+        run_detached(self.command().args(["stop", id]), Duration::from_secs(10), 64 * 1024, Keep::Head).map(|_| ())
     }
 
     /// `claude auth status --json` (claude-login): (exit code, stdout) only, 5 s, 64 KB. stderr is never kept, so a
@@ -881,16 +881,12 @@ impl ClaudeCli {
 
     /// Spawns `claude auth login <flag>` with the task environment, stdin null, stdout/stderr piped, in its own
     /// process group. The caller owns the child: it must drain both pipes and kill the group before reaping.
-    pub fn login_child(&self, method: LoginMethod) -> std::io::Result<std::process::Child> {
+    pub fn login_child(&self, method: LoginMethod) -> std::io::Result<crate::process::Spawned> {
         use std::process::Stdio;
         let mut cmd = self.command();
         cmd.args(["auth", "login", method.flag()]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            cmd.process_group(0);
-        }
-        cmd.spawn()
+        // Unix: own process group. Windows: a kill-on-close job, no console window (decision 3).
+        crate::process::Spawned::awaited(&mut cmd)
     }
 
     /// Terminal-fallback argv parts: the CLI path and the config dir (`None` = default profile). The flag is chosen
@@ -1105,7 +1101,16 @@ struct Output {
 }
 
 fn run(cmd: &mut Command, timeout: Duration, max_stdout: u64, keep: Keep) -> Result<Output, CliError> {
-    let done = crate::process::run(cmd, timeout, max_stdout, keep, 64 * 1024).map_err(|e| match e {
+    finish(crate::process::run(cmd, timeout, max_stdout, keep, 64 * 1024))
+}
+
+/// [`run`] for commands that talk to or start the CLI's background service (Windows: never in a job).
+fn run_detached(cmd: &mut Command, timeout: Duration, max_stdout: u64, keep: Keep) -> Result<Output, CliError> {
+    finish(crate::process::run_detached(cmd, timeout, max_stdout, keep, 64 * 1024))
+}
+
+fn finish(done: Result<crate::process::Finished, crate::process::RunError>) -> Result<Output, CliError> {
+    let done = done.map_err(|e| match e {
         crate::process::RunError::Spawn => CliError::Spawn,
         crate::process::RunError::Timeout => CliError::Timeout,
     })?;
@@ -1736,7 +1741,7 @@ echo "CFG=${CLAUDE_CONFIG_DIR-unset}"
 echo "PATH=$PATH"
 if read -r line; then echo "STDIN=data"; else echo "STDIN=eof"; fi"#);
         let run = |cli: &ClaudeCli, m: LoginMethod| {
-            let mut child = cli.login_child(m).unwrap();
+            let mut child = cli.login_child(m).unwrap().child;
             let mut s = String::new();
             child.stdout.take().unwrap().read_to_string(&mut s).unwrap();
             child.wait().unwrap();
@@ -1769,7 +1774,7 @@ if read -r line; then echo "STDIN=data"; else echo "STDIN=eof"; fi"#);
         let bin = fake(tmp.path(), "env");
         let cli = ClaudeCli::new(bin, None).with_path_env(probe.path);
         let (_, out) = cli.auth_status_raw().unwrap();
-        let mut child = cli.login_child(LoginMethod::ClaudeAi).unwrap();
+        let mut child = cli.login_child(LoginMethod::ClaudeAi).unwrap().child;
         let mut login = String::new();
         child.stdout.take().unwrap().read_to_string(&mut login).unwrap();
         child.wait().unwrap();

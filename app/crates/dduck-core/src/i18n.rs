@@ -854,6 +854,8 @@ table! {
         CliBadChars => ("경로에 허용되지 않는 문자(제어문자, \\, !)가 있어요", "The path has characters that aren't allowed (control characters, \\, !)"),
         CliVersionFailed => ("--version 실행에 실패했어요", "Running --version failed"),
         CliNotCode => ("Claude Code 실행 파일이 아니에요", "Not a Claude Code executable"),
+        CliShimUnsupported => ("npm 설치본을 확인하지 못했어요 · 공식 설치 프로그램으로 설치해 주세요", "Couldn't check the npm install · Install with the official installer"),
+        CliBadCharsWin => ("경로에 허용되지 않는 문자(제어문자, \")가 있거나 이름이 점·공백으로 끝나요", "The path has characters that aren't allowed (control characters, \") or a name ending in a dot or space"),
         RedactPrivateKey => ("[개인 키 숨김]", "[private key hidden]"),
         RedactKey => ("[키 숨김]", "[key hidden]"),
         RedactToken => ("[토큰 숨김]", "[token hidden]"),

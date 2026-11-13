@@ -224,6 +224,168 @@ pub fn file_id(f: &std::fs::File) -> io::Result<FileId> {
     }
 }
 
+/// Windows ACL check for executables (decision 2, re-check fixes): refuses a file, its folder or any ancestor that
+/// someone other than the current user, SYSTEM, Administrators or TrustedInstaller can change.
+#[cfg(windows)]
+pub mod acl {
+    use std::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::Path;
+    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_SUCCESS, HANDLE, LocalFree};
+    use windows_sys::Win32::Security::Authorization::{ConvertStringSidToSidW, GetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use windows_sys::Win32::Security::{
+        ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, EqualSid, GetAce, GetTokenInformation, INHERIT_ONLY_ACE, OWNER_SECURITY_INFORMATION,
+        PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY, TOKEN_USER, TokenUser,
+    };
+    use windows_sys::Win32::System::SystemServices::{ACCESS_ALLOWED_ACE_TYPE, ACCESS_DENIED_ACE_TYPE};
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    const FILE_WRITE_DATA: u32 = 0x2;
+    const FILE_APPEND_DATA: u32 = 0x4;
+    const FILE_DELETE_CHILD: u32 = 0x40;
+    const DELETE: u32 = 0x0001_0000;
+    const WRITE_DAC: u32 = 0x0004_0000;
+    const WRITE_OWNER: u32 = 0x0008_0000;
+    const MAXIMUM_ALLOWED: u32 = 0x0200_0000;
+    const GENERIC_ALL: u32 = 0x1000_0000;
+    const GENERIC_WRITE: u32 = 0x4000_0000;
+
+    /// SYSTEM, Administrators, TrustedInstaller (the current user is added at run time).
+    const TRUSTED: [&str; 3] = ["S-1-5-18", "S-1-5-32-544", "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"];
+
+    /// Where an entry sits relative to the executable.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Level {
+        /// The executable itself.
+        File,
+        /// Its folder: adding a file there could plant a DLL the exe loads first.
+        Folder,
+        /// Folders above: only rights that replace or re-permission an entry on the path count.
+        Ancestor,
+    }
+
+    /// Rights that refuse an entry at `level` when an untrusted SID holds any of them.
+    pub fn refused_mask(level: Level) -> u32 {
+        let base = DELETE | WRITE_DAC | WRITE_OWNER | GENERIC_ALL | MAXIMUM_ALLOWED;
+        match level {
+            Level::File => base | FILE_WRITE_DATA | FILE_APPEND_DATA | GENERIC_WRITE,
+            Level::Folder => base | FILE_WRITE_DATA | FILE_APPEND_DATA | GENERIC_WRITE | FILE_DELETE_CHILD,
+            Level::Ancestor => base | FILE_DELETE_CHILD,
+        }
+    }
+
+    struct LocalSid(PSID);
+    impl Drop for LocalSid {
+        fn drop(&mut self) {
+            // SAFETY: allocated by ConvertStringSidToSidW.
+            unsafe { LocalFree(self.0) };
+        }
+    }
+
+    struct Trusted {
+        fixed: Vec<LocalSid>,
+        /// TOKEN_USER buffer; the user SID points into it.
+        user: Vec<u64>,
+    }
+
+    impl Trusted {
+        fn new() -> Option<Trusted> {
+            let mut fixed = Vec::new();
+            for s in TRUSTED {
+                let w: Vec<u16> = s.encode_utf16().chain(Some(0)).collect();
+                let mut sid: PSID = std::ptr::null_mut();
+                // SAFETY: NUL-terminated string; `sid` receives a LocalAlloc'd SID freed by LocalSid.
+                if unsafe { ConvertStringSidToSidW(w.as_ptr(), &mut sid) } == 0 {
+                    return None;
+                }
+                fixed.push(LocalSid(sid));
+            }
+            let mut token: HANDLE = std::ptr::null_mut();
+            // SAFETY: query-only token of this process, closed below.
+            if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+                return None;
+            }
+            let mut user = vec![0u64; 128];
+            let mut len = 0u32;
+            // SAFETY: `user` has room for 1 KB (a TOKEN_USER with any SID fits); 8-byte aligned.
+            let ok = unsafe { GetTokenInformation(token, TokenUser, user.as_mut_ptr().cast(), (user.len() * 8) as u32, &mut len) } != 0;
+            // SAFETY: owned token handle.
+            unsafe { CloseHandle(token) };
+            ok.then_some(Trusted { fixed, user })
+        }
+
+        fn has(&self, sid: PSID) -> bool {
+            // SAFETY: the buffer holds a TOKEN_USER written by GetTokenInformation.
+            let me = unsafe { (*(self.user.as_ptr() as *const TOKEN_USER)).User.Sid };
+            // SAFETY: valid SIDs for the duration of the calls.
+            unsafe { EqualSid(sid, me) != 0 || self.fixed.iter().any(|t| EqualSid(sid, t.0) != 0) }
+        }
+    }
+
+    struct LocalDesc(PSECURITY_DESCRIPTOR);
+    impl Drop for LocalDesc {
+        fn drop(&mut self) {
+            // SAFETY: allocated by GetNamedSecurityInfoW.
+            unsafe { LocalFree(self.0) };
+        }
+    }
+
+    /// `Ok` when `file` and every folder above it pass at their level. Any read failure refuses.
+    pub fn check_chain(file: &Path) -> Result<(), ()> {
+        let t = Trusted::new().ok_or(())?;
+        check(file, Level::File, &t)?;
+        for (i, dir) in file.ancestors().skip(1).filter(|d| !d.as_os_str().is_empty()).enumerate() {
+            check(dir, if i == 0 { Level::Folder } else { Level::Ancestor }, &t)?;
+        }
+        Ok(())
+    }
+
+    fn check(p: &Path, level: Level, t: &Trusted) -> Result<(), ()> {
+        let wide: Vec<u16> = p.as_os_str().encode_wide().chain(Some(0)).collect();
+        let (mut owner, mut dacl, mut sd): (PSID, *mut ACL, PSECURITY_DESCRIPTOR) = (std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut());
+        // SAFETY: NUL-terminated path; out pointers are valid; `sd` owns the returned owner and DACL.
+        let rc = unsafe {
+            GetNamedSecurityInfoW(wide.as_ptr(), SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, &mut owner, std::ptr::null_mut(), &mut dacl, std::ptr::null_mut(), &mut sd)
+        };
+        if rc != ERROR_SUCCESS {
+            return Err(());
+        }
+        let _sd = LocalDesc(sd);
+        // A NULL DACL grants everyone everything; an untrusted owner can rewrite the DACL.
+        if owner.is_null() || dacl.is_null() || !t.has(owner) {
+            return Err(());
+        }
+        let refused = refused_mask(level);
+        // SAFETY: `dacl` points into `sd`, alive for this function.
+        let count = unsafe { (*dacl).AceCount };
+        for i in 0..u32::from(count) {
+            let mut ace: *mut c_void = std::ptr::null_mut();
+            // SAFETY: index below AceCount.
+            if unsafe { GetAce(dacl, i, &mut ace) } == 0 || ace.is_null() {
+                return Err(());
+            }
+            // SAFETY: every ACE starts with an ACE_HEADER.
+            let h = unsafe { *(ace as *const ACE_HEADER) };
+            if u32::from(h.AceFlags) & INHERIT_ONLY_ACE != 0 {
+                continue;
+            }
+            match u32::from(h.AceType) {
+                ACCESS_DENIED_ACE_TYPE => {}
+                ACCESS_ALLOWED_ACE_TYPE => {
+                    // SAFETY: an ACCESS_ALLOWED ACE; the SID starts at SidStart.
+                    let a = unsafe { &*(ace as *const ACCESS_ALLOWED_ACE) };
+                    if a.Mask & refused != 0 && !t.has((&raw const a.SidStart) as PSID) {
+                        return Err(());
+                    }
+                }
+                // Object, callback or unknown allow ACEs are not understood here, so they refuse.
+                _ => return Err(()),
+            }
+        }
+        Ok(())
+    }
+}
+
 /// What the webview needs to know about the OS (`platform` command, lib/platform.ts).
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]

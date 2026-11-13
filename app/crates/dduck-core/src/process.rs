@@ -25,6 +25,8 @@ pub enum Keep {
 }
 
 /// Runs `cmd` with stdin closed in its own process group, keeping at most `max_stdout` bytes of stdout.
+/// Windows: no console window, and the process runs in a kill-on-close Job Object (decision 3), so its whole tree
+/// ends when the run ends; use [`run_detached`] for commands that must leave the background service running.
 ///
 /// On timeout the whole group is killed (the leader is still unreaped, so its id cannot have been reused) and the
 /// call returns. On normal exit the group is left alone: `claude --bg` hands its work to a long-lived service, and
@@ -36,12 +38,40 @@ pub fn run(cmd: &mut Command, timeout: Duration, max_stdout: u64, keep: Keep, ma
 /// [`run`] that also kills the process group as soon as `stop()` returns true; that ends as `RunError::Timeout`,
 /// and the caller, which owns the flag, tells the two apart.
 pub fn run_until(cmd: &mut Command, timeout: Duration, max_stdout: u64, keep: Keep, max_stderr: u64, stop: &dyn Fn() -> bool) -> Result<Finished, RunError> {
+    run_tree(cmd, timeout, max_stdout, keep, max_stderr, stop, Tree::Job)
+}
+
+/// [`run`] for commands that hand work to the CLI's long-lived background service (`--bg` starts and resumes,
+/// `agents`, `logs`, `stop`). macOS: identical to `run`. Windows: never put in a job, so the service survives this
+/// call and app exit (decision 3); a timeout kills only the started process.
+pub fn run_detached(cmd: &mut Command, timeout: Duration, max_stdout: u64, keep: Keep, max_stderr: u64) -> Result<Finished, RunError> {
+    run_tree(cmd, timeout, max_stdout, keep, max_stderr, &|| false, Tree::Detached)
+}
+
+/// How a started process and its descendants end (Windows only; macOS always uses its own process group).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tree {
+    /// Windows: a kill-on-close Job Object, so the whole tree ends with the run (awaited runs).
+    Job,
+    /// Windows: no job; the process may leave a background service behind.
+    Detached,
+}
+
+fn run_tree(cmd: &mut Command, timeout: Duration, max_stdout: u64, keep: Keep, max_stderr: u64, stop: &dyn Fn() -> bool, tree: Tree) -> Result<Finished, RunError> {
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(unix)]
+    let _ = tree;
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
+    #[cfg(windows)]
+    let (mut child, job) = match tree {
+        Tree::Job => win::spawn_in_job(cmd).map(|(c, j)| (c, Some(j))).map_err(|_| RunError::Spawn)?,
+        Tree::Detached => (win::spawn_no_window(cmd).map_err(|_| RunError::Spawn)?, None),
+    };
+    #[cfg(not(windows))]
     let mut child = cmd.spawn().map_err(|_| RunError::Spawn)?;
     let out = drain(child.stdout.take(), max_stdout, keep);
     let err = drain(child.stderr.take(), max_stderr, Keep::Head);
@@ -51,10 +81,17 @@ pub fn run_until(cmd: &mut Command, timeout: Duration, max_stdout: u64, keep: Ke
             Ok(Some(status)) => {
                 let stdout = join_until(out, deadline + Duration::from_secs(1));
                 let stderr = join_until(err, deadline + Duration::from_secs(1));
+                // Windows awaited run: closing the job here ends anything the process left running.
+                #[cfg(windows)]
+                drop(job);
                 return Ok(Finished { status, stdout, stderr });
             }
             Ok(None) if Instant::now() < deadline && !stop() => std::thread::sleep(Duration::from_millis(20)),
             _ => {
+                #[cfg(windows)]
+                if let Some(job) = &job {
+                    job.terminate();
+                }
                 kill_group(&mut child);
                 let _ = child.wait();
                 return Err(RunError::Timeout);
@@ -129,6 +166,164 @@ fn kill_group(child: &mut Child) {
     }
 }
 
+/// Windows process plumbing (windows-support decision 3).
+#[cfg(windows)]
+pub(crate) mod win {
+    use std::os::windows::io::AsRawHandle;
+    use std::os::windows::process::CommandExt;
+    use std::process::{Child, Command};
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next};
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, TerminateJobObject,
+    };
+    use windows_sys::Win32::System::Threading::{CREATE_NO_WINDOW, CREATE_SUSPENDED, OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
+
+    /// A Job Object that kills every process in it when the last handle closes. Not inheritable, no breakaway.
+    pub struct Job(HANDLE);
+
+    // SAFETY: a job handle may be used and closed from any thread.
+    unsafe impl Send for Job {}
+    unsafe impl Sync for Job {}
+
+    impl Job {
+        pub fn new() -> std::io::Result<Job> {
+            // SAFETY: null attributes (not inheritable) and no name.
+            let h = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+            if h.is_null() {
+                return Err(std::io::Error::last_os_error());
+            }
+            let job = Job(h);
+            // SAFETY: zeroed is a valid value for this plain struct.
+            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            // SAFETY: `info` lives for the call and the size matches the class.
+            let ok = unsafe {
+                SetInformationJobObject(job.0, JobObjectExtendedLimitInformation, (&raw const info).cast(), std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32)
+            };
+            if ok == 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(job)
+        }
+
+        fn assign(&self, child: &Child) -> std::io::Result<()> {
+            // SAFETY: both handles are open for the call (the child is not reaped).
+            if unsafe { AssignProcessToJobObject(self.0, child.as_raw_handle() as HANDLE) } == 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        }
+
+        /// Ends every process in the job now.
+        pub fn terminate(&self) {
+            // SAFETY: the handle is open until Drop.
+            unsafe { TerminateJobObject(self.0, 1) };
+        }
+    }
+
+    impl Drop for Job {
+        fn drop(&mut self) {
+            // SAFETY: owned handle, closed once.
+            unsafe { CloseHandle(self.0) };
+        }
+    }
+
+    /// Resumes the only thread of a process created suspended.
+    fn resume(pid: u32) -> std::io::Result<()> {
+        // SAFETY: a thread snapshot of the whole system; closed below.
+        let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+        if snap == INVALID_HANDLE_VALUE {
+            return Err(std::io::Error::last_os_error());
+        }
+        // SAFETY: zeroed is valid; dwSize is set as the API requires.
+        let mut te: THREADENTRY32 = unsafe { std::mem::zeroed() };
+        te.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
+        let mut resumed = 0;
+        // SAFETY: `snap` is a valid snapshot and `te` a valid out pointer for every call.
+        let mut more = unsafe { Thread32First(snap, &mut te) } != 0;
+        while more {
+            if te.th32OwnerProcessID == pid {
+                // SAFETY: plain open/resume/close of one thread of our own suspended child.
+                unsafe {
+                    let t = OpenThread(THREAD_SUSPEND_RESUME, 0, te.th32ThreadID);
+                    if !t.is_null() {
+                        if ResumeThread(t) != u32::MAX {
+                            resumed += 1;
+                        }
+                        CloseHandle(t);
+                    }
+                }
+            }
+            // SAFETY: as above.
+            more = unsafe { Thread32Next(snap, &mut te) } != 0;
+        }
+        // SAFETY: owned snapshot handle.
+        unsafe { CloseHandle(snap) };
+        if resumed == 0 { Err(std::io::Error::other("no thread to resume")) } else { Ok(()) }
+    }
+
+    /// Spawns without a console window.
+    pub fn spawn_no_window(cmd: &mut Command) -> std::io::Result<Child> {
+        cmd.creation_flags(CREATE_NO_WINDOW).spawn()
+    }
+
+    /// Spawns suspended, assigns the process to a new kill-on-close job, then resumes it, so nothing it starts can
+    /// run outside the job. On any failure the child is killed and nothing is left running.
+    pub fn spawn_in_job(cmd: &mut Command) -> std::io::Result<(Child, Job)> {
+        let job = Job::new()?;
+        let mut child = cmd.creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED).spawn()?;
+        if let Err(e) = job.assign(&child).and_then(|()| resume(child.id())) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(e);
+        }
+        Ok((child, job))
+    }
+}
+
+/// A spawned child the caller owns, with its Windows job (if any) so the tree can be ended together.
+pub struct Spawned {
+    pub child: Child,
+    pub tree: TreeGuard,
+}
+
+/// The Windows job of a [`Spawned`] child; nothing elsewhere (the caller signals the process group).
+pub struct TreeGuard {
+    #[cfg(windows)]
+    job: Option<win::Job>,
+}
+
+impl TreeGuard {
+    /// Windows: ends every process in the job now. Elsewhere a no-op.
+    pub fn kill(&self) {
+        #[cfg(windows)]
+        if let Some(job) = &self.job {
+            job.terminate();
+        }
+    }
+}
+
+impl Spawned {
+    /// Unix: in its own process group (killed with `killpg` by the caller). Windows: in a kill-on-close job.
+    pub fn awaited(cmd: &mut Command) -> std::io::Result<Spawned> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+        #[cfg(windows)]
+        {
+            let (child, job) = win::spawn_in_job(cmd)?;
+            Ok(Spawned { child, tree: TreeGuard { job: Some(job) } })
+        }
+        #[cfg(not(windows))]
+        {
+            Ok(Spawned { child: cmd.spawn()?, tree: TreeGuard {} })
+        }
+    }
+}
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -141,4 +336,88 @@ mod tests {
         assert_eq!(tail, data[9000..]);
         assert_eq!(read_tail(&mut std::io::Cursor::new(b"abc".to_vec()), 1000), b"abc");
     }
+
+    /// windows-support 2.2 [CI]: the job ends grandchildren of awaited runs; detached runs leave them alone.
+    #[cfg(windows)]
+    mod windows_tree {
+        use super::super::*;
+        use std::path::Path;
+
+        fn alive(pid: u32) -> bool {
+            use windows_sys::Win32::Foundation::CloseHandle;
+            use windows_sys::Win32::System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+            // SAFETY: open/query/close of a process handle by pid.
+            unsafe {
+                let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+                if h.is_null() {
+                    return false;
+                }
+                let mut code = 0u32;
+                let ok = GetExitCodeProcess(h, &mut code) != 0;
+                CloseHandle(h);
+                ok && code == 259
+            }
+        }
+
+        fn wait_for(f: impl Fn() -> bool) -> bool {
+            let until = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < until {
+                if f() {
+                    return true;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            f()
+        }
+
+        fn pid_in(f: &Path) -> Option<u32> {
+            std::fs::read_to_string(f).ok()?.trim().parse().ok()
+        }
+
+        fn fake() -> std::path::PathBuf {
+            crate::testkit::fake_claude().expect("fake_claude example is built by cargo test")
+        }
+
+        #[test]
+        fn cancel_ends_the_grandchild() {
+            let t = tempfile::tempdir().unwrap();
+            let pidfile = t.path().join("pid");
+            let mut cmd = Command::new(fake());
+            cmd.arg("spawn").arg(&pidfile).arg("30");
+            let r = run_until(&mut cmd, Duration::from_secs(20), 1024, Keep::Head, 1024, &|| pid_in(&pidfile).is_some());
+            assert_eq!(r.err(), Some(RunError::Timeout));
+            let pid = pid_in(&pidfile).unwrap();
+            assert!(wait_for(|| !alive(pid)), "grandchild {pid} still running after cancel");
+        }
+
+        #[test]
+        fn awaited_run_ends_leftovers_on_normal_exit() {
+            let t = tempfile::tempdir().unwrap();
+            let pidfile = t.path().join("pid");
+            let done = run(Command::new(fake()).arg("spawn").arg(&pidfile).arg("30").arg("exit"), Duration::from_secs(20), 1024, Keep::Head, 1024).unwrap();
+            assert!(done.status.success());
+            let pid = pid_in(&pidfile).unwrap();
+            assert!(wait_for(|| !alive(pid)), "child {pid} left behind by an awaited run");
+        }
+
+        #[test]
+        fn detached_run_keeps_the_background_child() {
+            let t = tempfile::tempdir().unwrap();
+            let pidfile = t.path().join("pid");
+            let done = run_detached(Command::new(fake()).arg("spawn").arg(&pidfile).arg("30").arg("exit"), Duration::from_secs(20), 1024, Keep::Head, 1024).unwrap();
+            assert!(done.status.success());
+            let pid = pid_in(&pidfile).unwrap();
+            std::thread::sleep(Duration::from_millis(500));
+            let kept = alive(pid);
+            let _ = Command::new("taskkill").args(["/F", "/PID", &pid.to_string()]).output();
+            assert!(kept, "a --bg style child must survive its parent");
+        }
+
+        #[test]
+        fn version_runs_without_a_console_and_in_a_job() {
+            let done = run(Command::new(fake()).arg("--version"), Duration::from_secs(10), 1024, Keep::Head, 1024).unwrap();
+            assert_eq!(String::from_utf8_lossy(&done.stdout).trim(), "2.1.330 (Claude Code)");
+        }
+    }
+
 }

@@ -103,6 +103,16 @@ pub fn generate(dir: &Path, python: &str) -> Result<(), String> {
     }
 }
 
+/// The `fake_claude` example binary (`cargo test` builds examples next to the test binaries), for spawn, job and
+/// CLI-discovery tests on Windows CI where shell scripts cannot stand in for `claude.exe`.
+#[doc(hidden)]
+pub fn fake_claude() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let profile = exe.parent()?.parent()?;
+    let p = profile.join("examples").join(if cfg!(windows) { "fake_claude.exe" } else { "fake_claude" });
+    p.is_file().then_some(p)
+}
+
 #[cfg(unix)]
 fn with_lock<T>(dir: &Path, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     use std::os::unix::io::AsRawFd;

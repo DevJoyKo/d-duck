@@ -42,6 +42,8 @@ pub enum Rejection {
     UnsafeCharacters,
     VersionCheckFailed,
     NotClaudeCode,
+    /// Windows: an npm `claude.cmd` that does not wrap the native `claude.exe` the way the app can check.
+    UnsupportedShim,
 }
 
 impl Rejection {
@@ -54,7 +56,9 @@ impl Rejection {
             Rejection::NotExecutable => crate::i18n::Fail::CliNoExec.str(),
             Rejection::WritableByOthers => crate::i18n::Fail::CliWritable.str(),
             Rejection::NotOwned => crate::i18n::Fail::CliOwner.str(),
+            Rejection::UnsafeCharacters if cfg!(windows) => crate::i18n::Fail::CliBadCharsWin.str(),
             Rejection::UnsafeCharacters => crate::i18n::Fail::CliBadChars.str(),
+            Rejection::UnsupportedShim => crate::i18n::Fail::CliShimUnsupported.str(),
             Rejection::VersionCheckFailed => crate::i18n::Fail::CliVersionFailed.str(),
             Rejection::NotClaudeCode => crate::i18n::Fail::CliNotCode.str(),
         }
@@ -205,6 +209,10 @@ pub fn known_locations(home: &Path) -> Vec<PathBuf> {
 }
 
 fn known_locations_in(home: &Path, system_dirs: &[&str]) -> Vec<PathBuf> {
+    if cfg!(windows) {
+        let var = |k: &str| std::env::var_os(k).map(PathBuf::from).filter(|p| p.is_absolute());
+        return windows_locations(home, var("APPDATA").as_deref(), var("LOCALAPPDATA").as_deref(), std::env::var_os("PATH").as_deref());
+    }
     let exe = exe_name();
     let mut out = vec![home.join(".local/bin").join(exe), home.join(".claude/local").join(exe)];
     out.extend(system_dirs.iter().map(|d| PathBuf::from(d).join(exe)));
@@ -212,6 +220,42 @@ fn known_locations_in(home: &Path, system_dirs: &[&str]) -> Vec<PathBuf> {
         out.push(dir.join(exe));
     }
     out
+}
+
+/// Windows order (decision 2): the native installer, the npm shim (resolved before anything runs), Volta, scoop,
+/// then each absolute `PATH` entry last.
+fn windows_locations(home: &Path, appdata: Option<&Path>, local: Option<&Path>, path: Option<&std::ffi::OsStr>) -> Vec<PathBuf> {
+    let mut out = vec![home.join(".local").join("bin").join("claude.exe")];
+    out.extend(appdata.map(|a| a.join("npm").join("claude.cmd")));
+    out.extend(local.map(|l| l.join("Volta").join("bin").join("claude.exe")));
+    out.push(home.join("scoop").join("shims").join("claude.exe"));
+    for dir in path.map(std::env::split_paths).into_iter().flatten().filter(|d| d.is_absolute()).take(MAX_PATH_ENTRIES) {
+        out.push(dir.join("claude.exe"));
+        out.push(dir.join("claude.cmd"));
+    }
+    out
+}
+
+/// The one shim target the app accepts, relative to the shim's folder (npm's `cmd-shim` for a native binary).
+const NPM_SHIM_TARGET: &str = r"node_modules\@anthropic-ai\claude-code\bin\claude.exe";
+
+/// Reads an npm `claude.cmd` (at most 16 KB, never run) and returns the `claude.exe` it wraps: every `%dp0%\…`
+/// reference must be that one target, which must exist under the shim's folder after resolving links (junction
+/// case). Anything else is refused, so a `.cmd` or `.bat` is never executed.
+pub fn resolve_npm_shim(shim: &Path) -> Result<PathBuf, Rejection> {
+    let dir = shim.parent().ok_or(Rejection::UnsupportedShim)?;
+    let text = std::fs::read(shim).ok().filter(|b| b.len() <= 16 * 1024).ok_or(Rejection::NotFound)?;
+    let text = String::from_utf8(text).map_err(|_| Rejection::UnsupportedShim)?;
+    let targets: Vec<&str> = text.match_indices("%dp0%\\").map(|(i, m)| &text[i + m.len()..]).map(|rest| rest.split(['"', ' ', '\r', '\n']).next().unwrap_or("")).collect();
+    if targets.is_empty() || !targets.iter().all(|t| t.eq_ignore_ascii_case(NPM_SHIM_TARGET)) {
+        return Err(Rejection::UnsupportedShim);
+    }
+    let exe = dir.join(NPM_SHIM_TARGET);
+    let (real_dir, real_exe) = (crate::platform::canon(dir).map_err(|_| Rejection::NotFound)?, crate::platform::canon(&exe).map_err(|_| Rejection::NotFound)?);
+    if !real_exe.starts_with(&real_dir) {
+        return Err(Rejection::UnsupportedShim);
+    }
+    Ok(exe)
 }
 
 fn exe_name() -> &'static str {
@@ -246,8 +290,17 @@ pub fn validate(candidate: &Path) -> Result<CliInfo, Rejection> {
         return Err(Rejection::UnsafeCharacters);
     }
     let name = candidate.file_name().and_then(|n| n.to_str()).ok_or(Rejection::WrongName)?;
-    let allowed: &[&str] = if cfg!(windows) { &["claude.exe", "claude.cmd"] } else { &["claude"] };
-    if !allowed.contains(&name) {
+    // Windows: an npm shim is read, never run; the exe it wraps is what gets checked and executed.
+    let resolved;
+    let candidate = if cfg!(windows) && name.eq_ignore_ascii_case("claude.cmd") {
+        resolved = resolve_npm_shim(candidate)?;
+        resolved.as_path()
+    } else {
+        candidate
+    };
+    let name = candidate.file_name().and_then(|n| n.to_str()).ok_or(Rejection::WrongName)?;
+    let named = if cfg!(windows) { name.eq_ignore_ascii_case("claude.exe") } else { name == "claude" };
+    if !named {
         return Err(Rejection::WrongName);
     }
     let real = crate::platform::canon(candidate).map_err(|_| Rejection::NotFound)?;
@@ -261,6 +314,9 @@ pub fn validate(candidate: &Path) -> Result<CliInfo, Rejection> {
     for dir in [real.parent(), candidate.parent()].into_iter().flatten() {
         check_dir_not_shared(dir)?;
     }
+    // Windows: the final file and every folder above it, before anything runs, even `--version`.
+    #[cfg(windows)]
+    crate::platform::acl::check_chain(&real).map_err(|()| Rejection::WritableByOthers)?;
     let out = run_with_timeout(Command::new(candidate).arg("--version"), PROBE_TIMEOUT, 4096)
         .ok_or(Rejection::VersionCheckFailed)?;
     let caps = VERSION_RE.captures(out.trim()).ok_or(Rejection::NotClaudeCode)?;
@@ -271,8 +327,18 @@ pub fn validate(candidate: &Path) -> Result<CliInfo, Rejection> {
 
 /// Paths are later embedded in a shell command line for "open in terminal"; reject characters whose meaning differs
 /// between shells inside single quotes (fish `\\'`, csh `!`) and anything that breaks a line.
+/// On Windows the rule is [`is_windows_safe_path`].
 pub fn is_shell_safe_path(p: &Path) -> bool {
+    if cfg!(windows) {
+        return p.to_str().is_some_and(is_windows_safe_path);
+    }
     p.to_str().is_some_and(|s| !s.chars().any(|c| c.is_control() || c == '\\' || c == '!'))
+}
+
+/// Windows path rule (decision 2): `\` and `X:` are fine; control characters and `"` are not, and no name may end
+/// in a dot or a space (Windows drops them, so the checked name and the opened one would differ).
+pub fn is_windows_safe_path(s: &str) -> bool {
+    !s.is_empty() && !s.chars().any(|c| c.is_control() || c == '"') && s.split(['\\', '/']).all(|c| matches!(c, "" | "." | "..") || !(c.ends_with('.') || c.ends_with(' ')))
 }
 
 #[cfg(unix)]
@@ -484,5 +550,107 @@ mod tests {
         assert_eq!(default.env_value(), None, "default dir must not be passed explicitly");
         let chosen_default = effective_config_dir(Some(Path::new("/home/me/.claude")), &probe, home);
         assert_eq!(chosen_default.env_value(), None, "explicitly choosing ~/.claude still behaves as the default");
+    }
+}
+
+/// Rules that hold on every OS, plus the Windows CI scenarios (windows-support 2.1).
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod portable_tests {
+    use super::*;
+
+    #[test]
+    fn windows_path_rule() {
+        for ok in [r"C:\Users\me\.local\bin\claude.exe", r"\\server\share\claude.exe", r"C:\Program Files\nodejs\claude.cmd", r"C:\a\.\b\..\claude.exe"] {
+            assert!(is_windows_safe_path(ok), "{ok}");
+        }
+        for bad in ["", "C:\\a\u{7}\\claude.exe", r#"C:\a"b\claude.exe"#, r"C:\dir.\claude.exe", r"C:\dir \claude.exe", r"C:\a\claude.exe.", "C:\\a\nb\\claude.exe"] {
+            assert!(!is_windows_safe_path(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn windows_candidates_put_the_native_installer_first_and_path_last() {
+        let t = tempfile::tempdir().unwrap();
+        let (home, appdata, local, p1, p2) = (t.path().join("home"), t.path().join("roaming"), t.path().join("local"), t.path().join("p1"), t.path().join("p2"));
+        let path = std::env::join_paths([p1.clone(), PathBuf::from("relative"), p2.clone()]).unwrap();
+        let got = windows_locations(&home, Some(&appdata), Some(&local), Some(&path));
+        assert_eq!(got[0], home.join(".local").join("bin").join("claude.exe"));
+        assert_eq!(got[1], appdata.join("npm").join("claude.cmd"));
+        assert_eq!(got[2], local.join("Volta").join("bin").join("claude.exe"));
+        assert_eq!(got[3], home.join("scoop").join("shims").join("claude.exe"));
+        assert_eq!(&got[4..], [p1.join("claude.exe"), p1.join("claude.cmd"), p2.join("claude.exe"), p2.join("claude.cmd")], "relative PATH entries dropped");
+    }
+
+    fn npm_dir(t: &Path) -> (PathBuf, PathBuf) {
+        let dir = t.join("npm");
+        let exe = dir.join("node_modules").join("@anthropic-ai").join("claude-code").join("bin").join("claude.exe");
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        std::fs::write(&exe, "x").unwrap();
+        (dir, exe)
+    }
+
+    /// The text npm's cmd-shim writes for a native binary.
+    const SHIM: &str = "@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\n\"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe\"   %*\r\n";
+
+    #[test]
+    fn npm_shim_resolves_only_to_the_wrapped_exe() {
+        let t = tempfile::tempdir().unwrap();
+        let (dir, _) = npm_dir(t.path());
+        let shim = dir.join("claude.cmd");
+        std::fs::write(&shim, SHIM).unwrap();
+        if cfg!(windows) {
+            assert_eq!(resolve_npm_shim(&shim).unwrap(), dir.join(NPM_SHIM_TARGET));
+        }
+        for bad in [SHIM.replace("claude-code\\bin\\claude.exe", "claude-code\\cli.js"), SHIM.replace("%dp0%\\", "C:\\elsewhere\\"), format!("{SHIM}\"%dp0%\\node.exe\" x\r\n"), "@echo off\r\n".into()] {
+            std::fs::write(&shim, &bad).unwrap();
+            assert_eq!(resolve_npm_shim(&shim), Err(Rejection::UnsupportedShim), "{bad}");
+        }
+        std::fs::write(&shim, "x".repeat(17 * 1024)).unwrap();
+        assert!(resolve_npm_shim(&shim).is_err(), "oversized shim");
+    }
+
+    #[cfg(windows)]
+    mod windows_ci {
+        use super::super::*;
+
+        fn installed(at: &Path) -> PathBuf {
+            std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+            std::fs::copy(crate::testkit::fake_claude().expect("fake_claude example"), at).unwrap();
+            at.to_path_buf()
+        }
+
+        /// Spec "Native installer" [CI].
+        #[test]
+        fn native_installer_location_is_found() {
+            let t = tempfile::tempdir().unwrap();
+            let home = crate::platform::canon(t.path()).unwrap();
+            let exe = installed(&home.join(".local").join("bin").join("claude.exe"));
+            let info = resolve_in(None, &home, &ShellProbe::default(), &[]).unwrap();
+            assert_eq!((info.path, info.version.as_str(), info.supported), (exe, "2.1.330", true));
+        }
+
+        /// Spec "npm shim" [CI]: the wrapped exe is checked and shown; the .cmd is only read.
+        #[test]
+        fn npm_shim_is_resolved_to_its_exe() {
+            let t = tempfile::tempdir().unwrap();
+            let dir = crate::platform::canon(t.path()).unwrap().join("npm");
+            let exe = installed(&dir.join(NPM_SHIM_TARGET));
+            std::fs::write(dir.join("claude.cmd"), super::SHIM).unwrap();
+            assert_eq!(validate(&dir.join("claude.cmd")).unwrap().path, exe);
+            assert_eq!(validate(&dir.join("claude.bat")), Err(Rejection::WrongName));
+        }
+
+        /// Spec "Shared-writable folder" [CI]: refused by the ACL check before `--version` runs.
+        #[test]
+        fn folder_writable_by_authenticated_users_is_refused() {
+            let t = tempfile::tempdir().unwrap();
+            let dir = crate::platform::canon(t.path()).unwrap().join("shared");
+            let exe = installed(&dir.join("claude.exe"));
+            assert!(validate(&exe).is_ok(), "a private folder passes");
+            let granted = Command::new("icacls").arg(&dir).args(["/grant", "*S-1-5-11:(OI)(CI)M"]).output().unwrap().status.success();
+            assert!(granted, "icacls failed");
+            assert_eq!(validate(&exe), Err(Rejection::WritableByOthers));
+        }
     }
 }
