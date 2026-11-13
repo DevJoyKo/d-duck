@@ -66,3 +66,13 @@
 - [x] 7.14 Cheap LOWs: News px-3, LocalOnly disabled tone, Sidebar logo pt-3, git_bash roots = git_program, Toolhelp retry, Windows local-only start disabled, shim take(16K+1), `\??\` and `?` refused, fd_path None refused on Windows, evidence run ids, comment placement, new_window_guard assert, Composer gitBash=false render test — News px-3, LocalOnly text-ink-3, Windows logo pt-3, git_bash roots, Toolhelp retry, Windows local-only start disabled, shim take(16K+1), \??\ and ? refused, fd_path None refused on Windows, run ids, comment, guard assert, ComposerWindows render test
 - [x] 7.15 Deferred LOWs recorded (Windows owner SID / swap defence in agents_catalog, git system config NOSYSTEM) — owner-SID check deferred (file-index swap check now also on Windows); git system config kept readable on Windows (admin-only, autocrlf) — design corrections 7 and 11
 
+
+## 8. 재검토 수정 (re-review 2026-11-13)
+
+- [ ] 8.1 HIGH release-windows.yml: a manual run proceeds only when `GITHUB_REF == refs/tags/$INPUT`; whole-string tag check; how to run it in the notes and the workflow
+- [ ] 8.2 report_guard::grant answers NoHooks when `!hooks_allowed()`; test; design correction 8 and cli_path comment aligned
+- [ ] 8.3 Recycle Bin after-check: original gone → its own code (deleted or bin not confirmable) ko/en and a fresh catalog; original still there → TrashFailed; warning dialog owned by the main window; subst/mounted volumes [manual]
+- [ ] 8.4 Login leftovers: CI starts `auth login`, records the tree after 5 s, cancels, asserts 0 descendants; Windows kills the whole tree (Toolhelp); [manual] "0 claude.exe after cancel"; LOGIN.cancel() on app exit
+- [ ] 8.5 git on Windows: GIT_CONFIG_NOSYSTEM=1 again; only `core.autocrlf` read from Git's `etc\gitconfig` and passed with `-c` (default true)
+- [ ] 8.6 LOWs: CliUpdateNeeded before run_hook for local-only and daily News; DOS wildcards `<>"|` refused (lexical, trash); is_shell_safe_path on the real path; release notes on rule limits and the unread registry policy; decision on `bash -c`/`sh -c`/`env`/`git -C` rules
+- [ ] 8.7 Brand: Git Bash body and link wording; Windows sidebar logo clear of the header rule, centred on the page title
