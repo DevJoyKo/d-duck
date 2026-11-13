@@ -697,6 +697,7 @@ pub fn is_dir(p: &Path) -> bool {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    #[cfg_attr(not(unix), allow(unused_imports))]
     use crate::platform::CanonExt;
     use super::*;
     use chrono::{FixedOffset, Utc};
