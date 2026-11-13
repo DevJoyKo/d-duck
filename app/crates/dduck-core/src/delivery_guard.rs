@@ -303,18 +303,47 @@ pub fn deny_rules(guard: Guard, start_on_default: bool, detected_default: Option
 /// `git`/`gh` rule also gets its `git.exe`/`gh.exe` form. Absolute-path and letter-case variants of git stay a known
 /// gap, as on macOS. Real enforcement by the Windows CLI is a [manual] scenario.
 pub fn windows_variants(rules: Vec<String>) -> Vec<String> {
-    let mut out = Vec::with_capacity(rules.len() * 2 + 6);
+    // Rules match case-sensitively but Windows runs `Git.exe` or `GIT` the same (review MEDIUM): each git/gh rule
+    // also gets the capitalised and upper-case names, with and without `.exe`/`.EXE`.
+    let mut out = Vec::with_capacity(rules.len() * 9 + WINDOWS_RULES.len());
     for r in rules {
-        let exe = ["git", "gh"].iter().find_map(|t| r.strip_prefix(&format!("Bash({t} ")).map(|rest| format!("Bash({t}.exe {rest}")));
+        let tool = ["git", "gh"].iter().find_map(|t| r.strip_prefix(&format!("Bash({t} ")).map(|rest| (*t, rest.to_string())));
         out.push(r);
-        out.extend(exe);
+        if let Some((t, rest)) = tool {
+            for name in case_forms(t) {
+                for ext in ["", ".exe", ".EXE"] {
+                    let v = format!("Bash({name}{ext} {rest}");
+                    if !(name == t && ext.is_empty()) {
+                        out.push(v);
+                    }
+                }
+            }
+        }
     }
     out.extend(WINDOWS_RULES.iter().map(|s| s.to_string()));
     out
 }
 
-/// Tools and shell launches refused on Windows on top of the shared rules.
-pub const WINDOWS_RULES: &[&str] = &["PowerShell", "Monitor", "Bash(powershell*)", "Bash(pwsh*)", "Bash(cmd *)", "Bash(cmd.exe *)"];
+/// `git` → `git`, `Git`, `GIT`.
+fn case_forms(t: &str) -> [String; 3] {
+    let mut cap = t.to_string();
+    if let Some(f) = cap.get_mut(..1) {
+        f.make_ascii_uppercase();
+    }
+    [t.to_string(), cap, t.to_ascii_uppercase()]
+}
+
+/// Tools and shell launches refused on Windows on top of the shared rules: other shells (with any letter case, bare
+/// or with arguments), `start` (opens another program), `wsl` and `winpty`.
+pub const WINDOWS_RULES: &[&str] = &[
+    "PowerShell", "Monitor",
+    "Bash(powershell*)", "Bash(Powershell*)", "Bash(PowerShell*)", "Bash(POWERSHELL*)",
+    "Bash(pwsh*)", "Bash(Pwsh*)", "Bash(PWSH*)",
+    "Bash(cmd)", "Bash(cmd *)", "Bash(cmd.exe*)", "Bash(Cmd)", "Bash(Cmd *)", "Bash(Cmd.exe*)", "Bash(CMD)", "Bash(CMD *)", "Bash(CMD.EXE*)", "Bash(cmd.EXE*)",
+    "Bash(start *)", "Bash(Start *)", "Bash(START *)",
+    "Bash(wsl*)", "Bash(Wsl*)", "Bash(WSL*)",
+    "Bash(winpty*)", "Bash(Winpty*)", "Bash(WINPTY*)",
+];
 
 /// Shell-quoted hook command: `'<exe>' --dduck-guard-local-only`.
 pub fn hook_command(exe: &Path) -> String {
@@ -2874,6 +2903,24 @@ mod windows_rules {
             assert!(w.contains(&r.to_string()), "{r}");
         }
         assert!(base.iter().all(|r| w.contains(r)), "nothing shared is dropped");
+        for v in ["Bash(Git push * main)", "Bash(GIT.EXE push * main)", "Bash(Git.exe push * main)", "Bash(git.EXE push * main)"] {
+            assert!(w.contains(&v.to_string()), "{v} missing");
+        }
+        for r in base.iter().filter_map(|r| r.strip_prefix("Bash(gh ")) {
+            assert!(w.contains(&format!("Bash(GH.exe {r}")) && w.contains(&format!("Bash(Gh {r}")), "gh {r}");
+        }
+        for v in ["Bash(CMD *)", "Bash(cmd)", "Bash(PowerShell*)", "Bash(start *)", "Bash(wsl*)", "Bash(winpty*)"] {
+            assert!(w.contains(&v.to_string()), "{v}");
+        }
+    }
+
+    #[test]
+    fn windows_rules_fit_the_command_line() {
+        // The worst case: on the default branch with a detected default branch.
+        let rules = windows_variants(deny_rules(Guard::DraftPr, true, Some("main")));
+        let arg = std::ffi::OsString::from(format!("--disallowedTools={}", rules.join(",")));
+        let n = crate::claude_cli::windows_cmdline_len(&[arg]);
+        assert!(n < 12_000, "{n} UTF-16 units leave too little room for the prompt");
     }
 
     #[test]

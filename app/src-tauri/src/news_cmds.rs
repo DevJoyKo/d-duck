@@ -161,7 +161,7 @@ fn run(app: &AppHandle, daily: bool) -> NewsRun {
 /// "가져오기": login gate, busy claimed, native confirmation with what is sent and the cost, then one run.
 #[tauri::command]
 pub async fn news_fetch(app: AppHandle) -> Result<NewsRun, login_cmds::CmdError> {
-    crate::hook_ready(&app)?;
+    crate::hook_ready()?;
     login_cmds::gate_async(&app, dduck_core::auth_status::Need::Model).await?;
     tauri::async_runtime::spawn_blocking(move || -> Res<NewsRun> {
         let Some(_busy) = Busy::claim() else { return Ok(failed(NewsError::Busy)) };
