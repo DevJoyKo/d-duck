@@ -177,7 +177,10 @@ fn snapshot(path: &Path, kind: &str, guard: &[PathBuf]) -> Result<Snap, ExtTrash
         if ft.is_symlink() {
             return Err(Unsafe(crate::i18n::Fail::SkillDirLink.str()));
         }
-        let em = e.metadata().map_err(|_| Unsafe(crate::i18n::Fail::SkillDirPartial.str()))?;
+        // Windows: walkdir's metadata comes from the directory listing, whose times NTFS refreshes lazily; read the
+        // entry itself so the plan and the recheck see the same values (windows-support 5.2).
+        let em = if cfg!(windows) { std::fs::symlink_metadata(e.path()) } else { e.metadata().map_err(std::io::Error::from) };
+        let em = em.map_err(|_| Unsafe(crate::i18n::Fail::SkillDirPartial.str()))?;
         let (d, i, n) = ids(e.path(), &em);
         if ft.is_file() {
             if n != 1 {
@@ -419,6 +422,9 @@ mod tests {
         let s = plan_trash(&find(&f, "skill", "standup"), &r).unwrap();
         assert_eq!((s.path.clone(), s.files, s.disk_name.as_str()), (f.cfg.join("skills/standup"), 2, "standup"));
         assert!(s.skill_token.as_deref().is_some_and(|t| t.len() == 64));
+        let again = snapshot(&s.path, s.kind, &s.guard).unwrap();
+        assert_eq!((again.dev, again.ino), (s.dev, s.ino), "identity at recheck");
+        assert_eq!(again.fingerprint, s.fingerprint, "fingerprint at recheck");
         recheck(&s).unwrap();
         let c = plan_trash(&find(&f, "command", "opsx:propose"), &r).unwrap();
         assert_eq!(c.path, f.cfg.join("commands/opsx/propose.md"));
