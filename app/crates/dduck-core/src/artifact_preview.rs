@@ -403,27 +403,15 @@ fn resolve(call: &Call) -> Source {
 
 // ---------- reading the source ----------
 
-/// Opens without following a final symlink or blocking on a FIFO, close-on-exec.
+/// Opens without following a final symlink or blocking on a FIFO, close-on-exec (Windows: the reparse point itself).
 pub(crate) fn open_flags(path: &Path) -> std::io::Result<File> {
-    let mut opts = std::fs::OpenOptions::new();
-    opts.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC);
-    }
-    opts.open(path)
+    crate::platform::open_nofollow(path)
 }
 
 pub(crate) fn single_link_regular(f: &File) -> Option<std::fs::Metadata> {
     let meta = f.metadata().ok()?;
-    #[cfg(unix)]
-    let single = {
-        use std::os::unix::fs::MetadataExt;
-        meta.nlink() == 1
-    };
-    #[cfg(not(unix))]
-    let single = true;
+    // Windows: link count and reparse flag from the handle (decision 1); unknown counts as refused.
+    let single = crate::platform::handle_ids(f, &meta).2 == 1;
     (meta.is_file() && single).then_some(meta)
 }
 
@@ -454,7 +442,11 @@ pub(crate) fn fd_path(f: &File) -> Option<PathBuf> {
         use std::os::unix::io::AsRawFd;
         std::fs::read_link(format!("/proc/self/fd/{}", f.as_raw_fd())).ok()
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(windows)]
+    {
+        crate::platform::final_path(f)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     {
         let _ = f;
         None

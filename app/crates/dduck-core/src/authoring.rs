@@ -1043,14 +1043,9 @@ pub struct ItemText {
     pub extra_files: Vec<String>,
 }
 
-#[cfg(unix)]
-fn nlink(m: &std::fs::Metadata) -> u64 {
-    std::os::unix::fs::MetadataExt::nlink(m)
-}
-
-#[cfg(not(unix))]
-fn nlink(_m: &std::fs::Metadata) -> u64 {
-    1
+/// Link count of `p` (metadata `m`); Windows reads it from a handle and refuses when unknown (platform::ids).
+fn nlink(p: &Path, m: &std::fs::Metadata) -> u64 {
+    crate::platform::nlink(p, m)
 }
 
 /// Reads one catalog file for the editor.
@@ -1062,7 +1057,7 @@ pub fn read_item(path: &Path, kind: &'static str, name: &str, location: String, 
     let mut buf = Vec::new();
     std::fs::File::open(path).and_then(|f| f.take(MAX_CONTENT as u64 + 1).read_to_end(&mut buf)).map_err(|_| crate::i18n::Fail::ReadFileFailed.str().to_string())?;
     let content = String::from_utf8(buf).map_err(|_| crate::i18n::Fail::NotUtf8Text.str().to_string())?;
-    let readonly = readonly.map(str::to_string).or_else(|| (nlink(&m) != 1).then(|| crate::i18n::Fail::HardlinkNoEdit.str().to_string()));
+    let readonly = readonly.map(str::to_string).or_else(|| (nlink(path, &m) != 1).then(|| crate::i18n::Fail::HardlinkNoEdit.str().to_string()));
     let k = match kind {
         "command" => Kind::Command,
         "workflow" => Kind::Workflow,
@@ -1189,7 +1184,7 @@ fn skill_files(dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
         if e.file_type().is_file() {
             let m = e.metadata().map_err(|_| crate::i18n::Fail::ReadFileFailed.str().to_string())?;
             total += m.len();
-            if m.len() > 1024 * 1024 || total > MAX_JOB_BYTES || out.len() >= MAX_JOB_FILES || nlink(&m) != 1 {
+            if m.len() > 1024 * 1024 || total > MAX_JOB_BYTES || out.len() >= MAX_JOB_FILES || nlink(e.path(), &m) != 1 {
                 return Err(crate::i18n::Fail::TooBigOrMany.str().into());
             }
             out.push((rel, e.path().to_path_buf()));
@@ -1463,7 +1458,7 @@ fn copy_list(dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
             continue;
         }
         let Ok(m) = std::fs::symlink_metadata(e.path()) else { continue };
-        if !m.file_type().is_file() || nlink(&m) != 1 {
+        if !m.file_type().is_file() || nlink(e.path(), &m) != 1 {
             continue;
         }
         total += m.len();

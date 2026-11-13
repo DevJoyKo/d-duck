@@ -57,7 +57,7 @@ pub fn discover(root: &Path) -> Vec<TranscriptFile> {
 /// symlink anywhere in the chain (file or directory), including links that point back inside `projects/`.
 pub fn classify(root: &Path, path: &Path) -> Option<TranscriptFile> {
     let meta = std::fs::symlink_metadata(path).ok()?;
-    if !meta.file_type().is_file() || hard_linked(&meta) {
+    if !meta.file_type().is_file() || hard_linked(path, &meta) {
         return None;
     }
     let rel = path.strip_prefix(root).ok()?;
@@ -102,15 +102,8 @@ pub fn classify(root: &Path, path: &Path) -> Option<TranscriptFile> {
 }
 
 /// A transcript is written by one process into one place; extra hard links mean it was linked in from elsewhere.
-#[cfg(unix)]
-fn hard_linked(meta: &std::fs::Metadata) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    meta.nlink() > 1
-}
-
-#[cfg(not(unix))]
-fn hard_linked(_meta: &std::fs::Metadata) -> bool {
-    false
+fn hard_linked(path: &Path, meta: &std::fs::Metadata) -> bool {
+    crate::platform::nlink(path, meta) > 1
 }
 
 fn is_forbidden_name(name: &str) -> bool {

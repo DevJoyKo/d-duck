@@ -1,0 +1,6 @@
+# windows-support: LF on every checkout (Windows runners default to CRLF), so include_str! data, hook scripts,
+# frontmatter and the source scans in tests read the same bytes as on macOS.
+* text=auto eol=lf
+*.png binary
+*.icns binary
+*.ico binary

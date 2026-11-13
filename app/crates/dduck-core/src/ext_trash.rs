@@ -87,15 +87,9 @@ pub struct ExtTrash {
     fingerprint: String,
 }
 
-#[cfg(unix)]
-fn ids(m: &std::fs::Metadata) -> (u64, u64, u64) {
-    use std::os::unix::fs::MetadataExt;
-    (m.dev(), m.ino(), m.nlink())
-}
-
-#[cfg(not(unix))]
-fn ids(_m: &std::fs::Metadata) -> (u64, u64, u64) {
-    (0, 0, 1)
+/// (device, inode, links) of `p`, whose metadata is `m` (Windows reads them from a handle; see platform::ids).
+fn ids(p: &Path, m: &std::fs::Metadata) -> (u64, u64, u64) {
+    crate::platform::ids(p, m)
 }
 
 #[cfg(unix)]
@@ -121,7 +115,7 @@ fn stream_token(path: &Path) -> Result<(std::fs::Metadata, String), ExtTrashErro
     if !m.is_file() {
         return Err(Unsafe(crate::i18n::Fail::NotRegularFile.str()));
     }
-    if ids(&m).2 != 1 {
+    if crate::platform::handle_ids(&f, &m).2 != 1 {
         return Err(Unsafe(HARD_LINK.str()));
     }
     let mut h = Sha256::new();
@@ -155,10 +149,10 @@ fn snapshot(path: &Path, kind: &str, guard: &[PathBuf]) -> Result<Snap, ExtTrash
     if m.file_type().is_symlink() {
         return Err(Unsafe(LINK.str()));
     }
-    let (dev, ino, _) = ids(&m);
+    let (dev, ino, _) = ids(path, &m);
     if kind != "skill" {
         let (fm, token) = stream_token(path)?;
-        if ids(&fm).0 != dev || ids(&fm).1 != ino {
+        if ids(path, &fm).0 != dev || ids(path, &fm).1 != ino {
             return Err(Changed);
         }
         return Ok(Snap { dev, ino, files: 1, fingerprint: token, skill_token: None });
@@ -184,7 +178,7 @@ fn snapshot(path: &Path, kind: &str, guard: &[PathBuf]) -> Result<Snap, ExtTrash
             return Err(Unsafe(crate::i18n::Fail::SkillDirLink.str()));
         }
         let em = e.metadata().map_err(|_| Unsafe(crate::i18n::Fail::SkillDirPartial.str()))?;
-        let (d, i, n) = ids(&em);
+        let (d, i, n) = ids(e.path(), &em);
         if ft.is_file() {
             if n != 1 {
                 return Err(Unsafe(crate::i18n::Fail::HasHardlink.str()));

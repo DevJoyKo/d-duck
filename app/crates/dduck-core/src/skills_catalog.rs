@@ -78,15 +78,9 @@ pub const RO_PLUGIN_DIR: crate::i18n::Fail = crate::i18n::Fail::PluginSkillReadO
 /// Same wording as `authoring::read_item` (extension-edit-delete review: no "수정"·"삭제" for such files).
 pub const RO_HARDLINK: crate::i18n::Fail = crate::i18n::Fail::HardlinkNoEdit;
 
-#[cfg(unix)]
+/// More than one link. Unreadable counts as linked on Windows (fail closed), as not linked on macOS (unchanged).
 fn hard_linked(path: &Path) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    std::fs::symlink_metadata(path).is_ok_and(|m| m.nlink() > 1)
-}
-
-#[cfg(not(unix))]
-fn hard_linked(_path: &Path) -> bool {
-    false
+    crate::platform::file_id_at(path).map_or(cfg!(windows), |f| f.nlink > 1)
 }
 
 fn file_id(path: &Path) -> String {

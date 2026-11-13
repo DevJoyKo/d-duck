@@ -81,15 +81,9 @@ impl From<SaveError> for MemError {
 
 // ---------- paths ----------
 
-#[cfg(unix)]
-fn ids(m: &std::fs::Metadata) -> (u64, u64, u64) {
-    use std::os::unix::fs::MetadataExt;
-    (m.dev(), m.ino(), m.nlink())
-}
-
-#[cfg(not(unix))]
-fn ids(_m: &std::fs::Metadata) -> (u64, u64, u64) {
-    (0, 0, 1)
+/// (device, inode, links) of `p`, whose metadata is `m` (Windows reads them from a handle; see platform::ids).
+fn ids(p: &Path, m: &std::fs::Metadata) -> (u64, u64, u64) {
+    crate::platform::ids(p, m)
 }
 
 fn is_real_dir(p: &Path) -> bool {
@@ -288,7 +282,7 @@ fn read_index(dir: &Path) -> Result<Index, MemError> {
     match std::fs::symlink_metadata(&p) {
         Err(_) => Ok(Index { text: None, token: String::new() }),
         Ok(m) => {
-            let (_, _, nlink) = ids(&m);
+            let (_, _, nlink) = ids(&p, &m);
             if !m.file_type().is_file() || nlink != 1 {
                 return Err(MemError::Unsafe(crate::i18n::Fail::IndexLinked.str()));
             }
@@ -366,7 +360,7 @@ fn sidecar_path(dir: &Path, file: &str) -> PathBuf {
 fn read_sidecar(dir: &Path, file: &str) -> Option<Sidecar> {
     let p = sidecar_path(dir, file);
     let m = std::fs::symlink_metadata(&p).ok()?;
-    if !m.file_type().is_file() || ids(&m).2 != 1 || m.len() > 8192 {
+    if !m.file_type().is_file() || ids(&p, &m).2 != 1 || m.len() > 8192 {
         return None;
     }
     let sc: Sidecar = serde_json::from_slice(&std::fs::read(&p).ok()?).ok()?;
@@ -725,7 +719,7 @@ fn read_file(path: &Path) -> Result<FileRead, MemError> {
     }
     let mtime_ms = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis() as i64);
     let base = FileRead { text: None, token: String::new(), size: m.len(), mtime_ms, readonly: None };
-    if ids(&m).2 != 1 {
+    if ids(path, &m).2 != 1 {
         return Ok(FileRead { readonly: Some(crate::i18n::Fail::HardlinkReadOnly2.str()), ..base });
     }
     if m.len() > MAX_FILE_BYTES {
@@ -1071,7 +1065,7 @@ pub fn plan_trash(dir: &Path, file: &str, token: &str, index_token: &str) -> Res
         }
     }
     let m = std::fs::symlink_metadata(&path).map_err(|_| MemError::NotFound)?;
-    let (dev, ino, _) = ids(&m);
+    let (dev, ino, _) = ids(&path, &m);
     Ok(TrashPlan { path, file: file.to_string(), enabled, dev, ino, token: token.to_string() })
 }
 
@@ -1082,7 +1076,7 @@ pub fn recheck_trash(dir: &Path, plan: &TrashPlan) -> Result<(), MemError> {
         return Err(MemError::Conflict);
     }
     let m = std::fs::symlink_metadata(&plan.path).map_err(|_| MemError::Conflict)?;
-    let (dev, ino, nlink) = ids(&m);
+    let (dev, ino, nlink) = ids(&plan.path, &m);
     if !m.file_type().is_file() || nlink != 1 || dev != plan.dev || ino != plan.ino {
         return Err(MemError::Conflict);
     }
@@ -1224,7 +1218,7 @@ pub fn auto_memory(config_dir: &Path, home: &Path) -> AutoMemory {
         Some(crate::i18n::Fail::SettingsDirLinked.str())
     } else {
         match &meta {
-            Ok(m) if !m.file_type().is_file() || ids(m).2 != 1 => Some(crate::i18n::Fail::SettingsJsonLinked.str()),
+            Ok(m) if !m.file_type().is_file() || ids(&path, m).2 != 1 => Some(crate::i18n::Fail::SettingsJsonLinked.str()),
             Ok(m) if m.len() > MAX_FILE_BYTES => Some(crate::i18n::Fail::SettingsJsonBig.str()),
             Ok(_) if read_json(&path).is_none() => Some(crate::i18n::Fail::SettingsJsonBad.str()),
             _ => None,
@@ -1619,6 +1613,19 @@ mod tests {
             assert!(w.readonly_reason.is_some());
             assert!(matches!(set_enabled(&dir, "worklog.md", false, &w.token, &l.index_token), Err(MemError::Unsafe(_))));
         }
+    }
+
+    /// windows-support spec "Memory file hard-linked to credentials" [CI]: refused on every OS, not only unix.
+    #[test]
+    fn hard_linked_memory_is_read_only_on_every_os() {
+        let (_t, cfg, dir) = setup();
+        std::fs::write(cfg.join(".credentials-like"), "secret").unwrap();
+        std::fs::remove_file(dir.join("worklog.md")).unwrap();
+        std::fs::hard_link(cfg.join(".credentials-like"), dir.join("worklog.md")).unwrap();
+        let l = list(&dir);
+        let w = entry_of(&l, "worklog.md");
+        assert!(w.readonly_reason.is_some(), "a hard-linked memory must be read-only");
+        assert!(matches!(set_enabled(&dir, "worklog.md", false, &w.token, &l.index_token), Err(MemError::Unsafe(_))));
     }
 
     #[test]

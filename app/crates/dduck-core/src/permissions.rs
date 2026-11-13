@@ -292,13 +292,9 @@ pub fn sha(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
-#[cfg(unix)]
-fn nlink(m: &std::fs::Metadata) -> u64 {
-    std::os::unix::fs::MetadataExt::nlink(m)
-}
-#[cfg(not(unix))]
-fn nlink(_m: &std::fs::Metadata) -> u64 {
-    1
+/// Link count of `p` (metadata `m`); Windows reads it from a handle and refuses when unknown (platform::ids).
+fn nlink(p: &Path, m: &std::fs::Metadata) -> u64 {
+    crate::platform::nlink(p, m)
 }
 
 fn str_list(v: Option<&Value>) -> Result<Vec<String>, ()> {
@@ -323,7 +319,7 @@ pub fn read_scope(path: &Path) -> ScopeView {
     } else if !meta.file_type().is_file() {
         view.readonly_reason = Some(crate::i18n::Fail::NotRegularFile.str().into());
         return view;
-    } else if nlink(&meta) > 1 {
+    } else if nlink(path, &meta) > 1 {
         view.readonly_reason = Some(crate::i18n::Fail::HardlinkNoEditHere.str().into());
     }
     let bytes = match std::fs::metadata(path) {
@@ -783,7 +779,7 @@ fn check_unchanged(plan: &PermPlan) -> Result<(), PermError> {
         Err(_) => Err(PermError::Conflict),
         Ok(_) if !plan.exists => Err(PermError::Conflict),
         Ok(m) => {
-            if !m.file_type().is_file() || nlink(&m) != 1 {
+            if !m.file_type().is_file() || nlink(&plan.path, &m) != 1 {
                 return Err(PermError::Conflict);
             }
             #[cfg(unix)]

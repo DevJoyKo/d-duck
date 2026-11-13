@@ -238,22 +238,9 @@ pub fn scrub(conn: &Connection) -> Result<(), Error> {
 /// Opens a transcript without following a symlink planted after discovery, without blocking on a FIFO, and only if
 /// it is still a single-link regular file.
 fn open_regular(path: &Path) -> Result<File, Error> {
-    let mut opts = std::fs::OpenOptions::new();
-    opts.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
-    }
-    let file = opts.open(path)?;
+    let file = crate::platform::open_nofollow(path)?;
     let meta = file.metadata()?;
-    #[cfg(unix)]
-    let single_link = {
-        use std::os::unix::fs::MetadataExt;
-        meta.nlink() == 1
-    };
-    #[cfg(not(unix))]
-    let single_link = true;
+    let single_link = crate::platform::handle_ids(&file, &meta).2 == 1;
     if !meta.is_file() || !single_link {
         return Err(Error::Config("transcript is not a single-link regular file"));
     }

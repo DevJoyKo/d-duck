@@ -509,14 +509,9 @@ pub enum SaveError {
     Io,
 }
 
-#[cfg(unix)]
-fn nlink(m: &std::fs::Metadata) -> u64 {
-    std::os::unix::fs::MetadataExt::nlink(m)
-}
-
-#[cfg(not(unix))]
-fn nlink(_m: &std::fs::Metadata) -> u64 {
-    1
+/// Link count of `p` (metadata `m`); Windows reads it from a handle and refuses when unknown (platform::ids).
+fn nlink(p: &Path, m: &std::fs::Metadata) -> u64 {
+    crate::platform::nlink(p, m)
 }
 
 /// Full text for the editor plus its token.
@@ -524,7 +519,7 @@ pub fn load(defs: &[AgentDef], id: &str) -> Result<(String, String), SaveError> 
     let d = defs.iter().find(|d| d.id == id).ok_or(SaveError::NotFound)?;
     let file = d.file.as_ref().ok_or(SaveError::ReadOnly(crate::i18n::Fail::BuiltinNoFile.str()))?;
     let m = std::fs::symlink_metadata(file).map_err(|_| SaveError::Io)?;
-    if !m.file_type().is_file() || nlink(&m) != 1 {
+    if !m.file_type().is_file() || nlink(file, &m) != 1 {
         return Err(SaveError::ReadOnly(crate::i18n::Fail::NotRegularOrLinked.str()));
     }
     let bytes = std::fs::read(file).map_err(|_| SaveError::Io)?;
@@ -584,7 +579,7 @@ pub fn plan_save_path(path: PathBuf, content: String, token: &str) -> Result<Sav
         return Err(SaveError::Invalid(crate::i18n::Fail::Text256Only.str()));
     }
     let m = std::fs::symlink_metadata(&path).map_err(|_| SaveError::NotFound)?;
-    if !m.file_type().is_file() || nlink(&m) != 1 {
+    if !m.file_type().is_file() || nlink(&path, &m) != 1 {
         return Err(SaveError::ReadOnly(crate::i18n::Fail::NotRegularOrLinked.str()));
     }
     let current = std::fs::read(&path).map_err(|_| SaveError::Io)?;
@@ -626,7 +621,7 @@ pub fn plan_save_path(path: PathBuf, content: String, token: &str) -> Result<Sav
 /// Writes an approved plan. Re-checks the file first: it may have changed while the dialog was open.
 pub fn commit_save(plan: &SavePlan) -> Result<(), SaveError> {
     let m = std::fs::symlink_metadata(&plan.path).map_err(|_| SaveError::Conflict)?;
-    if !m.file_type().is_file() || nlink(&m) != 1 {
+    if !m.file_type().is_file() || nlink(&plan.path, &m) != 1 {
         return Err(SaveError::Conflict);
     }
     let parent_ok = plan.path.parent().and_then(|d| std::fs::symlink_metadata(d).ok()).is_some_and(|pm| pm.file_type().is_dir() && owned_private(&pm));

@@ -94,8 +94,8 @@ fn home_refusal(real: &Path, home: Option<&Path>) -> Option<&'static str> {
     let Some(h) = home.filter(|h| !h.as_os_str().is_empty()).and_then(|h| h.canon().ok()) else { return Some(NO_HOME_REASON.str()) };
     match (std::fs::symlink_metadata(real), std::fs::symlink_metadata(&h)) {
         (Ok(a), Ok(b)) => {
-            let ((ad, ai, _), (bd, bi, _)) = (ids(&a), ids(&b));
-            (cfg!(not(unix)) && real == h || cfg!(unix) && ad == bd && ai == bi).then_some(HOME_REASON.str())
+            let ((ad, ai, _), (bd, bi, _)) = (ids(real, &a), ids(&h, &b));
+            (crate::platform::same_path(real, &h) || ad == bd && ai == bi).then_some(HOME_REASON.str())
         }
         _ => Some(NO_HOME_REASON.str()),
     }
@@ -122,15 +122,9 @@ fn is_real_dir(p: &Path) -> bool {
     std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_dir())
 }
 
-#[cfg(unix)]
-fn ids(m: &std::fs::Metadata) -> (u64, u64, u64) {
-    use std::os::unix::fs::MetadataExt;
-    (m.dev(), m.ino(), m.nlink())
-}
-
-#[cfg(not(unix))]
-fn ids(_m: &std::fs::Metadata) -> (u64, u64, u64) {
-    (0, 0, 1)
+/// (device, inode, links) of `p`, whose metadata is `m` (Windows reads them from a handle; see platform::ids).
+fn ids(p: &Path, m: &std::fs::Metadata) -> (u64, u64, u64) {
+    crate::platform::ids(p, m)
 }
 
 fn base(roots: &Roots, scope: Scope) -> Option<Base> {
@@ -747,7 +741,7 @@ fn read_settings(path: &Path) -> Settings {
         Err(_) => return empty(None),
         Ok(m) => m,
     };
-    if !m.file_type().is_file() || ids(&m).2 != 1 {
+    if !m.file_type().is_file() || ids(path, &m).2 != 1 {
         return Settings { exists: true, ..empty(Some(crate::i18n::Fail::SettingsLinked.str())) };
     }
     if m.len() > MAX_FILE_BYTES {
@@ -959,7 +953,7 @@ fn row(b: &Base, layers: &[(PathBuf, Settings)], f: &Found) -> RuleRow {
         }
         return r;
     }
-    let (_, _, nlink) = ids(&f.meta);
+    let (_, _, nlink) = ids(&f.real, &f.meta);
     r.size = Some(f.meta.len());
     if b.scope == Scope::Project {
         r.git_tracked = git_tracked(&f.real);
@@ -1360,7 +1354,7 @@ pub fn plan_trash(roots: &Roots, id: &str, token: &str) -> Result<RuleTrash, Rul
     if r.row.token != token {
         return Err(RuleError::Conflict);
     }
-    let (dev, ino, _) = ids(&r.found.meta);
+    let (dev, ino, _) = ids(&r.found.real, &r.found.meta);
     Ok(RuleTrash { path: r.found.real, rel: r.row.rel, dev, ino, token: token.to_string() })
 }
 
@@ -1370,7 +1364,7 @@ pub fn recheck_trash(plan: &RuleTrash) -> Result<(), RuleError> {
         return Err(RuleError::Conflict);
     }
     let m = std::fs::symlink_metadata(&plan.path).map_err(|_| RuleError::Conflict)?;
-    let (dev, ino, nlink) = ids(&m);
+    let (dev, ino, nlink) = ids(&plan.path, &m);
     if !m.file_type().is_file() || nlink != 1 || dev != plan.dev || ino != plan.ino {
         return Err(RuleError::Conflict);
     }
