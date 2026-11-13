@@ -2460,7 +2460,13 @@ fn move_to_trash(path: &std::path::Path) -> Res<()> {
     NSFileManager::defaultManager().trashItemAtURL_resultingItemURL_error(&url, None).map_err(|_| Fail::TrashFailed.now())
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Windows: the Recycle Bin through the shell (a link is moved itself, never its target).
+#[cfg(windows)]
+fn move_to_trash(path: &std::path::Path) -> Res<()> {
+    dduck_core::platform::shell::trash(path).map_err(|_| Fail::TrashFailed.now())
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn move_to_trash(_path: &std::path::Path) -> Res<()> {
     Err(Fail::TrashMacOnly.now().into())
 }
@@ -3027,7 +3033,12 @@ fn open_url(state: &AppState, url: &str) -> Res<()> {
         };
         if ok { Ok(()) } else { Err(Fail::BrowserFailed.now()) }
     }
-    #[cfg(not(target_os = "macos"))]
+    // Windows: the shell's default browser for the already vetted https URL (decision 6), re-checked in core.
+    #[cfg(windows)]
+    {
+        if dduck_core::platform::shell::open_url(url) { Ok(()) } else { Err(Fail::BrowserFailed.now()) }
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         Err(Fail::CopyLinkInstead.now().into())
     }
@@ -3749,7 +3760,12 @@ async fn open_terminal(state: State<'_, AppState>, key: String) -> Result<Attach
             if !dir.is_absolute() || !dir.is_dir() || !cli_path::is_shell_safe_path(&dir) {
                 return Err(CliError::invalid(ReasonCode::SessionFolder));
             }
-            let command = format!("cd '{}'", s.cwd.replace('\'', r"'\''"));
+            // Windows: a PowerShell line, and the folder must pass the terminal rule (decision 6).
+            let command = if cfg!(windows) {
+                dduck_core::terminal_win::copy_line(&dduck_core::terminal_win::Target::Folder(&dir)).ok_or(CliError::invalid(ReasonCode::SessionFolder))?
+            } else {
+                format!("cd '{}'", s.cwd.replace('\'', r"'\''"))
+            };
             (TerminalTarget::Folder(dir), command)
         }
     };
@@ -3799,9 +3815,21 @@ fn open_terminal_os(client: &ClaudeCli, target: &TerminalTarget) -> bool {
     cmd.status().map(|s| s.success()).unwrap_or(false)
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Windows: Windows Terminal or PowerShell; values as argv, the command only as `-EncodedCommand` (decision 6).
+#[cfg(windows)]
+fn open_terminal_os(client: &ClaudeCli, target: &TerminalTarget) -> bool {
+    use dduck_core::terminal_win::{Target, launch};
+    let cfg = client.config_dir_env.as_deref();
+    match target {
+        TerminalTarget::Attach(id) => launch(&Target::Attach { cli: &client.path, id, config_dir: cfg }),
+        TerminalTarget::Folder(dir) => launch(&Target::Folder(dir)),
+        TerminalTarget::Trust(dir) => launch(&Target::Trust { dir, cli: &client.path, config_dir: cfg }),
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn open_terminal_os(_client: &ClaudeCli, _target: &TerminalTarget) -> bool {
-    // Linux/Windows terminal launching is a follow-up (design Open Questions); the UI offers the copy command.
+    // Linux terminal launching is a follow-up; the UI offers the copy command.
     false
 }
 

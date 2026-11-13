@@ -2028,8 +2028,15 @@ mod tests {
         let c = app_git(&repo);
         let args: Vec<String> = c.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
         assert!(args.windows(2).any(|w| w[0] == "-c" && w[1] == "core.fsmonitor=false"));
-        assert!(c.get_envs().any(|(k, v)| k == "GIT_CONFIG_NOSYSTEM" && v.is_some_and(|v| v == "1")));
+        // macOS skips the system config; Windows reads its admin-only one (autocrlf) and uses an app-owned hooks folder.
+        assert_eq!(c.get_envs().any(|(k, v)| k == "GIT_CONFIG_NOSYSTEM" && v.is_some_and(|v| v == "1")), !cfg!(windows));
         assert!(c.get_envs().any(|(k, v)| k == "GIT_TERMINAL_PROMPT" && v.is_some_and(|v| v == "0")));
+        let hooks = args.iter().find_map(|a| a.strip_prefix("core.hooksPath=")).unwrap();
+        if cfg!(windows) {
+            assert!(hooks.ends_with("git-empty-hooks") && Path::new(hooks).is_dir(), "{hooks}");
+        } else {
+            assert_eq!(hooks, "/dev/null");
+        }
     }
 
     #[test]

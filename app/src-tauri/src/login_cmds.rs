@@ -215,6 +215,9 @@ pub async fn cancel_login(app: AppHandle) -> Res<LoginStatus> {
 pub async fn open_login_link() -> Res<bool> {
     tauri::async_runtime::spawn_blocking(move || {
         let Some(url) = LOGIN.link() else { return Ok(false) };
+        #[cfg(windows)]
+        return Ok(dduck_core::platform::shell::open_url(url.as_str()));
+        #[cfg(not(windows))]
         let ok = std::process::Command::new("/usr/bin/open")
             .arg(url.as_str())
             .stdin(std::process::Stdio::null())
@@ -222,6 +225,7 @@ pub async fn open_login_link() -> Res<bool> {
             .stderr(std::process::Stdio::null())
             .status()
             .is_ok_and(|s| s.success());
+        #[cfg(not(windows))]
         Ok(ok)
     })
     .await
@@ -276,7 +280,19 @@ pub fn terminal_args(cli: &Path, config_dir: Option<&Path>, method: LoginMethod)
     args
 }
 
+fn login_flag(method: LoginMethod) -> &'static str {
+    match method {
+        LoginMethod::ClaudeAi => "--claudeai",
+        LoginMethod::Console => "--console",
+    }
+}
+
 fn open_terminal_login(client: &ClaudeCli, method: LoginMethod) -> bool {
+    // Windows: PowerShell with the login as `-EncodedCommand` (decision 6).
+    if cfg!(windows) {
+        let (cli, cfg) = client.login_terminal_parts();
+        return dduck_core::terminal_win::launch(&dduck_core::terminal_win::Target::Login { cli, flag: login_flag(method), config_dir: cfg });
+    }
     if !cfg!(target_os = "macos") {
         return false;
     }
@@ -296,6 +312,9 @@ fn quote(s: &str) -> String {
 
 fn command_line(client: &ClaudeCli, method: LoginMethod) -> String {
     let (cli, cfg) = client.login_terminal_parts();
+    if cfg!(windows) {
+        return dduck_core::terminal_win::copy_line(&dduck_core::terminal_win::Target::Login { cli, flag: login_flag(method), config_dir: cfg }).unwrap_or_default();
+    }
     let prefix = match cfg {
         Some(dir) => format!("CLAUDE_CONFIG_DIR={} ", quote(&dir.to_string_lossy())),
         None => "env -u CLAUDE_CONFIG_DIR ".to_string(),

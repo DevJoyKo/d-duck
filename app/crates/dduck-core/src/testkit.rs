@@ -137,16 +137,10 @@ pub fn set_mtime(p: &Path, t: std::time::SystemTime) {
 #[doc(hidden)]
 pub fn fake_claude() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    let examples = exe.parent()?.parent()?.join("examples");
-    let plain = examples.join(if cfg!(windows) { "fake_claude.exe" } else { "fake_claude" });
-    if plain.is_file() {
-        return Some(plain);
-    }
-    // Without the uplifted copy, the hashed build output (`fake_claude-<hash>.exe`).
-    std::fs::read_dir(&examples).ok()?.filter_map(Result::ok).map(|e| e.path()).find(|p| {
-        let n = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        n.starts_with("fake_claude-") && (if cfg!(windows) { n.ends_with(".exe") } else { !n.contains('.') })
-    })
+    let name = if cfg!(windows) { "fake_claude.exe" } else { "fake_claude" };
+    // Test binaries live in `<profile>/deps` or, with cargo's newer build-dir layout, deeper under
+    // `<profile>/build/<pkg>/<hash>/out`: the first ancestor with `examples/fake_claude` is the profile folder.
+    exe.ancestors().skip(1).take(8).map(|a| a.join("examples").join(name)).find(|p| p.is_file())
 }
 
 #[cfg(unix)]

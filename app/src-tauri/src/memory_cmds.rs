@@ -269,7 +269,12 @@ fn open_in_editor(path: &std::path::Path) -> Res<()> {
             .status();
         if status.is_ok_and(|s| s.success()) { Ok(()) } else { Err(Fail::EditorFailed.now()) }
     }
-    #[cfg(not(target_os = "macos"))]
+    // Windows: Notepad from System32, `.md`/`.txt` only (decision 6).
+    #[cfg(windows)]
+    {
+        if dduck_core::platform::shell::open_in_editor(path) { Ok(()) } else { Err(Fail::EditorFailed.now()) }
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         Err(Fail::UnsupportedOs.now().into())
     }

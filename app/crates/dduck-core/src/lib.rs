@@ -46,6 +46,7 @@ pub mod task_meta;
 pub mod task_report;
 pub mod team;
 pub mod team_config;
+pub mod terminal_win;
 pub mod text;
 #[doc(hidden)]
 pub mod testkit;

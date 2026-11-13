@@ -485,6 +485,92 @@ pub fn random_bytes(buf: &mut [u8]) -> bool {
     }
 }
 
+/// Opening and deleting through the Windows shell (decision 6). Callers vet their values first; these functions
+/// re-check what they can and never pass anything through a command interpreter.
+#[cfg(windows)]
+pub mod shell {
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::Path;
+
+    fn wide(s: &std::ffi::OsStr) -> Vec<u16> {
+        s.encode_wide().chain(Some(0)).collect()
+    }
+
+    /// The default browser for an `https://` URL (re-checked here; the caller keeps its own allow list).
+    pub fn open_url(url: &str) -> bool {
+        if !url.starts_with("https://") || url.chars().any(|c| c.is_control() || c == ' ' || c == '"') {
+            return false;
+        }
+        use windows_sys::Win32::UI::Shell::ShellExecuteW;
+        let (verb, file) = (wide("open".as_ref()), wide(url.as_ref()));
+        // SAFETY: NUL-terminated strings live for the call; no parameters or directory.
+        let r = unsafe { ShellExecuteW(std::ptr::null_mut(), verb.as_ptr(), file.as_ptr(), std::ptr::null(), std::ptr::null(), 1) };
+        r as isize > 32
+    }
+
+    /// File Explorer with `path` selected (`SHOpenFolderAndSelectItems`; nothing is executed).
+    pub fn reveal(path: &Path) -> bool {
+        use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
+        use windows_sys::Win32::UI::Shell::{ILFree, SHOpenFolderAndSelectItems, SHParseDisplayName};
+        if !path.is_absolute() || !super::lexical_guard(path) {
+            return false;
+        }
+        let name = wide(path.as_os_str());
+        // SAFETY: COM for this thread, balanced below when it was initialized here (S_OK or S_FALSE).
+        let init = unsafe { CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32) };
+        let mut pidl = std::ptr::null_mut();
+        // SAFETY: NUL-terminated path; `pidl` receives an ID list freed with ILFree.
+        let ok = unsafe { SHParseDisplayName(name.as_ptr(), std::ptr::null_mut(), &mut pidl, 0, std::ptr::null_mut()) } >= 0 && !pidl.is_null();
+        // SAFETY: `pidl` is valid when ok; with no child items the folder of the item opens with it selected.
+        let shown = ok && unsafe { SHOpenFolderAndSelectItems(pidl, 0, std::ptr::null(), 0) } >= 0;
+        if !pidl.is_null() {
+            // SAFETY: allocated by SHParseDisplayName.
+            unsafe { ILFree(pidl) };
+        }
+        if init >= 0 {
+            // SAFETY: matches the successful CoInitializeEx above.
+            unsafe { CoUninitialize() };
+        }
+        shown
+    }
+
+    /// Notepad from System32 for a `.md`/`.txt` file (the same intent as `open -t` on macOS). One argv entry.
+    pub fn open_in_editor(path: &Path) -> bool {
+        let text = path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("txt"));
+        let Some(root) = std::env::var_os("SystemRoot").map(std::path::PathBuf::from).filter(|r| r.is_absolute()) else { return false };
+        if !text || !path.is_absolute() || !super::lexical_guard(path) {
+            return false;
+        }
+        std::process::Command::new(root.join("System32").join("notepad.exe"))
+            .arg(path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .is_ok()
+    }
+
+    /// Moves one file or folder to the Recycle Bin (`SHFileOperationW` with undo, no UI). A link is moved itself,
+    /// never its target.
+    pub fn trash(path: &Path) -> std::io::Result<()> {
+        use windows_sys::Win32::UI::Shell::{FO_DELETE, FOF_ALLOWUNDO, FOF_NO_UI, SHFILEOPSTRUCTW, SHFileOperationW};
+        if !path.is_absolute() || !super::lexical_guard(path) {
+            return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+        }
+        // pFrom is a list: the path, NUL, then a final NUL.
+        let mut from = wide(path.as_os_str());
+        from.push(0);
+        // SAFETY: zeroed is a valid SHFILEOPSTRUCTW (null handles and pointers).
+        let mut op: SHFILEOPSTRUCTW = unsafe { std::mem::zeroed() };
+        op.wFunc = FO_DELETE;
+        op.pFrom = from.as_ptr();
+        op.fFlags = (FOF_ALLOWUNDO | FOF_NO_UI) as u16;
+        // SAFETY: `op` and `from` live for the call.
+        let rc = unsafe { SHFileOperationW(&mut op) };
+        if rc != 0 || op.fAnyOperationsAborted != 0 { Err(std::io::Error::other(format!("SHFileOperationW {rc}"))) } else { Ok(()) }
+    }
+}
+
 /// What the webview needs to know about the OS (`platform` command, lib/platform.ts).
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -646,6 +732,36 @@ mod tests {
         let (mut a, mut b) = ([0u8; 16], [0u8; 16]);
         assert!(random_bytes(&mut a) && random_bytes(&mut b));
         assert_ne!(a, b);
+    }
+
+    /// windows-support 3.1 [CI]: the Recycle Bin takes a junction itself, not what it points to.
+    #[cfg(windows)]
+    #[test]
+    fn trash_moves_a_link_not_its_target() {
+        let t = tempfile::tempdir().unwrap();
+        let base = canon(t.path()).unwrap();
+        let target = base.join("target");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("keep.md"), "x").unwrap();
+        let j = base.join("j");
+        assert!(std::process::Command::new("cmd").arg("/C").arg("mklink").arg("/J").arg(&j).arg(&target).output().unwrap().status.success());
+        shell::trash(&j).unwrap();
+        assert!(std::fs::symlink_metadata(&j).is_err(), "the junction is gone");
+        assert!(target.join("keep.md").is_file(), "its target is untouched");
+        let f = base.join("plain.md");
+        std::fs::write(&f, "x").unwrap();
+        shell::trash(&f).unwrap();
+        assert!(!f.exists());
+        assert!(shell::trash(Path::new(r"\\host\share\x.md")).is_err(), "UNC refused before the shell");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn only_https_urls_open() {
+        assert!(!shell::open_url("http://example.com/"));
+        assert!(!shell::open_url("file:///C:/Windows/System32/calc.exe"));
+        assert!(!shell::open_url("https://example.com/\" x\""));
+        assert!(!shell::open_in_editor(Path::new(r"C:\Windows\System32\calc.exe")), "only .md and .txt");
     }
 
     #[test]

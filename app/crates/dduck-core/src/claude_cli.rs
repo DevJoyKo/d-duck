@@ -965,6 +965,11 @@ impl ClaudeCli {
     /// Shell command a user can paste to attach (used when terminal automation is denied).
     pub fn attach_command_line(&self, id: &str) -> Result<String, CliError> {
         check_id(id)?;
+        // Windows: a PowerShell line (decision 6); a value that fails the terminal rule is refused.
+        if cfg!(windows) {
+            let t = crate::terminal_win::Target::Attach { cli: &self.path, id, config_dir: self.config_dir_env.as_deref() };
+            return crate::terminal_win::copy_line(&t).ok_or(CliError::InvalidId);
+        }
         let prefix = match &self.config_dir_env {
             Some(dir) => format!("CLAUDE_CONFIG_DIR={} ", shell_quote(&dir.to_string_lossy())),
             None => String::new(),
@@ -1743,12 +1748,12 @@ mod preferred_prompt {
         // A worktree may not have project items: a project-sourced pick is left out, user items stay.
         let mut proj = env.clone();
         proj.preferred[0].source = "project".into();
-        proj.preferred[0].scope = Some("/work/a".into());
+        proj.preferred[0].scope = Some(crate::testkit::abs("/work/a"));
         let mut wt = TaskSpec::basic(dir.path().into(), "p".into(), None, None);
         wt.task_type = Some("dev".into());
         wt.worktree = true;
         let mut wt_stored: tc::TeamInput = input.clone();
-        wt_stored.preferred.as_mut().unwrap()[0] = PreferredItem { kind: Kind::Skill, name: "tdd".into(), source: "project".into(), scope: Some("/work/a".into()), marketplace: None };
+        wt_stored.preferred.as_mut().unwrap()[0] = PreferredItem { kind: Kind::Skill, name: "tdd".into(), source: "project".into(), scope: Some(crate::testkit::abs("/work/a")), marketplace: None };
         let wt_json = serde_json::to_string(&tc::diff(&wt_stored, &[]).unwrap()).unwrap();
         // `prepare_with` refuses a worktree outside a repository, so check the filter on the same inputs it uses.
         let m = tc::load(Some(&wt_json));
