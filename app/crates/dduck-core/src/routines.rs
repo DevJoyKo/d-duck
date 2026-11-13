@@ -810,6 +810,8 @@ mod tests {
         assert!(args.iter().any(|a| a.contains("8. 커밋 메시지는 한국어로 쓴다")), "{args:?}");
     }
 
+    // Local-only starts are Mac-only in the Windows preview (decision 7; the refusal is tested in `mac_only`).
+    #[cfg(target_os = "macos")]
     #[test]
     fn routine_in_a_local_only_project_gets_the_rule_and_bad_list_refuses() {
         let kst = FixedOffset::east_opt(9 * 3600).unwrap();
@@ -824,6 +826,8 @@ mod tests {
         assert_eq!(verified_spec(&conn2, id2).err(), Some("guardUnreadable"));
     }
 
+    // Local-only starts are Mac-only in the Windows preview (decision 7; the refusal is tested in `mac_only`).
+    #[cfg(target_os = "macos")]
     #[test]
     fn routine_runs_get_the_preferred_line_and_keep_the_local_only_rule() {
         use crate::preferred::{Available, Kind, PreferredItem};

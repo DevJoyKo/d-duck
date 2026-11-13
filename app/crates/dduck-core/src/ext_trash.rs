@@ -400,6 +400,18 @@ mod tests {
         discover(&f.cfg, std::slice::from_ref(&f.proj)).into_iter().find(|s| s.kind == kind && s.name == name).unwrap()
     }
 
+    /// Windows CI diagnostic: two snapshots of an unchanged skill folder must agree part by part.
+    #[test]
+    fn snapshot_of_an_unchanged_folder_is_stable() {
+        let f = fixture();
+        let p = f.cfg.join("skills/standup");
+        let (a, b) = (snapshot(&p, "skill", &[]).unwrap(), snapshot(&p, "skill", &[]).unwrap());
+        assert_eq!((a.dev, a.ino), (b.dev, b.ino), "folder identity");
+        assert_eq!(a.files, b.files);
+        assert_eq!(a.skill_token, b.skill_token, "SKILL.md token");
+        assert_eq!(a.fingerprint, b.fingerprint, "entry fingerprint");
+    }
+
     #[test]
     fn plans_own_skills_commands_and_workflows() {
         let f = fixture();

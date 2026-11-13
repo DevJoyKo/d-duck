@@ -2101,6 +2101,8 @@ mod tests {
         assert!(sys.plists.contains(&PathBuf::from("/Library/Managed Preferences/me/com.anthropic.claudecode.plist")));
     }
 
+    // Local-only starts are Mac-only in the Windows preview (decision 7; the refusal is tested in `mac_only`).
+    #[cfg(target_os = "macos")]
     #[test]
     fn start_ctx_forces_worktree_on_default_and_refuses_bad_list() {
         let conn = crate::db::open_in_memory().unwrap();
