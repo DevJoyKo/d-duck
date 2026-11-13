@@ -204,6 +204,9 @@ pub async fn news_set_daily(app: AppHandle, enabled: bool) -> Res<bool> {
     if enabled && !cfg!(target_os = "macos") {
         return Err(ReasonCode::MacOnly.now());
     }
+    if enabled && !dduck_core::cli_path::hooks_allowed() {
+        return Err(ReasonCode::CliUpdateNeeded.now());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         if enabled {

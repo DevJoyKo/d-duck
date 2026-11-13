@@ -165,6 +165,8 @@ impl AppState {
         let setting = self.conn().ok().and_then(|c| settings::cli_path(&c).ok().flatten());
         let info = cli_path::resolve(setting.as_deref(), &home, &self.probe);
         let env = self.config.read().ok().and_then(|c| c.env_value().map(PathBuf::from));
+        // The hook-gated runs read the version from core (cli_path::hooks_allowed).
+        cli_path::set_active_version(info.as_ref().map(|i| i.version.as_str()));
         let client = info.as_ref().map(|i| ClaudeCli::new(i.path.clone(), env).with_path_env(self.probe.path.clone()));
         if let Ok(mut cli) = self.cli.write() {
             *cli = Cli { info, client };
@@ -183,12 +185,9 @@ impl AppState {
 /// a CLI that blocks when a hook cannot start (decisions 7 and 8). An unknown CLI passes here and fails later as
 /// "not found".
 pub(crate) fn hook_ready(app: &AppHandle) -> Result<(), login_cmds::CmdError> {
+    let _ = app;
     login_cmds::mac_only()?;
-    let version = app.state::<AppState>().cli.read().ok().and_then(|c| c.info.as_ref().map(|i| i.version.clone()));
-    match version {
-        Some(v) if !cli_path::supports_hook_block(&v) => Err(login_cmds::CmdError::Cli(CliError::invalid(ReasonCode::CliUpdateNeeded))),
-        _ => Ok(()),
-    }
+    if cli_path::hooks_allowed() { Ok(()) } else { Err(login_cmds::CmdError::Cli(CliError::invalid(ReasonCode::CliUpdateNeeded))) }
 }
 
 fn home_dir() -> PathBuf {

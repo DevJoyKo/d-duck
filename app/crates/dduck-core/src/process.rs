@@ -79,11 +79,14 @@ fn run_tree(cmd: &mut Command, timeout: Duration, max_stdout: u64, keep: Keep, m
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
+                // Windows awaited run: end what the process left running first, so a descendant holding the pipes
+                // cannot keep the join waiting until the deadline (review MEDIUM).
+                #[cfg(windows)]
+                if let Some(job) = &job {
+                    job.terminate();
+                }
                 let stdout = join_until(out, deadline + Duration::from_secs(1));
                 let stderr = join_until(err, deadline + Duration::from_secs(1));
-                // Windows awaited run: closing the job here ends anything the process left running.
-                #[cfg(windows)]
-                drop(job);
                 return Ok(Finished { status, stdout, stderr });
             }
             Ok(None) if Instant::now() < deadline && !stop() => std::thread::sleep(Duration::from_millis(20)),
@@ -231,7 +234,7 @@ pub(crate) mod win {
     }
 
     /// Resumes the only thread of a process created suspended.
-    fn resume(pid: u32) -> std::io::Result<()> {
+    fn resume_once(pid: u32) -> std::io::Result<()> {
         // SAFETY: a thread snapshot of the whole system; closed below.
         let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
         if snap == INVALID_HANDLE_VALUE {
@@ -262,6 +265,19 @@ pub(crate) mod win {
         // SAFETY: owned snapshot handle.
         unsafe { CloseHandle(snap) };
         if resumed == 0 { Err(std::io::Error::other("no thread to resume")) } else { Ok(()) }
+    }
+
+    /// [`resume_once`] with a short retry: a thread snapshot taken right after creation can miss the new thread.
+    fn resume(pid: u32) -> std::io::Result<()> {
+        let mut last = Ok(());
+        for _ in 0..3 {
+            last = resume_once(pid);
+            if last.is_ok() {
+                return last;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        last
     }
 
     /// Spawns without a console window.
@@ -413,7 +429,9 @@ mod tests {
         fn awaited_run_ends_leftovers_on_normal_exit() {
             let t = tempfile::tempdir().unwrap();
             let pidfile = t.path().join("pid");
+            let started = Instant::now();
             let done = run(Command::new(fake()).arg("spawn").arg(&pidfile).arg("30").arg("exit"), Duration::from_secs(20), 1024, Keep::Head, 1024).unwrap();
+            assert!(started.elapsed() < Duration::from_secs(5), "returned after {:?}: the grandchild's pipe held the join", started.elapsed());
             assert!(done.status.success());
             let pid = pid_in(&pidfile).unwrap();
             assert!(wait_for(|| !alive(pid)), "child {pid} left behind by an awaited run");

@@ -14,6 +14,41 @@ pub const SUPPORTED_MAJOR_MINOR: (u32, u32) = (2, 1);
 /// The first CLI that honours `"onFailure": "block"` on hooks (decision 8): hook-gated features need it.
 pub const HOOK_BLOCK_MIN: (u64, u64, u64) = (2, 1, 295);
 
+static ACTIVE_VERSION: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
+
+#[cfg(test)]
+thread_local! {
+    static TEST_VERSION: std::cell::RefCell<Option<Option<String>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The version of the CLI the app resolved (`None` = none found yet). Set by the shell after every resolve.
+pub fn set_active_version(v: Option<&str>) {
+    if let Ok(mut g) = ACTIVE_VERSION.write() {
+        *g = v.map(str::to_string);
+    }
+}
+
+/// Test-only: the active version for this thread (`None` = use the process value).
+#[cfg(test)]
+pub fn set_test_version(v: Option<Option<&str>>) {
+    TEST_VERSION.with(|t| *t.borrow_mut() = v.map(|o| o.map(str::to_string)));
+}
+
+fn active_version() -> Option<String> {
+    #[cfg(test)]
+    if let Some(v) = TEST_VERSION.with(|t| t.borrow().clone()) {
+        return v;
+    }
+    ACTIVE_VERSION.read().ok().and_then(|g| g.clone())
+}
+
+/// The one gate for hook-gated runs (review MEDIUM): every app-owned hook self-test passes through it, so News
+/// (also the daily run), insights, brief refinement, cloud routines, local-only starts and report grants all refuse
+/// with a CLI older than [`HOOK_BLOCK_MIN`]. An unknown version (no CLI resolved yet) passes; nothing can run then.
+pub fn hooks_allowed() -> bool {
+    active_version().is_none_or(|v| supports_hook_block(&v))
+}
+
 /// `version` (`x.y.z` as in [`CliInfo`]) is at least [`HOOK_BLOCK_MIN`]. An unreadable version is refused.
 pub fn supports_hook_block(version: &str) -> bool {
     parse_semver(version).is_some_and(|v| v >= HOOK_BLOCK_MIN)
@@ -570,6 +605,18 @@ mod tests {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod portable_tests {
     use super::*;
+
+    #[test]
+    fn an_old_cli_closes_the_hook_gate() {
+        set_test_version(Some(Some("2.1.200")));
+        assert!(!hooks_allowed());
+        assert!(!crate::cloud_routines::guard_self_test_denies("exit 2", crate::cloud_routines::SELF_TEST_DENY), "the self-test refuses too");
+        set_test_version(Some(Some("2.1.330")));
+        assert!(hooks_allowed());
+        set_test_version(Some(None));
+        assert!(hooks_allowed(), "no CLI yet");
+        set_test_version(None);
+    }
 
     #[test]
     fn hook_block_needs_2_1_295() {

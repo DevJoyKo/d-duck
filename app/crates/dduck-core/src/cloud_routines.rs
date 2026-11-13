@@ -61,7 +61,8 @@ pub fn guard_self_test_denies(hook_cmd: &str, sample: &str) -> bool {
 /// self-test fails, so News fetch, insights, brief refinement, cloud routines and report-guard grants refuse to start
 /// until a real Windows CLI run verifies hooks there. macOS keeps `/bin/sh -c`, the command line the CLI runs.
 fn run_hook(hook_cmd: &str, input: &str) -> Option<(i32, Vec<u8>)> {
-    if !cfg!(target_os = "macos") {
+    // Also the CLI version gate (decision 8): an older CLI ignores `onFailure: block`, so nothing hook-gated runs.
+    if !cfg!(target_os = "macos") || !crate::cli_path::hooks_allowed() {
         return None;
     }
     let run = |input: &str| -> Option<(i32, Vec<u8>)> {
