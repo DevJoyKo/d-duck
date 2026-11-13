@@ -129,7 +129,8 @@ pub fn grant(roles_json: &mut Option<String>, role: Option<&str>, report_dir: Op
     if !measured {
         return Grant::NotMeasured;
     }
-    if hooks_blocked {
+    // An older CLI ignores `onFailure: block` (decision 8): the report-dir hook could fail open, so no `Write`.
+    if hooks_blocked || !crate::cli_path::hooks_allowed() {
         return Grant::NoHooks;
     }
     let Some(exe) = exe else { return Grant::NoHooks };
@@ -198,6 +199,18 @@ mod tests {
         let before = r.clone();
         assert_eq!(grant(&mut r, Some("dduck-reviewer"), Some(Path::new(r"C:\r")), Some(Path::new(r"C:\d.exe")), false, true), Grant::MacOnly);
         assert_eq!(r, before, "the role is unchanged");
+    }
+
+    /// Re-review 8.2: an old CLI gets no `Write` either.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn grant_needs_a_cli_that_blocks_on_hook_failure() {
+        let mut r = Some(r#"{"dduck-reviewer":{"description":"d","prompt":"p","tools":["Read"]}}"#.to_string());
+        crate::cli_path::set_test_version(Some(Some("2.1.200")));
+        let g = grant(&mut r, Some("dduck-reviewer"), Some(Path::new("/r")), Some(Path::new("/d")), false, true);
+        crate::cli_path::set_test_version(None);
+        assert_eq!(g, Grant::NoHooks);
+        assert!(!r.unwrap().contains("Write"));
     }
 
     #[cfg(target_os = "macos")]

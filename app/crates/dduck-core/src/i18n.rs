@@ -617,6 +617,8 @@ impl ReasonCode {
             ReasonCode::GuardDangerRefused
         } else if reason == dg::MAC_ONLY {
             ReasonCode::MacOnly
+        } else if reason == dg::CLI_OUTDATED {
+            ReasonCode::CliUpdateNeeded
         } else {
             ReasonCode::GuardUnreadable
         }

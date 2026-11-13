@@ -42,9 +42,11 @@ fn active_version() -> Option<String> {
     ACTIVE_VERSION.read().ok().and_then(|g| g.clone())
 }
 
-/// The one gate for hook-gated runs (review MEDIUM): every app-owned hook self-test passes through it, so News
-/// (also the daily run), insights, brief refinement, cloud routines, local-only starts and report grants all refuse
-/// with a CLI older than [`HOOK_BLOCK_MIN`]. An unknown version (no CLI resolved yet) passes; nothing can run then.
+/// The one gate for hook-gated runs (review MEDIUM): every app-owned hook self-test (`cloud_routines::run_hook`)
+/// passes through it, so News (also the daily run), insights, brief refinement, cloud routines and local-only starts
+/// refuse with a CLI older than [`HOOK_BLOCK_MIN`]; `report_guard::grant`, which runs no self-test, checks it directly
+/// and answers `NoHooks`. An unknown version (no CLI resolved yet) passes; nothing can run then. The version is the
+/// one found at the last resolve: a CLI downgraded outside the app passes until the next resolve (deferred).
 pub fn hooks_allowed() -> bool {
     active_version().is_none_or(|v| supports_hook_block(&v))
 }

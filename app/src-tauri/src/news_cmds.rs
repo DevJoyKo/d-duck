@@ -111,6 +111,10 @@ fn run(app: &AppHandle, daily: bool) -> NewsRun {
         }
         let exe = std::env::current_exe().map_err(|_| NewsError::Failed { cost_usd: None })?;
         let hook = news::guard_command(&exe, &counters);
+        // An old CLI first, with its own reason (also for the daily run): the self-test below would only say "guard".
+        if !dduck_core::cli_path::hooks_allowed() {
+            return Err(NewsError::CliOutdated);
+        }
         // A hook that cannot deny would leave WebFetch open: refuse to start (fail closed).
         if !dduck_core::cloud_routines::guard_self_test(&hook, news::SELF_TEST_DENY, news::SELF_TEST_ALLOW) {
             return Err(NewsError::Guard);

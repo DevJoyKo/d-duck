@@ -5,6 +5,9 @@ name: Release (Windows preview)
 # toolchain. The build job has no token rights beyond reading; a separate job attests the files (build provenance)
 # and a third, only from a manual run with `attach: true` (the user's approval), attaches them to that tag's
 # existing release. PR artifacts are never used.
+#
+# Manual run (the ref must be the tag itself, so the provenance names refs/tags/vX.Y.Z):
+#   gh workflow run release-windows.yml --ref vX.Y.Z -f tag=vX.Y.Z -f attach=true
 on:
   push:
     tags: ["v*"]
@@ -42,8 +45,10 @@ jobs:
           REF: ${{ github.ref }}
         run: |
           if [ "$EVENT" = workflow_dispatch ]; then name="$INPUT"; else name="${REF#refs/tags/}"; fi
-          case "$REF:$EVENT" in refs/tags/*:push|*:workflow_dispatch) ;; *) echo "not a tag push"; exit 1;; esac
-          echo "$name" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "tag must look like v1.2.3: $name"; exit 1; }
+          # The whole string, not line by line: a multi-line input cannot pass.
+          [[ $name =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "tag must look like v1.2.3"; exit 1; }
+          # A manual run must run on that tag (--ref vX.Y.Z), or the attestation would name a branch.
+          [ "$REF" = "refs/tags/$name" ] || { echo "run with --ref $name (got $REF)"; exit 1; }
           gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$name" --jq .ref >/dev/null || { echo "tag $name does not exist"; exit 1; }
           echo "ref=refs/tags/$name" >> "$GITHUB_OUTPUT"
           echo "name=$name" >> "$GITHUB_OUTPUT"

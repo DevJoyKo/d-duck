@@ -457,6 +457,8 @@ pub fn guard_args_with(ctx: &GuardCtx, extra_settings: &[serde_json::Value]) -> 
     Ok(args)
 }
 
+/// Refusal of a local-only start with a CLI older than 2.1.295 (reads as `ReasonCode::CliUpdateNeeded`).
+pub const CLI_OUTDATED: &str = "Claude Code를 업데이트해 주세요 · 2.1.295 이상이 필요해요";
 /// Refusal of a local-only start off macOS (reads as `ReasonCode::MacOnly`).
 pub const MAC_ONLY: &str = "Mac 전용이에요 · Windows 미리보기에서는 아직 쓸 수 없어요";
 pub const HOOK_MISSING: &str = "로컬만 작업에 필요한 D.Duck 훅을 준비하지 못했어요";
@@ -507,6 +509,10 @@ pub fn start_ctx_for_items(items: &[LocalOnlyItem], cwd: &Path, home: Option<&Pa
     // Local-only and its guard are Mac-only in the Windows preview (decision 7): refused before any git or hook run.
     if guard == Guard::LocalOnly && !cfg!(target_os = "macos") {
         return Err(MAC_ONLY);
+    }
+    // An old CLI ignores `onFailure: block`: say so before the hook self-test would fail as "hook missing".
+    if guard == Guard::LocalOnly && !crate::cli_path::hooks_allowed() {
+        return Err(CLI_OUTDATED);
     }
     let (detected, on_default, head) = match &repo {
         Some(r) => {
@@ -2947,5 +2953,24 @@ mod mac_only {
         let r = start_ctx_for_items(&items, &dir, None, false, None, None);
         assert_eq!(r.err(), Some(MAC_ONLY));
         assert_eq!(crate::i18n::ReasonCode::from_guard(MAC_ONLY), crate::i18n::ReasonCode::MacOnly);
+    }
+}
+
+/// Re-review 8.6: a local-only start with an old CLI says "update Claude Code" before any hook self-test.
+#[cfg(all(test, target_os = "macos"))]
+#[allow(clippy::unwrap_used)]
+mod cli_outdated {
+    use super::*;
+
+    #[test]
+    fn local_only_start_asks_for_an_update() {
+        let t = tempfile::tempdir().unwrap();
+        let dir = t.path().canon().unwrap();
+        let items = vec![LocalOnlyItem { folder: dir.display().to_string(), root: dir.display().to_string(), slug: None }];
+        crate::cli_path::set_test_version(Some(Some("2.1.200")));
+        let r = start_ctx_for_items(&items, &dir, None, false, None, None);
+        crate::cli_path::set_test_version(None);
+        assert_eq!(r.err(), Some(CLI_OUTDATED));
+        assert_eq!(crate::i18n::ReasonCode::from_guard(CLI_OUTDATED), crate::i18n::ReasonCode::CliUpdateNeeded);
     }
 }

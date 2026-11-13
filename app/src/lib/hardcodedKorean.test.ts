@@ -51,6 +51,7 @@ const ALLOWED: [string, string, Why][] = [
   ["core/src/delivery_guard.rs", "로컬만 작업에 필요한 D.Duck 훅을 준비하지 못했어요", "fallback"],
   ["core/src/delivery_guard.rs", "관리 설정이 D.Duck 훅을 막아 로컬만 작업을 시작할 수 없어요", "fallback"],
   ["core/src/delivery_guard.rs", "Mac 전용이에요 · Windows 미리보기에서는 아직 쓸 수 없어요", "fallback"],
+  ["core/src/delivery_guard.rs", "Claude Code를 업데이트해 주세요 · 2.1.295 이상이 필요해요", "fallback"],
   ["core/src/delivery_guard.rs", "로컬만 프로젝트는 이 권한 모드를 아직 쓸 수 없어요", "fallback"],
   ["core/src/claude_cli.rs", "Claude CLI를 실행하지 못했어요", "fallback"],
   ["core/src/claude_cli.rs", "Claude CLI 응답 시간이 초과되었어요", "fallback"],

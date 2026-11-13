@@ -285,6 +285,8 @@ pub enum NewsError {
     Malformed { cost_usd: Option<f64> },
     Busy,
     Guard,
+    /// The CLI is older than the one that blocks on hook failure (decision 8).
+    CliOutdated,
 }
 
 impl NewsError {
@@ -301,6 +303,7 @@ impl NewsError {
             NewsError::Malformed { .. } => "malformed",
             NewsError::Busy => "busy",
             NewsError::Guard => "guard",
+            NewsError::CliOutdated => "cliOutdated",
         }
     }
 
@@ -326,6 +329,7 @@ impl NewsError {
             NewsError::Malformed { .. } => F::NewsMalformed.now(),
             NewsError::Busy => F::NewsBusy.now(),
             NewsError::Guard => F::GuardUnchecked.now(),
+            NewsError::CliOutdated => crate::i18n::ReasonCode::CliUpdateNeeded.now(),
         }
     }
 }
