@@ -35,7 +35,7 @@
 ## 5. Build, CI, release
 
 - [x] 5.1 tauri.conf.json nsis target and windows section — tauri.windows.conf.json (nsis, embedBootstrapper, currentUser), merged on Windows only; NSIS build green in CI
-- [ ] 5.2 Portable tests: tempdir paths, testkit python discovery, `fake_claude` example binary; Windows clippy clean
+- [x] 5.2 Portable tests: tempdir paths, testkit python discovery, `fake_claude` example binary; Windows clippy clean — testkit abs/js/set_mtime, python3/python/py -3, fake_claude example; Windows clippy -D warnings and core tests (652 in 13 binaries) green, gate "Test and lint (Windows)" success (run 43343672811)
 - [x] 5.3 ci.yml: Windows UI + Rust jobs under the "Test and lint (Windows)" gate (macOS gate untouched); separate NSIS job (60 min) with install/launch/kill smoke — ci.yml UI (Windows) + Rust (Windows) under "Test and lint (Windows)"; macOS gate untouched; NSIS smoke job installed, showed a window, killed (run 43338906338)
 - [x] 5.4 `release-windows.yml`: tag/dispatch, no cache, `npm ci`, `cargo --locked`, provenance attestation, SHA256; release-notes section with SmartScreen steps, `gh attestation verify`, and the `[manual]` unverified list — release-windows.yml written (never triggered), actions pinned by verified SHA; .github/release-notes/windows-preview.md
 - [x] 5.5 Spec scenarios tagged `[CI]`/`[manual]` — every scenario in specs/windows-support/spec.md tagged [CI] or [manual]
