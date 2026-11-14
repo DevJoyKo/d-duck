@@ -146,7 +146,7 @@ Claude Code 에이전트 팀에게 실제 일을 맡기면서도 권한 통제�
 
 ## 설치
 
-> **상태: 초기 버전(v0.1.2).** 지금은 Apple Silicon Mac만 지원합니다. UI는 한국어와 영어를 지원하며 사이드바나 설정에서 바꿉니다. 앱은 Developer ID로 서명하고 Apple 공증(notarize)을 받아 "확인되지 않은 개발자" 차단이 없습니다. 처음 열 때 macOS의 일반적인 "인터넷에서 다운로드한 앱" 확인 창은 뜨고, 작업을 처음 터미널로 열 때 자동화 권한을 묻습니다.
+> **상태: 초기 버전(v0.1.3).** 지금은 Apple Silicon Mac만 지원합니다. UI는 한국어와 영어를 지원하며 사이드바나 설정에서 바꿉니다. 앱은 Developer ID로 서명하고 Apple 공증(notarize)을 받아 "확인되지 않은 개발자" 차단이 없습니다. 처음 열 때 macOS의 일반적인 "인터넷에서 다운로드한 앱" 확인 창은 뜨고, 작업을 처음 터미널로 열 때 자동화 권한을 묻습니다.
 
 1. [Releases](https://github.com/DevJoyKo/d-duck/releases)에서 최신 `.dmg`를 받아 **D.Duck**을 Applications로 끌어다 놓습니다.
 2. [Claude Code](https://docs.claude.com/en/docs/claude-code)가 설치되어 있어야 합니다. 로그인하지 않았다면 D.Duck이 브라우저 로그인 버튼을 표시합니다.
