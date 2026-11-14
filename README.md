@@ -146,7 +146,7 @@ Guardrails are enforced in layers (CLI deny rules, a hook, and git settings). So
 
 ## Install
 
-> **Status: early (v0.1.2).** Apple Silicon Macs only for now. The UI comes in Korean and English. Switch it from the sidebar or in Settings. The app is signed with a Developer ID and notarized by Apple: no "unverified developer" block. On first open macOS still shows its usual "downloaded from the internet" prompt, and the first time D.Duck opens a task in Terminal it asks for Automation permission.
+> **Status: early (v0.1.3).** Apple Silicon Macs only for now. The UI comes in Korean and English. Switch it from the sidebar or in Settings. The app is signed with a Developer ID and notarized by Apple: no "unverified developer" block. On first open macOS still shows its usual "downloaded from the internet" prompt, and the first time D.Duck opens a task in Terminal it asks for Automation permission.
 
 1. Download the latest `.dmg` from [Releases](https://github.com/DevJoyKo/d-duck/releases) and drag **D.Duck** into Applications.
 2. You need [Claude Code](https://docs.claude.com/en/docs/claude-code) installed. If you're not logged in, D.Duck shows a button that opens the browser login.
